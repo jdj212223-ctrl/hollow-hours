@@ -1553,7 +1553,7 @@ async fn main() {
                 if (is_mouse_button_pressed(MouseButton::Left) && mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) || is_key_pressed(KeyCode::F1) {
                     g.show_pw = !g.show_pw;
                 }
-                draw_text("Or press B: log in with your browser (no password typed here)", 60.0, 290.0, 22.0, Color::new(0.55, 0.85, 1.0, 1.0));
+                draw_text("Or press B: log in with your browser, or paste a code from the website (Cmd+V)", 60.0, 290.0, 22.0, Color::new(0.55, 0.85, 1.0, 1.0));
                 for (i, l) in ["Tab = next field · Cmd+V paste · F1 show password · Enter = log in · Esc = back", &format!("No account? Make one at {}/register", site()), &g.status.clone()].iter().enumerate() {
                     draw_text(l, 60.0, 310.0 + i as f32 * 30.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
                 }
@@ -1563,8 +1563,14 @@ async fn main() {
                     if f.len() < 128 { f.push(ch); }
                 }
                 if let Some(t) = pasted() {
-                    let f = if g.login_field == 0 { &mut g.login_email } else { &mut g.login_pw };
-                    f.extend(t.chars().take(128usize.saturating_sub(f.chars().count())));
+                    // A login code copied from the website's "Open Hollow Hours" page: use it straight away.
+                    if t.len() == 48 && t.chars().all(|c| c.is_ascii_hexdigit()) && g.browser_login.is_none() {
+                        let _ = std::fs::write(pending_login_file(), &t);
+                        if let Some(rx) = take_pending_login() { g.browser_login = Some(rx); g.status = "Logging in with the code...".into(); }
+                    } else {
+                        let f = if g.login_field == 0 { &mut g.login_email } else { &mut g.login_pw };
+                        f.extend(t.chars().take(128usize.saturating_sub(f.chars().count())));
+                    }
                 }
                 if is_key_pressed(KeyCode::Backspace) { if g.login_field == 0 { g.login_email.pop(); } else { g.login_pw.pop(); } }
                 if is_key_pressed(KeyCode::Tab) { g.login_field = 1 - g.login_field; }

@@ -431,10 +431,13 @@ async function accountAction(env, user, f, req) {
     case "open_game": {
       // A one-time code for the app, handed over through the hollowhours:// link (2 minutes, once).
       const code = hex(crypto.getRandomValues(new Uint8Array(24)));
-      await env.DB.prepare("INSERT INTO link_codes (code_hash, user_id, challenge, expires) VALUES (?, ?, 'app', ?)").bind(await sha256(code), user.id, now() + 120).run();
+      await env.DB.prepare("INSERT INTO link_codes (code_hash, user_id, challenge, expires) VALUES (?, ?, 'app', ?)").bind(await sha256(code), user.id, now() + 300).run();
       return page("Opening Hollow Hours", user, `<div class="card" style="text-align:center"><h2 style="margin-top:0">Opening Hollow Hours…</h2>
 <p>If your browser asks, allow it to open <b>Hollow Hours</b>.</p><p><a class="btn" id="go" href="hollowhours://login?code=${code}">Open Hollow Hours</a></p>
-<p class="dim small">Nothing happened? Hollow Hours.app isn't installed on this computer. This link works once, for 2 minutes.</p></div>
+<p class="dim small">Nothing happened? Copy this code, then in the game press <b>L</b> and paste it (Cmd+V):</p>
+<p><code id="code" style="font-size:12px;word-break:break-all">${code}</code></p>
+<p><button class="btn ghost" type="button" onclick="navigator.clipboard.writeText(document.getElementById('code').textContent).then(()=>this.textContent='Copied ✓')">Copy code</button></p>
+<p class="dim small">The code works once, for 5 minutes.</p></div>
 <script>location.href = document.getElementById("go").href;</script>`);
     }
   }

@@ -14,6 +14,10 @@ cozy house, a crazy mode), with our own characters, maps and look.
 | Deepa | an open AI on your own computer | local DeepSeek-R1 (offline) |
 | Volt | an AI that lives on graphics cards | local |
 
+**The Claude family is always friendly** (Clove, Forge, Palette, and in Infection mode Claude, Opus 5.5, Sonnet 4.6 and
+Haiku 4.5): never crazy, never infected. If the **Claude desktop app** is installed, they talk through it (`claude -p`,
+your own Claude account), so you're chatting with real Claude. An `ANTHROPIC_API_KEY` is used first if set.
+
 "Local" = [Ollama](https://ollama.com) on this computer (qwen3:4b-instruct by default): free and offline. If no AI
 answers at all, characters use scripted lines. They also talk to *each other* now and then (local AI only).
 
@@ -30,6 +34,11 @@ The cozy house · the beach at 3 AM · the empty pool (very liminal).
 2. **Normal**
 3. **Many phobias**: turn each one ON (the world uses it) or OFF (it never happens): darkness, water, dolls, being
    chased, crowds, empty places
+
+## Infection mode (4 on the title screen)
+Every non-Claude AI is infected (green eyes) and hunts you by sight: walls and darkness block it. You're the last human:
+**H** hides you next to furniture, food 🍎 and water 💧 run down and grabbing them makes noise, and **tornadoes** sweep
+across the map (a warning first). The kind Claude AIs follow you and shout warnings. Caught = infected, game over.
 
 ## Crazy mode
 At night a character on your map can snap: red eyes, too-calm voice, and it walks toward you. If it catches you: a

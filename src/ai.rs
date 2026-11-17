@@ -87,6 +87,43 @@ fn tidy(t: &str) -> String {
     if s.chars().count() > 260 { format!("{}…", s.chars().take(257).collect::<String>()) } else { s }
 }
 
+/// The Claude desktop app is installed and its `claude` command works: Claude characters can talk through it (your
+/// own Claude account, no API key needed).
+pub fn claude_cli() -> Option<String> {
+    if !std::path::Path::new("/Applications/Claude.app").exists() && std::env::var("HOLLOW_CLAUDE_CLI").is_err() {
+        return None;
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut paths = vec![std::env::var("HOLLOW_CLAUDE_CLI").unwrap_or_default(), format!("{home}/.local/bin/claude"),
+        "/opt/homebrew/bin/claude".into(), "/usr/local/bin/claude".into(), format!("{home}/.claude/local/claude")];
+    paths.retain(|p| !p.is_empty());
+    paths.into_iter().find(|p| std::path::Path::new(p).is_file())
+}
+
+/// Asks real Claude through the Claude app's command line (`claude -p`), with the right model.
+fn via_claude_cli(cloud: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
+    let cli = claude_cli()?;
+    let alias = if cloud.contains("haiku") { "haiku" } else if cloud.contains("sonnet") { "sonnet" } else { "opus" };
+    let mut convo = String::new();
+    for m in history.iter().rev().take(8).rev() {
+        convo += &format!("{}: {}\n", if m.user { "Player" } else { "You" }, m.text);
+    }
+    let prompt = format!("{system}\n\nThe conversation so far:\n{convo}\nWrite only your next line (1-3 short sentences), nothing else.");
+    // The prompt goes in through stdin (--tools takes a list and would swallow it as an argument).
+    use std::io::Write;
+    let mut child = std::process::Command::new(cli)
+        .args(["-p", "--model", alias, "--output-format", "text", "--tools", ""])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(prompt.as_bytes()).ok()?;
+    let out = child.wait_with_output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !text.is_empty()).then(|| (text, format!("real Claude ({alias}) via the Claude app")))
+}
+
 fn key(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|k| !k.trim().is_empty())
 }
@@ -107,6 +144,7 @@ fn talk(backend: &str, cloud: &str, model: &str, system: &str, history: &[Msg]) 
                 .ok()?;
             Some((v["content"][0]["text"].as_str()?.to_string(), format!("Claude API ({model})")))
         }
+        "anthropic" => via_claude_cli(cloud, system, history),
         "openai" if key("OPENAI_API_KEY").is_some() => {
             let model = std::env::var("HOLLOW_OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
             let mut all = vec![json!({"role": "system", "content": system})];
@@ -164,5 +202,15 @@ mod tests {
         let text = tidy(&text);
         println!("Clove ({via}): {text}");
         assert!(!text.is_empty() && !text.contains("<think>"));
+    }
+
+    /// Needs the Claude app and its `claude` command; skips quietly otherwise.
+    #[test]
+    fn claude_answers_through_the_claude_app() {
+        if claude_cli().is_none() { return; }
+        let r = via_claude_cli("claude-haiku-4-5", "You are Haiku 4.5, the lookout in a survival game. Very short sentences.",
+            &[Msg { user: true, text: "Haiku, is it safe to go outside?".into() }]);
+        let (text, via) = r.expect("the Claude app answered");
+        println!("Haiku ({via}): {}", tidy(&text));
     }
 }

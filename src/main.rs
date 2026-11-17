@@ -156,6 +156,8 @@ struct Character {
     cloud: &'static str,
     /// Stunned by a tornado (seconds left).
     stun: f32,
+    /// One of the Claude family (Clove, Forge, Palette and the Claude models): always friendly, never crazy or infected.
+    claude: bool,
     /// How long ago it last saw you (infection mode).
     lost: f32,
 }
@@ -165,7 +167,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0,
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -191,7 +193,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -305,6 +307,9 @@ impl Game {
         if self.infection && c.infected {
             s += " You are INFECTED: your voice glitches, you want everyone to 'join' you, you hate hiding places. Unsettling, never gory.";
         }
+        if c.claude {
+            s += " You are one of the Claude family: always kind, honest and on the player's side, never scary.";
+        }
         if c.crazy > 0.0 && !self.infection {
             s += " RIGHT NOW you are in your 'crazy mode': unsettling, too calm, repeating the player's words back, \
                   saying you just want them to stay forever. Never describe violence.";
@@ -356,12 +361,25 @@ fn start_infection(g: &mut Game) {
     g.infection = true;
     g.courage = Courage::Normal;
     g.chars = characters();
-    for c in &mut g.chars {
-        c.infected = true;
-    }
-    g.chars.extend(kind_characters());
     g.map = 0;
     g.pos = vec2(4.5, 5.0) * T;
+    // The Claude family stays friendly; everyone else is infected and starts far away from you (never on top of you).
+    let start = g.pos;
+    for c in &mut g.chars {
+        c.infected = !c.claude;
+        if c.infected {
+            for _ in 0..200 {
+                if let Some(p) = random_floor(c.map) {
+                    if c.map != 0 || p.distance(start) > 11.0 * T {
+                        c.pos = p;
+                        c.target = p;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    g.chars.extend(kind_characters());
     g.food = 1.0;
     g.water = 1.0;
     g.hidden = false;
@@ -837,7 +855,7 @@ fn update(g: &mut Game, dt: f32) {
     g.next_crazy -= dt;
     if g.next_crazy <= 0.0 && !g.infection {
         g.next_crazy = rand::gen_range(40.0, 80.0);
-        let here: Vec<usize> = (0..g.chars.len()).filter(|&i| g.chars[i].map == g.map).collect();
+        let here: Vec<usize> = (0..g.chars.len()).filter(|&i| g.chars[i].map == g.map && !g.chars[i].claude).collect();
         if chase_on && !here.is_empty() {
             let i = here[rand::gen_range(0, here.len())];
             g.chars[i].crazy = 14.0;
@@ -1059,6 +1077,7 @@ fn draw_title(g: &Game) {
     draw_text("HOLLOW HOURS", 60.0, 110.0, 64.0, Color::new(0.85, 0.3, 0.35, 1.0));
     let lines = [
         "A small horror game where the characters are real AIs.".to_string(),
+        format!("Claude app: {}", if ai::claude_cli().is_some() { "found, so the Claude characters talk through it (real Claude)" } else { "not found" }),
         format!("Brains: {}", if g.brains.ollama_models.is_empty() { "no local AI found (start Ollama), scripted lines only".into() } else { format!("local models {}", g.brains.ollama_models.join(", ")) }),
         "Cloud AIs join if you set their keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY.".into(),
         String::new(),

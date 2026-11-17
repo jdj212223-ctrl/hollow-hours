@@ -574,6 +574,32 @@ fn start_browser_login() -> std::sync::mpsc::Receiver<Result<Account, String>> {
     rx
 }
 
+/// The account page's "Open Hollow Hours" button: the browser opens hollowhours://login?code=..., the app's launcher
+/// drops the code in this file (only readable by you), and the game redeems it once.
+fn pending_login_file() -> std::path::PathBuf {
+    account_file().with_file_name("pending-login")
+}
+
+fn take_pending_login() -> Option<std::sync::mpsc::Receiver<Result<Account, String>>> {
+    let path = pending_login_file();
+    let code = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    let code = code.trim().to_string();
+    if code.len() != 48 || !code.chars().all(|c| c.is_ascii_hexdigit()) { return None; }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let r = ureq::post(&format!("{}/api/link/redeem", site())).timeout(std::time::Duration::from_secs(10)).send_json(json!({"code": code}))
+            .map_err(|_| "that login link expired: open it again from the website".to_string())
+            .and_then(|r| r.into_json::<serde_json::Value>().map_err(|e| e.to_string()))
+            .and_then(|v| match (v["token"].as_str(), v["name"].as_str()) {
+                (Some(t), Some(n)) => Ok(Account { token: t.into(), name: n.into() }),
+                _ => Err("the website gave no login".into()),
+            });
+        let _ = tx.send(r);
+    });
+    Some(rx)
+}
+
 fn forget_account() {
     if let Some(e) = keychain() { let _ = e.delete_credential(); }
     let _ = std::fs::remove_file(account_file());
@@ -1440,8 +1466,31 @@ async fn main() {
         g.say(0, Some("Hi Clove! Is this house haunted?".into()), "Haunted? Only by me, and I'm friendly. Mostly.");
     }
 
+    let mut pending_t = 0.0f32;
     loop {
         let dt = get_frame_time().min(0.05);
+        // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
+        pending_t -= dt;
+        if pending_t <= 0.0 && g.browser_login.is_none() {
+            pending_t = 1.0;
+            if let Some(rx) = take_pending_login() { g.browser_login = Some(rx); }
+        }
+        if let Some(rx) = &g.browser_login {
+            if let Ok(res) = rx.try_recv() {
+                g.browser_login = None;
+                match res {
+                    Ok(a) => {
+                        save_account(&a);
+                        g.my_name = a.name.clone();
+                        g.log.push(format!("Logged in as {}.", a.name));
+                        g.account = Some(a);
+                        g.status.clear();
+                        if g.screen == Screen::Login { g.screen = Screen::Title; }
+                    }
+                    Err(e) => g.status = format!("Browser login: {e}"),
+                }
+            }
+        }
         clear_background(BLACK);
 
         // P = panic, from anywhere in the game (not while typing a message: there it's a letter).
@@ -1525,15 +1574,7 @@ async fn main() {
                     g.browser_login = Some(start_browser_login());
                     g.status = "Waiting for your browser... click Allow there.".into();
                 }
-                if let Some(rx) = &g.browser_login {
-                    if let Ok(res) = rx.try_recv() {
-                        g.browser_login = None;
-                        match res {
-                            Ok(a) => { save_account(&a); g.my_name = a.name.clone(); g.account = Some(a); g.status.clear(); g.screen = Screen::Title; }
-                            Err(e) => g.status = format!("Browser login: {e}"),
-                        }
-                    }
-                }
+
                 if is_key_pressed(KeyCode::Escape) { g.login_pw.clear(); g.screen = Screen::Title; }
                 if is_key_pressed(KeyCode::Enter) {
                     let body = json!({"email": g.login_email.trim(), "password": g.login_pw});

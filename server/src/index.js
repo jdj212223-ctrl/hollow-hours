@@ -9,7 +9,7 @@
 //           the world. Registered servers also give their name, mods and player limit.
 
 import { unzipSync } from "fflate";
-import { register, login, currentUser, logout, sessionCookie, clearCookie, newSession } from "./auth.js";
+import { register, login, currentUser, logout, sessionCookie, clearCookie, newSession, checkPassword, setPassword } from "./auth.js";
 import { validate } from "./mods.js";
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -131,7 +131,7 @@ export class Room {
 
 async function servers(env) {
   const { results } = await env.DB.prepare(
-    "SELECT s.code, s.name, s.players, s.max, s.mods, s.address, u.name AS host FROM servers s JOIN users u ON u.id = s.owner " +
+    "SELECT s.code, s.name, s.players, s.max, s.mods, s.address, CASE WHEN u.hide_host = 1 THEN 'a player' ELSE u.name END AS host FROM servers s JOIN users u ON u.id = s.owner " +
     "WHERE s.public = 1 AND (s.seen > ? OR s.created > ?) ORDER BY s.players DESC, s.created DESC LIMIT 100").bind(now() - ALIVE, now() - 600).all();
   const ids = [...new Set(results.flatMap((r) => { try { return JSON.parse(r.mods); } catch { return []; } }))];
   const names = {};
@@ -219,13 +219,24 @@ async function linkAllow(env, user, q) {
   return redirect(`http://127.0.0.1:${q.port}/callback?code=${code}&state=${q.state}`);
 }
 
+/** Codes from the account page's "Open Hollow Hours" button, delivered through hollowhours:// (no game secret). */
+async function linkRedeem(env, body) {
+  const code = String(body.code || "");
+  if (!/^[0-9a-f]{48}$/.test(code)) return { error: "bad request" };
+  const row = await env.DB.prepare("SELECT * FROM link_codes WHERE code_hash = ?").bind(await sha256(code)).first();
+  if (!row || row.used || row.expires < now() || row.challenge !== "app") return { error: "that login link expired: try again" };
+  await env.DB.prepare("UPDATE link_codes SET used = 1 WHERE code_hash = ?").bind(row.code_hash).run();
+  const u = await env.DB.prepare("SELECT id, name FROM users WHERE id = ?").bind(row.user_id).first();
+  return u ? { token: await newSession(env, u.id), name: u.name } : { error: "that account is gone" };
+}
+
 async function linkExchange(env, body) {
   const code = String(body.code || ""), verifier = String(body.verifier || "");
   if (!/^[0-9a-f]{48}$/.test(code) || verifier.length < 32 || verifier.length > 128) return { error: "bad request" };
   const row = await env.DB.prepare("SELECT * FROM link_codes WHERE code_hash = ?").bind(await sha256(code)).first();
   if (!row || row.used || row.expires < now()) return { error: "that login link expired: try again" };
   await env.DB.prepare("UPDATE link_codes SET used = 1 WHERE code_hash = ?").bind(row.code_hash).run(); // works once, even if the secret is wrong
-  if ((await sha256(verifier)) !== row.challenge) return { error: "that login link isn't yours" };
+  if (row.challenge === "app" || (await sha256(verifier)) !== row.challenge) return { error: "that login link isn't yours" };
   const u = await env.DB.prepare("SELECT id, name FROM users WHERE id = ?").bind(row.user_id).first();
   return { token: await newSession(env, u.id), name: u.name };
 }
@@ -252,7 +263,7 @@ label{display:block;margin:12px 0 5px;font-weight:600}.dim{color:var(--dim)}.sma
 
 function page(title, user, body, extraHeaders = {}) {
   const nav = user
-    ? `<span class="dim small">Hi, ${esc(user.name)}</span><a class="btn ghost" href="/mods">Mods</a><a class="btn" href="/servers/new">Make a server</a><a class="btn ghost" href="/logout">Log out</a>`
+    ? `<a class="dim small" href="/account">Hi, ${esc(user.name)}</a><a class="btn ghost" href="/account">Account</a><a class="btn ghost" href="/mods">Mods</a><a class="btn" href="/servers/new">Make a server</a><a class="btn ghost" href="/logout">Log out</a>`
     : `<a class="btn ghost" href="/mods">Mods</a><a class="btn ghost" href="/login">Log in</a><a class="btn" href="/register">Register</a>`;
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · Hollow Hours</title>${STYLE}</head><body><header><a class="logo" href="/">👻 Hollow Hours</a><nav>${nav}</nav></header><main>${body}</main></body></html>`,
@@ -265,7 +276,7 @@ async function home(env, user) {
   const list = await servers(env);
   const rows = list.map((s) => `<tr><td><b>${esc(s.name)}</b><div class="dim small">host ${esc(s.host)} · code <code>${esc(s.code)}</code></div></td>
 <td>${s.players}/${s.max}</td><td>${s.mods.map((m) => `<a class="pill" href="/mods/${m.id}">${esc(m.name)}</a>`).join("") || '<span class="dim small">no mods</span>'}</td></tr>`).join("");
-  const { results: mods } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, u.name AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 6").all();
+  const { results: mods } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, CASE WHEN u.hide_author = 1 THEN 'anonymous' ELSE u.name END AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 6").all();
   return page("Servers", user, `<div class="hero"><h1 style="margin:0">Hollow Hours</h1>
 <p>A small horror game where the characters are real AIs. Infection mode: every AI outside the Claude family is infected, and you're the last human. Play online with friends.</p></div>
 <div class="card"><h2 style="margin-top:0">Servers</h2>${list.length ? `<table><tr><th>Server</th><th>Players</th><th>Mods</th></tr>${rows}</table>`
@@ -300,7 +311,7 @@ async function newServerPage(env, user, error = "") {
 }
 
 async function modsPage(env, user, msg = "") {
-  const { results } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, u.name AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 200").all();
+  const { results } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, CASE WHEN u.hide_author = 1 THEN 'anonymous' ELSE u.name END AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 200").all();
   return page("Mods", user, `<div class="card"><h2 style="margin-top:0">Mods (.hh)</h2>${msg}
 ${results.map((m) => `<p><a href="/mods/${m.id}"><b>${esc(m.name)}</b></a> ${esc(m.version)} <span class="dim small">by ${esc(m.author)} · id <code>${m.id}</code></span><br><span class="small">${esc(m.description)}</span></p>`).join("") || '<p class="dim">No mods yet.</p>'}</div>
 <div class="card"><h2 style="margin-top:0">Make a mod</h2><p>A <code>.hh</code> file is a zip with two files. It's <b>data only</b>: it can't run code on anyone's computer.</p>
@@ -330,7 +341,7 @@ ${user ? `<form method="post" action="/mods/upload" enctype="multipart/form-data
 }
 
 async function modPage(env, user, id) {
-  const m = await env.DB.prepare("SELECT m.*, u.name AS author FROM mods m JOIN users u ON u.id = m.author WHERE m.id = ?").bind(id).first();
+  const m = await env.DB.prepare("SELECT m.*, CASE WHEN u.hide_author = 1 THEN 'anonymous' ELSE u.name END AS author FROM mods m JOIN users u ON u.id = m.author WHERE m.id = ?").bind(id).first();
   if (!m) return new Response("not found", { status: 404 });
   const c = JSON.parse(m.content);
   const rules = Object.entries(c.rules || {}).map(([k, v]) => `<span class="pill">${esc(k)}: ${esc(v)}</span>`).join("");
@@ -338,6 +349,96 @@ async function modPage(env, user, id) {
   return page(m.name, user, `<div class="card"><h2 style="margin-top:0">${esc(m.name)} <span class="dim">${esc(m.version)}</span></h2><p class="dim small">by ${esc(m.author)} · id <code>${m.id}</code></p><p>${esc(m.description)}</p>
 ${c.intro ? `<p><i>${esc(c.intro)}</i></p>` : ""}${rules ? `<h3>Rules</h3><p>${rules}</p>` : ""}${chars ? `<h3>Characters</h3>${chars}` : ""}
 <p><a class="btn ghost" href="/mods/${m.id}/download">Download content</a> <span class="dim small">Servers with this mod load it in game by themselves.</span></p></div>`);
+}
+
+// ---------------- Account ----------------
+
+async function accountPage(env, user, msg = "") {
+  const u = await env.DB.prepare("SELECT name, email, created, hide_host, hide_author FROM users WHERE id = ?").bind(user.id).first();
+  const { results: mods } = await env.DB.prepare("SELECT id, name, version FROM mods WHERE author = ? ORDER BY created DESC").bind(user.id).all();
+  const { results: srv } = await env.DB.prepare("SELECT code, name, players, max, address FROM servers WHERE owner = ? ORDER BY created DESC").bind(user.id).all();
+  const sessions = (await env.DB.prepare("SELECT count(*) AS n FROM sessions WHERE user_id = ? AND expires > ?").bind(user.id, now()).first()).n;
+  const form = (action, inner, confirm = "") => `<form method="post" action="/account" style="display:inline"${confirm ? ` onsubmit="return confirm('${confirm}')"` : ""}><input type="hidden" name="action" value="${action}">${inner}</form>`;
+  const masked = u.email.replace(/^(.{2}).*(@.*)$/, "$1***$2");
+  return page("Account", user, `${msg}
+<div class="card"><h2 style="margin-top:0">${esc(u.name)}</h2>
+<p>Email: <span id="em" data-full="${esc(u.email)}">${esc(masked)}</span> <a href="#" class="small" onclick="const e=document.getElementById('em');e.textContent=e.dataset.full;this.remove();return false">show</a></p>
+<p class="dim small">Joined ${new Date(u.created * 1000).toISOString().slice(0, 10)}</p>
+${form("open_game", `<button class="btn" type="submit">🎮 Open Hollow Hours and log in</button>`)}
+<p class="dim small">Opens the Hollow Hours app on this computer and logs it in as you (it needs Hollow Hours.app installed).</p></div>
+
+<div class="card"><h3 style="margin-top:0">Privacy</h3>
+${form("privacy", `<label class="small" style="font-weight:400"><input type="checkbox" name="hide_host" style="width:auto" ${u.hide_host ? "checked" : ""}> Hide my name as the host in the server list</label>
+<label class="small" style="font-weight:400"><input type="checkbox" name="hide_author" style="width:auto" ${u.hide_author ? "checked" : ""}> Hide my name on mods I upload</label>
+<p><button class="btn ghost" type="submit">Save</button></p>`)}
+<p class="dim small">Your email is never shown to anyone. In game, other players always see your display name (that's how they know who's who).</p></div>
+
+<div class="card"><h3 style="margin-top:0">Your mods</h3>${mods.length ? `<table>${mods.map((m) => `<tr><td><a href="/mods/${m.id}">${esc(m.name)}</a> ${esc(m.version)}</td><td style="text-align:right">${form("delete_mod", `<input type="hidden" name="id" value="${m.id}"><button class="btn ghost" type="submit">Delete</button>`, "Delete this mod? Servers using it will run without it.")}</td></tr>`).join("")}</table>` : '<p class="dim">None yet. <a href="/mods">Upload one.</a></p>'}</div>
+
+<div class="card"><h3 style="margin-top:0">Your servers</h3>${srv.length ? `<table>${srv.map((x) => `<tr><td><b>${esc(x.name)}</b> <code>${x.code}</code>${x.address ? ` <span class="pill">own server: ${esc(x.address)}</span>` : ""}<div class="dim small">${x.players}/${x.max} playing</div></td><td style="text-align:right">${form("delete_server", `<input type="hidden" name="code" value="${x.code}"><button class="btn ghost" type="submit">Delete</button>`, "Delete this server? Its code stops working.")}</td></tr>`).join("")}</table>` : '<p class="dim">None yet. <a href="/servers/new">Make one.</a></p>'}</div>
+
+<div class="card"><h3 style="margin-top:0">Password and sessions</h3>
+${form("password", `<label>Current password</label><input type="password" name="current" required autocomplete="current-password"><label>New password <span class="dim small">(at least 8 characters)</span></label><input type="password" name="new" required minlength="8" autocomplete="new-password"><p><button class="btn ghost" type="submit">Change password</button></p>`)}
+<p>You're logged in on <b>${sessions}</b> ${sessions === 1 ? "device" : "devices"} (browsers and games).</p>
+${form("logout_all", `<button class="btn ghost" type="submit">Log out everywhere</button>`, "Log out of every browser and game?")}</div>
+
+<div class="card" style="border-color:var(--bad)"><h3 style="margin-top:0" class="err">Delete my account</h3>
+<p class="small">Deletes your account, your mods, your servers and every login. This can't be undone.</p>
+${form("delete_account", `<label>Type your display name</label><input name="confirm_name" required autocomplete="off"><label>Password</label><input type="password" name="password" required autocomplete="current-password"><p><button class="btn" style="background:var(--bad)" type="submit">Delete my account forever</button></p>`, "Really delete your account and everything in it? This can't be undone.")}</div>`);
+}
+
+async function accountAction(env, user, f, req) {
+  const ok = (t) => `<div class="card"><p class="ok">${esc(t)}</p></div>`;
+  const err = (t) => `<div class="card"><p class="err">${esc(t)}</p></div>`;
+  switch (f.get("action")) {
+    case "privacy":
+      await env.DB.prepare("UPDATE users SET hide_host = ?, hide_author = ? WHERE id = ?").bind(f.get("hide_host") ? 1 : 0, f.get("hide_author") ? 1 : 0, user.id).run();
+      return accountPage(env, user, ok("Privacy saved."));
+    case "delete_mod": {
+      const r = await env.DB.prepare("DELETE FROM mods WHERE id = ? AND author = ?").bind(String(f.get("id")), user.id).run();
+      return accountPage(env, user, r.meta.changes ? ok("Mod deleted.") : err("That mod isn't yours."));
+    }
+    case "delete_server": {
+      const r = await env.DB.prepare("DELETE FROM servers WHERE code = ? AND owner = ?").bind(String(f.get("code")), user.id).run();
+      return accountPage(env, user, r.meta.changes ? ok("Server deleted.") : err("That server isn't yours."));
+    }
+    case "password": {
+      if (!(await checkPassword(env, user.id, String(f.get("current") || "")))) return accountPage(env, user, err("Your current password is wrong."));
+      const r = await setPassword(env, user.id, String(f.get("new") || ""));
+      if (r.error) return accountPage(env, user, err(r.error));
+      // Every other login is signed out; this browser gets a fresh one.
+      await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id).run();
+      const token = await newSession(env, user.id);
+      const resp = await accountPage(env, user, ok("Password changed. You were logged out everywhere else."));
+      resp.headers.append("Set-Cookie", sessionCookie(token));
+      return resp;
+    }
+    case "logout_all":
+      await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id).run();
+      return redirect("/", { "Set-Cookie": clearCookie });
+    case "delete_account": {
+      if (String(f.get("confirm_name") || "") !== user.name) return accountPage(env, user, err("Type your display name exactly to delete your account."));
+      if (!(await checkPassword(env, user.id, String(f.get("password") || "")))) return accountPage(env, user, err("Wrong password: your account was NOT deleted."));
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(user.id),
+        env.DB.prepare("DELETE FROM link_codes WHERE user_id = ?").bind(user.id),
+        env.DB.prepare("DELETE FROM mods WHERE author = ?").bind(user.id),
+        env.DB.prepare("DELETE FROM servers WHERE owner = ?").bind(user.id),
+        env.DB.prepare("DELETE FROM users WHERE id = ?").bind(user.id),
+      ]);
+      return page("Account deleted", null, `<div class="card"><h2 style="margin-top:0">Your account is gone</h2><p>Everything was deleted: your account, mods, servers and logins. Thanks for playing 👻</p></div>`, { "Set-Cookie": clearCookie });
+    }
+    case "open_game": {
+      // A one-time code for the app, handed over through the hollowhours:// link (2 minutes, once).
+      const code = hex(crypto.getRandomValues(new Uint8Array(24)));
+      await env.DB.prepare("INSERT INTO link_codes (code_hash, user_id, challenge, expires) VALUES (?, ?, 'app', ?)").bind(await sha256(code), user.id, now() + 120).run();
+      return page("Opening Hollow Hours", user, `<div class="card" style="text-align:center"><h2 style="margin-top:0">Opening Hollow Hours…</h2>
+<p>If your browser asks, allow it to open <b>Hollow Hours</b>.</p><p><a class="btn" id="go" href="hollowhours://login?code=${code}">Open Hollow Hours</a></p>
+<p class="dim small">Nothing happened? Hollow Hours.app isn't installed on this computer. This link works once, for 2 minutes.</p></div>
+<script>location.href = document.getElementById("go").href;</script>`);
+    }
+  }
+  return accountPage(env, user);
 }
 
 // ---------------- Router ----------------
@@ -369,6 +470,11 @@ export default {
       if (p === "/api/me") return user ? json({ name: user.name }) : json({ error: "not logged in" }, 401);
       if (p === "/api/servers" && req.method === "GET") return json(await servers(env));
       if (p === "/api/servers" && req.method === "POST") { if (!user) return json({ error: "log in first" }, 401); const r = await makeServer(env, user, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
+      if (p === "/api/link/redeem" && req.method === "POST") { const r = await linkRedeem(env, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
+      if (p === "/account") {
+        if (!user) return redirect("/login");
+        return req.method === "POST" ? await accountAction(env, user, await req.formData(), req) : await accountPage(env, user);
+      }
       if (p === "/api/link/exchange" && req.method === "POST") { const r = await linkExchange(env, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
       if (p === "/link") {
         const q = linkParams(url);

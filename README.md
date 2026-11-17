@@ -63,6 +63,9 @@ servers, make your own, and upload mods.
 - **Online play needs a login**: the game sends its login token when joining a room (in a header, never the
   address), the server checks it, and everyone sees your **verified account name** (the game can't fake it). One
   connection per account per room: joining again from somewhere else replaces the old one.
+- **Account page** (on the website): change your password, **privacy** (hide your name as host or mod author),
+  see and **delete your mods and servers**, **log out everywhere**, **delete your account** (name + password to
+  confirm), and **Open Hollow Hours and log in**, which opens the app through a `hollowhours://` link with a one-time code.
 - **Log in with your browser**: on the game's login screen press **B**. The website opens, you click **Allow**, and
   you're logged in, without typing your password into the game. (A one-time code sent only to this computer,
   valid 2 minutes, usable once, and only by the game that asked: OAuth-style with PKCE.)
@@ -104,6 +107,8 @@ jumpscare (one quick fade, **no flashing**) and you wake up in the cozy house. N
   them weaker or stronger. Don't use it with a heart condition.
 
 ## Run
+`macos/bundle.sh --install` builds **Hollow Hours.app** (ghost icon, registers `hollowhours://` links) into /Applications.
+
 ```
 cargo run --release              # needs Rust; start Ollama first for real AI characters
 HOLLOW_DEMO=1 cargo run --release   # jumps straight in next to Clove and asks her something

@@ -39,3 +39,6 @@ CREATE TABLE IF NOT EXISTS mods (
 
 -- v4: logging the game in through the browser (one-time codes with PKCE)
 CREATE TABLE IF NOT EXISTS link_codes (code_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, challenge TEXT NOT NULL, expires INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
+
+-- v5: privacy
+-- ALTER TABLE users ADD COLUMN hide_host INTEGER NOT NULL DEFAULT 0; ALTER TABLE users ADD COLUMN hide_author INTEGER NOT NULL DEFAULT 0;

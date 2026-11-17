@@ -81,3 +81,16 @@ export async function logout(env, req) {
 
 export const sessionCookie = (token) => `hh_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 86400}`;
 export const clearCookie = "hh_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
+
+/** True if `password` is this user's password. */
+export async function checkPassword(env, userId, password) {
+  const u = await env.DB.prepare("SELECT salt, hash FROM users WHERE id = ?").bind(userId).first();
+  return !!u && same(await pbkdf2(password, u.salt), u.hash);
+}
+
+export async function setPassword(env, userId, password) {
+  if (!validPassword(password)) return { error: "New password: at least 8 characters." };
+  const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+  await env.DB.prepare("UPDATE users SET salt = ?, hash = ?, failed = 0 WHERE id = ?").bind(salt, await pbkdf2(password, salt), userId).run();
+  return { ok: true };
+}

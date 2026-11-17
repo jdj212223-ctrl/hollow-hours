@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Hollow Hours</string>
+  <key>CFBundleDisplayName</key><string>Hollow Hours</string>
+  <key>CFBundleIdentifier</key><string>app.hollowhours.game</string>
+  <key>CFBundleExecutable</key><string>Hollow Hours</string>
+  <key>CFBundleIconFile</key><string>HollowHours</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>0.2.0</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array><dict>
+    <key>CFBundleURLName</key><string>Hollow Hours login</string>
+    <key>CFBundleURLSchemes</key><array><string>hollowhours</string></array>
+  </dict></array>
+</dict>
+</plist>

@@ -358,6 +358,8 @@ struct Game {
     login_email: String,
     login_pw: String,
     login_field: usize,
+    /// Show the password while typing it (F1 or the Show button).
+    show_pw: bool,
     status: String,
     server_list: Vec<serde_json::Value>,
     rules: Rules,
@@ -1331,6 +1333,7 @@ async fn main() {
         login_email: String::new(),
         login_pw: String::new(),
         login_field: 0,
+        show_pw: false,
         status: String::new(),
         server_list: vec![],
         rules: Rules::default(),
@@ -1416,12 +1419,21 @@ async fn main() {
             }
             Screen::Login => {
                 draw_text("Log in to Hollow Hours", 60.0, 120.0, 40.0, WHITE);
-                let stars = "*".repeat(g.login_pw.chars().count());
-                for (i, (label, val)) in [("Email", g.login_email.clone()), ("Password", stars)].iter().enumerate() {
+                let stars = if g.show_pw { g.login_pw.clone() } else { "*".repeat(g.login_pw.chars().count()) };
+                for (i, (label, val)) in [("Email", g.login_email.clone()), ("Password", stars.clone())].iter().enumerate() {
                     let col = if g.login_field == i { YELLOW } else { Color::new(0.8, 0.82, 0.9, 1.0) };
                     draw_text(&format!("{label}: {val}{}", if g.login_field == i { "_" } else { "" }), 60.0, 200.0 + i as f32 * 40.0, 26.0, col);
                 }
-                for (i, l) in ["Tab = next field · Cmd+V paste · Enter = log in · Esc = back", &format!("No account? Make one at {}/register", site()), &g.status.clone()].iter().enumerate() {
+                // Show / Hide the password: a button to click, or F1.
+                let pw_w = measure_text(&format!("Password: {stars}_"), None, 26, 1.0).width;
+                let (bx, by, bw, bh) = (60.0 + pw_w + 16.0, 222.0, 64.0, 26.0);
+                draw_rectangle(bx, by, bw, bh, Color::new(0.2, 0.2, 0.26, 1.0));
+                draw_text(if g.show_pw { "Hide" } else { "Show" }, bx + 12.0, by + 19.0, 20.0, WHITE);
+                let (mx, my) = mouse_position();
+                if (is_mouse_button_pressed(MouseButton::Left) && mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) || is_key_pressed(KeyCode::F1) {
+                    g.show_pw = !g.show_pw;
+                }
+                for (i, l) in ["Tab = next field · Cmd+V paste · F1 show password · Enter = log in · Esc = back", &format!("No account? Make one at {}/register", site()), &g.status.clone()].iter().enumerate() {
                     draw_text(l, 60.0, 310.0 + i as f32 * 30.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
                 }
                 for ch in typed() {
@@ -1440,6 +1452,7 @@ async fn main() {
                     let body = json!({"email": g.login_email.trim(), "password": g.login_pw});
                     let res = ureq::post(&format!("{}/api/login", site())).timeout(std::time::Duration::from_secs(10)).send_json(body);
                     g.login_pw.clear(); // never kept
+                    g.show_pw = false;
                     match res.ok().and_then(|r| r.into_json::<serde_json::Value>().ok()) {
                         Some(v) if v["token"].is_string() => {
                             let a = Account { token: v["token"].as_str().unwrap().into(), name: v["name"].as_str().unwrap_or("Human").into() };
@@ -1457,7 +1470,8 @@ async fn main() {
                 if g.server_list.is_empty() { draw_text("No public servers right now. N = make one.", 60.0, 160.0, 22.0, Color::new(0.7, 0.72, 0.8, 1.0)); }
                 for (i, sv) in g.server_list.iter().take(8).enumerate() {
                     let mods: Vec<&str> = sv["mods"].as_array().map(|a| a.iter().filter_map(|m| m["name"].as_str()).collect()).unwrap_or_default();
-                    draw_text(&format!("{}  {}   {}/{}   host {}{}", i + 1, sv["name"].as_str().unwrap_or("?"), sv["players"], sv["max"], sv["host"].as_str().unwrap_or("?"),
+                    draw_text(&format!("{}  {}{}   {}/{}   host {}{}", i + 1, sv["name"].as_str().unwrap_or("?"),
+                        if sv["external"].as_bool() == Some(true) { " (own server)" } else { "" }, sv["players"], sv["max"], sv["host"].as_str().unwrap_or("?"),
                         if mods.is_empty() { String::new() } else { format!("   mods: {}", mods.join(", ")) }), 60.0, 160.0 + i as f32 * 34.0, 22.0, Color::new(0.85, 0.87, 0.95, 1.0));
                 }
                 draw_text(&format!("1-8 join · R refresh · N make a server{} · Esc back", if g.account.is_none() { " (log in first: L)" } else { "" }), 60.0, 460.0, 20.0, Color::new(0.65, 0.68, 0.78, 1.0));
@@ -1470,7 +1484,19 @@ async fn main() {
                             let mods: Vec<String> = sv["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
                             apply_mods(&mut g, &mods);
                             let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
-                            g.net = Some(net::Net::join(sv["code"].as_str().unwrap_or(""), &token));
+                            let code = sv["code"].as_str().unwrap_or("").to_string();
+                            if let Some(addr) = sv["address"].as_str() {
+                                // Hosted somewhere else: our login never goes there, only a 60-second ticket for that address.
+                                let ticket = ureq::post(&format!("{}/api/ticket", site())).set("Authorization", &format!("Bearer {token}"))
+                                    .timeout(std::time::Duration::from_secs(8)).send_json(json!({"address": addr})).ok()
+                                    .and_then(|r| r.into_json::<serde_json::Value>().ok()).and_then(|v| v["ticket"].as_str().map(String::from));
+                                match ticket {
+                                    Some(t) => g.net = Some(net::Net::join_at(addr, &code, &format!("Ticket {t}"))),
+                                    None => { g.status = "Couldn't get a ticket for that server (log in again?)".into(); continue; }
+                                }
+                            } else {
+                                g.net = Some(net::Net::join(&code, &token));
+                            }
                             start_infection(&mut g);
                         }
                     }

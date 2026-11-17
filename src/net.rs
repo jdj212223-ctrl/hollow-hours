@@ -21,16 +21,23 @@ impl Net {
     /// Joins room `code` (4-8 letters/digits) with your login token (the server checks it and uses your account name).
     /// Connecting happens in the background.
     pub fn join(code: &str, token: &str) -> Self {
-        let token = token.to_string();
+        let base = std::env::var("HOLLOW_SERVER").unwrap_or_else(|_| SERVER.into());
+        Self::join_at(&base, code, &format!("Bearer {token}"))
+    }
+
+    /// Joins a room on any Hollow Hours server: `base` is its address (wss://...), `auth` the Authorization header:
+    /// "Bearer <token>" for the official server, "Ticket <ticket>" for one hosted somewhere else.
+    pub fn join_at(base: &str, code: &str, auth: &str) -> Self {
+        let auth = auth.to_string();
         let room: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect::<String>().to_uppercase();
         let (to_server, outbox) = channel::<String>();
         let (inbox, from_server) = channel::<Value>();
-        let url = std::env::var("HOLLOW_SERVER").unwrap_or_else(|_| SERVER.into()) + "/room/" + &room;
+        let url = base.trim_end_matches('/').to_string() + "/room/" + &room;
         std::thread::spawn(move || {
             // The token goes in a header, not the address (addresses end up in logs).
             use tungstenite::client::IntoClientRequest;
             let Ok(mut req) = url.as_str().into_client_request() else { return };
-            if let Ok(v) = format!("Bearer {token}").parse() { req.headers_mut().insert("Authorization", v); }
+            if let Ok(v) = auth.parse() { req.headers_mut().insert("Authorization", v); }
             let (mut ws, _) = match tungstenite::connect(req) {
                 Ok(c) => c,
                 Err(tungstenite::Error::Http(r)) if r.status() == 401 => {
@@ -64,7 +71,11 @@ impl Net {
                     Ok(tungstenite::Message::Text(t)) => {
                         if let Ok(v) = serde_json::from_str::<Value>(&t) { let _ = inbox.send(v); }
                     }
-                    Ok(tungstenite::Message::Close(_)) => { let _ = inbox.send(serde_json::json!({"t": "error", "msg": "disconnected"})); return; }
+                    Ok(tungstenite::Message::Close(f)) => {
+                        let why = f.map(|f| f.reason.to_string()).filter(|r| !r.is_empty()).unwrap_or_else(|| "disconnected".into());
+                        let _ = inbox.send(serde_json::json!({"t": "error", "msg": why}));
+                        return;
+                    }
                     Ok(_) => {}
                     Err(tungstenite::Error::Io(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
                     Err(_) => { let _ = inbox.send(serde_json::json!({"t": "error", "msg": "disconnected"})); return; }

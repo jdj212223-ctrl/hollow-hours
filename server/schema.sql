@@ -33,3 +33,6 @@ CREATE TABLE IF NOT EXISTS mods (
   content TEXT NOT NULL,               -- validated content.json
   created INTEGER NOT NULL
 );
+-- v3: outside servers (hosted somewhere else). address = wss://..., secret_hash = SHA-256 of the server's heartbeat secret.
+-- ALTER TABLE servers ADD COLUMN address TEXT;
+-- ALTER TABLE servers ADD COLUMN secret_hash TEXT;

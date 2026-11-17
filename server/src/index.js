@@ -2,6 +2,7 @@
 //
 // Website:  /  /register  /login  /logout  /servers/new  /mods  /mods/upload  /mods/:id  /mods/:id/download
 // Game API: POST /api/register  POST /api/login  GET /api/me  GET /api/servers  POST /api/servers
+//           POST /api/ticket  GET /api/ticket-key  POST /api/servers/heartbeat   (servers hosted somewhere else)
 //           GET /api/mods  GET /api/mods/:id
 // Rooms:    GET /room/<CODE> (WebSocket, needs a login: Authorization: Bearer <token>). A room keeps no game data: it hands out ids, says who the host is (the
 //           player there longest; the host's game runs the AIs), passes messages on, and only lets the host send
@@ -15,6 +16,40 @@ const now = () => Math.floor(Date.now() / 1000);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json; charset=utf-8" } });
 const ALIVE = 120; // a server shows in the list while its room was busy in the last 2 minutes (or it's brand new)
+const hex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
+const sha256 = async (s) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+// ---------------- Join tickets (for servers hosted somewhere else) ----------------
+// The game never sends its login token to someone else's server. It asks this website for a ticket instead: signed
+// with Ed25519, valid 60 seconds, only for one server address. The outside server checks it with GET /api/ticket-key.
+
+async function ticketKeys(env) {
+  if (!env.TICKET_KEY) throw new Error("TICKET_KEY secret is missing");
+  const raw = Uint8Array.from(atob(env.TICKET_KEY), (c) => c.charCodeAt(0));
+  const priv = await crypto.subtle.importKey("pkcs8", raw, { name: "Ed25519" }, true, ["sign"]);
+  const jwk = await crypto.subtle.exportKey("jwk", priv);
+  const pub = Uint8Array.from(atob(jwk.x.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (jwk.x.length % 4)) % 4)), (c) => c.charCodeAt(0));
+  return { priv, pubHex: hex(pub) };
+}
+
+async function makeTicket(env, user, address) {
+  const { priv } = await ticketKeys(env);
+  const payload = b64url(new TextEncoder().encode(JSON.stringify({ v: 1, uid: user.id, name: user.name, aud: address, exp: now() + 60 })));
+  const sig = await crypto.subtle.sign({ name: "Ed25519" }, priv, new TextEncoder().encode(payload));
+  return `${payload}.${b64url(sig)}`;
+}
+
+/** wss://host[:port][/path], or ws:// only for this computer (testing). Returns the cleaned address or null. */
+function cleanAddress(a) {
+  try {
+    const u = new URL(String(a || "").trim());
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+    if (!(u.protocol === "wss:" || (u.protocol === "ws:" && local)) || u.username || u.password || u.search || u.hash) return null;
+    const s = (u.origin.replace(/^http/, "ws") + u.pathname).replace(/\/+$/, "");
+    return s.length <= 200 ? s : null;
+  } catch { return null; }
+}
 
 // ---------------- Rooms ----------------
 
@@ -96,7 +131,7 @@ export class Room {
 
 async function servers(env) {
   const { results } = await env.DB.prepare(
-    "SELECT s.code, s.name, s.players, s.max, s.mods, u.name AS host FROM servers s JOIN users u ON u.id = s.owner " +
+    "SELECT s.code, s.name, s.players, s.max, s.mods, s.address, u.name AS host FROM servers s JOIN users u ON u.id = s.owner " +
     "WHERE s.public = 1 AND (s.seen > ? OR s.created > ?) ORDER BY s.players DESC, s.created DESC LIMIT 100").bind(now() - ALIVE, now() - 600).all();
   const ids = [...new Set(results.flatMap((r) => { try { return JSON.parse(r.mods); } catch { return []; } }))];
   const names = {};
@@ -107,7 +142,8 @@ async function servers(env) {
   return results.map((r) => {
     let mods = [];
     try { mods = JSON.parse(r.mods); } catch {}
-    return { code: r.code, name: r.name, host: r.host, players: r.players, max: r.max, mods: mods.map((id) => ({ id, name: names[id] ?? id })) };
+    return { code: r.code, name: r.name, host: r.host, players: r.players, max: r.max, mods: mods.map((id) => ({ id, name: names[id] ?? id })),
+      address: r.address || null, external: !!r.address };
   });
 }
 
@@ -122,9 +158,16 @@ async function makeServer(env, user, body) {
   const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const code = [...crypto.getRandomValues(new Uint8Array(6))].map((b) => letters[b % letters.length]).join("");
   const pub = body.public === false || body.public === "off" || body.public === "0" ? 0 : 1;
-  await env.DB.prepare("INSERT INTO servers (code, name, owner, public, max, mods, created, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(code, name, user.id, pub, max, JSON.stringify(mods), now(), now()).run();
-  return { code, name, public: !!pub, max, mods };
+  // Hosted somewhere else? Then it gets a secret for its heartbeat (shown once, only its hash is kept).
+  let address = null, secret = null;
+  if (body.address) {
+    address = cleanAddress(body.address);
+    if (!address) return { error: "Server address: wss://your-host (ws:// only for localhost while testing)." };
+    secret = hex(crypto.getRandomValues(new Uint8Array(24)));
+  }
+  await env.DB.prepare("INSERT INTO servers (code, name, owner, public, max, mods, created, seen, address, secret_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(code, name, user.id, pub, max, JSON.stringify(mods), now(), now(), address, secret ? await sha256(secret) : null).run();
+  return { code, name, public: !!pub, max, mods, address, secret };
 }
 
 async function uploadMod(env, user, file) {
@@ -197,7 +240,8 @@ function authForm(kind, user, error = "", email = "", name = "") {
 ${error ? `<p class="err">${esc(error)}</p>` : ""}
 <form method="post" action="/${kind}"><label>Email</label><input name="email" type="email" required autocomplete="email" value="${esc(email)}">
 ${reg ? `<label>Display name <span class="dim small">(shown in game)</span></label><input name="name" required minlength="3" maxlength="16" pattern="[A-Za-z0-9_-]{3,16}" value="${esc(name)}">` : ""}
-<label>Password${reg ? ' <span class="dim small">(at least 8 characters)</span>' : ""}</label><input name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? "new-password" : "current-password"}">
+<label>Password${reg ? ' <span class="dim small">(at least 8 characters)</span>' : ""}</label><input id="pw" name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? "new-password" : "current-password"}">
+<label class="small" style="font-weight:400"><input type="checkbox" style="width:auto" onchange="document.getElementById('pw').type=this.checked?'text':'password'"> Show password</label>
 <p><button class="btn" type="submit">${reg ? "Register" : "Log in"}</button></p></form>
 ${reg ? '<p class="dim small">Your password is stored only as a salted hash. We don\'t send emails yet, so there\'s no confirmation step and no password reset by email.</p>' : '<p class="dim small">No account? <a href="/register">Register</a>.</p>'}</div>`);
 }
@@ -209,6 +253,7 @@ async function newServerPage(env, user, error = "") {
 <form method="post" action="/servers/new"><label>Name</label><input name="name" required minlength="3" maxlength="32">
 <label>Max players</label><select name="max">${[2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === 8 ? "selected" : ""}>${n}</option>`).join("")}</select>
 <label><input type="checkbox" name="public" checked style="width:auto"> Show it in the server list</label>
+<label>Hosted somewhere else? <span class="dim small">(optional: your own server's address, e.g. wss://hh.example.com)</span></label><input name="address" placeholder="leave empty to host it here">
 <label>Mods</label>${mods.length ? mods.map((m) => `<label class="small" style="font-weight:400"><input type="checkbox" name="mods" value="${m.id}" style="width:auto"> ${esc(m.name)} ${esc(m.version)}</label>`).join("") : '<p class="dim small">No mods uploaded yet.</p>'}
 <p><button class="btn" type="submit">Make it</button></p></form></div>`);
 }
@@ -283,6 +328,24 @@ export default {
       if (p === "/api/me") return user ? json({ name: user.name }) : json({ error: "not logged in" }, 401);
       if (p === "/api/servers" && req.method === "GET") return json(await servers(env));
       if (p === "/api/servers" && req.method === "POST") { if (!user) return json({ error: "log in first" }, 401); const r = await makeServer(env, user, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
+      if (p === "/api/ticket-key") return json({ alg: "Ed25519", public_key: (await ticketKeys(env)).pubHex });
+      if (p === "/api/ticket" && req.method === "POST") {
+        if (!user) return json({ error: "log in first" }, 401);
+        const b = await req.json().catch(() => ({}));
+        const address = cleanAddress(b.address);
+        const known = address && (await env.DB.prepare("SELECT 1 FROM servers WHERE address = ?").bind(address).first());
+        if (!known) return json({ error: "that server isn't registered here" }, 404);
+        return json({ ticket: await makeTicket(env, user, address), name: user.name });
+      }
+      if (p === "/api/servers/heartbeat" && req.method === "POST") {
+        // An outside server says it's alive and how many are playing (with the secret it got when it was made).
+        const b = await req.json().catch(() => ({}));
+        const row = await env.DB.prepare("SELECT max, secret_hash FROM servers WHERE code = ?").bind(String(b.code || "").toUpperCase()).first();
+        if (!row?.secret_hash || row.secret_hash !== (await sha256(String(b.secret || "")))) return json({ error: "wrong code or secret" }, 403);
+        const players = Math.max(0, Math.min(row.max, parseInt(b.players) || 0));
+        await env.DB.prepare("UPDATE servers SET players = ?, seen = ? WHERE code = ?").bind(players, now(), String(b.code).toUpperCase()).run();
+        return json({ ok: true });
+      }
       if (p === "/api/mods") { const { results } = await env.DB.prepare("SELECT id, name, version, description FROM mods ORDER BY created DESC LIMIT 200").all(); return json(results); }
       const apiMod = p.match(/^\/api\/mods\/([0-9a-f]{12})$/);
       if (apiMod) { const m = await env.DB.prepare("SELECT id, name, version, content FROM mods WHERE id = ?").bind(apiMod[1]).first(); return m ? json({ id: m.id, name: m.name, version: m.version, content: JSON.parse(m.content) }) : json({ error: "not found" }, 404); }
@@ -301,10 +364,15 @@ export default {
         if (req.method === "GET") return await newServerPage(env, user);
         if (!user) return redirect("/login");
         const f = await req.formData();
-        const r = await makeServer(env, user, { name: f.get("name"), max: f.get("max"), public: f.get("public") === "on", mods: f.getAll("mods") });
+        const r = await makeServer(env, user, { name: f.get("name"), max: f.get("max"), public: f.get("public") === "on", mods: f.getAll("mods"), address: f.get("address") });
         if (r.error) return await newServerPage(env, user, r.error);
         return page("Server made", user, `<div class="card"><h2 style="margin-top:0">${esc(r.name)} is ready</h2><p>Room code: <code style="font-size:22px">${r.code}</code></p>
-<p>In the game: <b>S</b> on the title screen and pick it, or <b>J</b> and type <code>${r.code}</code>. Share the code with friends.${r.public ? "" : " It's private: only people with the code can join."}</p></div>`);
+<p>In the game: <b>S</b> on the title screen and pick it, or <b>J</b> and type <code>${r.code}</code>. Share the code with friends.${r.public ? "" : " It's private: only people with the code can join."}</p>
+${r.address ? `<h3>Your own server</h3><p>Hosted at <code>${esc(r.address)}</code>. Start the Hollow Hours server program there with these (the secret is shown <b>only now</b>, keep it private):</p>
+<pre style="white-space:pre-wrap" class="small"><code>HH_CODE=${r.code}
+HH_SECRET=${r.secret}
+HH_PUBLIC_URL=${esc(r.address)}
+node server.mjs</code></pre><p class="dim small">Players' logins never go to your server: the game gets a 60-second ticket from this website instead, and your server checks it.</p>` : ""}</div>`);
       }
       if (p === "/mods") return await modsPage(env, user);
       if (p === "/mods/upload" && req.method === "POST") {

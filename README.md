@@ -63,7 +63,7 @@ servers, make your own, and upload mods.
 - **Online play needs a login**: the game sends its login token when joining a room (in a header, never the
   address), the server checks it, and everyone sees your **verified account name** (the game can't fake it). One
   connection per account per room: joining again from somewhere else replaces the old one.
-- **In the game**: **L** logs in (your display name becomes your player name; the game keeps only the login token, never the
+- **In the game**: **L** logs in (F1 or the Show button shows the password; your display name becomes your player name; the game keeps only the login token, never the
   password, in the **macOS Keychain**, so it remembers you across restarts and updates), **S** opens the server list (1-8 joins, **N** makes a server), **J** joins by code.
 - **.hh mods** (*H*ollow *H*ours) customise **the whole game**: a zip with `hh.json` (name, version, description) and
   `content.json` with any of: **maps** (your own 30×18 tile maps with colours, darkness, liminality and door links; add
@@ -76,6 +76,10 @@ servers, make your own, and upload mods.
   `~/Library/Application Support/Hollow Hours/mods/local/`, and offline Infection (4) uses it.
   Examples in `mods/`: **FastInfected** (rules + a character) and **NightMall** (a total conversion: a closed mall and
   its parking garage, mannequins, a night guard, new rules, texts and colours).
+
+## Your own server
+Host Hollow Hours online yourself and list it on the website: see [`selfhost/`](selfhost/README.md). Players' logins
+never go to your server: the game brings a 60-second, single-use ticket signed by the website instead.
 
 ## Outside the window (asked once, on first launch)
 If you allow it, Infection mode reaches outside the game:

@@ -252,6 +252,12 @@ enum Screen {
     Consent,
     /// Typing a multiplayer room code.
     JoinRoom,
+    /// Logging in (email + password) to the Hollow Hours website.
+    Login,
+    /// The server list from the website.
+    Servers,
+    /// Naming a new server.
+    MakeServer,
     /// Infection mode is over: why.
     Over,
 }
@@ -304,6 +310,102 @@ struct Game {
     world_t: f32,
     room_input: String,
     my_name: String,
+    // ---- Account, servers, .hh mods ----
+    account: Option<Account>,
+    login_email: String,
+    login_pw: String,
+    login_field: usize,
+    status: String,
+    server_list: Vec<serde_json::Value>,
+    rules: Rules,
+    /// Characters added by the mods of the server you're on.
+    mod_chars: Vec<serde_json::Value>,
+}
+
+/// Logged in to the website: the session token (never the password) and the display name.
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct Account {
+    token: String,
+    name: String,
+}
+
+/// Game rules a .hh mod can change (within limits).
+#[derive(Clone)]
+struct Rules {
+    infected_speed: f32,
+    tornado: (f32, f32),
+    food_secs: f32,
+    water_secs: f32,
+    sneak: f32,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        Rules { infected_speed: 2.4, tornado: (60.0, 110.0), food_secs: 300.0, water_secs: 200.0, sneak: 1.5 }
+    }
+}
+
+fn site() -> String {
+    std::env::var("HOLLOW_SERVER").unwrap_or_else(|_| net::SERVER.into()).replacen("wss://", "https://", 1).replacen("ws://", "http://", 1)
+}
+
+fn account_file() -> std::path::PathBuf {
+    let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/Hollow Hours");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("account.json")
+}
+
+/// Downloads a .hh mod's content from the website (cached on disk) and checks it again here.
+fn load_mod(id: &str) -> Option<serde_json::Value> {
+    if !id.chars().all(|c| c.is_ascii_hexdigit()) || id.len() != 12 { return None; }
+    let dir = account_file().with_file_name("mods");
+    let _ = std::fs::create_dir_all(&dir);
+    let cached = dir.join(format!("{id}.json"));
+    if let Some(v) = std::fs::read_to_string(&cached).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) { return Some(v); }
+    let v: serde_json::Value = ureq::get(&format!("{}/api/mods/{id}", site())).timeout(std::time::Duration::from_secs(8)).call().ok()?.into_json().ok()?;
+    let _ = std::fs::write(&cached, v.to_string());
+    Some(v)
+}
+
+/// Applies the server's mods: rules (clamped to the allowed ranges, whatever the file says) and extra characters.
+fn apply_mods(g: &mut Game, ids: &[String]) {
+    g.rules = Rules::default();
+    g.mod_chars.clear();
+    let mut names = vec![];
+    for id in ids.iter().take(8) {
+        let Some(m) = load_mod(id) else { g.log.push(format!("Couldn't download mod {id}.")); continue };
+        let c = &m["content"];
+        let r = &c["rules"];
+        let get = |k: &str, lo: f64, hi: f64| r[k].as_f64().map(|v| v.clamp(lo, hi) as f32);
+        if let Some(v) = get("infected_speed", 1.0, 4.0) { g.rules.infected_speed = v; }
+        if let Some(v) = get("tornado_min", 20.0, 600.0) { g.rules.tornado.0 = v; }
+        if let Some(v) = get("tornado_max", 20.0, 900.0) { g.rules.tornado.1 = v.max(g.rules.tornado.0); }
+        if let Some(v) = get("food_minutes", 1.0, 30.0) { g.rules.food_secs = v * 60.0; }
+        if let Some(v) = get("water_minutes", 1.0, 30.0) { g.rules.water_secs = v * 60.0; }
+        if let Some(v) = get("sneak_speed", 0.8, 2.5) { g.rules.sneak = v; }
+        for ch in c["characters"].as_array().cloned().unwrap_or_default().into_iter().take(12) { g.mod_chars.push(ch); }
+        if let Some(t) = c["intro"].as_str() { g.log.push(t.chars().take(200).collect()); }
+        names.push(m["name"].as_str().unwrap_or("?").to_string());
+    }
+    if !names.is_empty() { g.log.push(format!("Mods: {}", names.join(", "))); }
+}
+
+/// A mod's character as a real one (checked again: name, colour, place).
+fn mod_character(v: &serde_json::Value) -> Option<Character> {
+    let name: String = v["name"].as_str()?.chars().filter(|c| c.is_alphanumeric() || " ._-".contains(*c)).take(16).collect();
+    if name.is_empty() { return None; }
+    let hex = v["color"].as_str()?.trim_start_matches('#');
+    let n = u32::from_str_radix(hex, 16).ok().filter(|_| hex.len() == 6)?;
+    let color = Color::new(((n >> 16) & 255) as f32 / 255.0, ((n >> 8) & 255) as f32 / 255.0, (n & 255) as f32 / 255.0, 1.0);
+    let personality: String = v["personality"].as_str().unwrap_or("quiet").chars().take(200).collect();
+    let map = (v["map"].as_u64().unwrap_or(0) as usize).min(MAPS.len() - 1);
+    let pos = vec2(v["x"].as_f64().unwrap_or(10.0).clamp(1.0, 28.0) as f32, v["y"].as_f64().unwrap_or(8.0).clamp(1.0, 16.0) as f32) * T;
+    Some(Character {
+        name: Box::leak(name.into_boxed_str()), inspired: "a character from a mod", color, backend: "ollama", model: "qwen3:4b-instruct",
+        personality: Box::leak(personality.into_boxed_str()), map, pos, target: pos, crazy: 0.0, history: vec![],
+        bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false, kind: false,
+        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, claude: false,
+    })
 }
 
 /// Another human in the room.
@@ -447,6 +549,19 @@ impl Game {
     }
 }
 
+/// The public server list from the website.
+fn refresh_servers_quiet(g: &mut Game) -> Vec<serde_json::Value> {
+    let list: Vec<serde_json::Value> = ureq::get(&format!("{}/api/servers", site())).timeout(std::time::Duration::from_secs(8)).call().ok()
+        .and_then(|r| r.into_json().ok()).unwrap_or_default();
+    g.server_list = list.clone();
+    list
+}
+
+fn refresh_servers(g: &mut Game) {
+    g.status = String::new();
+    if refresh_servers_quiet(g).is_empty() { g.status = "No servers (or the website can't be reached).".into(); }
+}
+
 fn guest(g: &Game) -> bool {
     g.net.as_ref().is_some_and(|n| n.connected && !n.is_host())
 }
@@ -553,13 +668,16 @@ fn start_infection(g: &mut Game) {
         }
     }
     g.chars.extend(kind_characters());
+    // Characters from the server's .hh mods.
+    let extra: Vec<Character> = g.mod_chars.iter().filter_map(mod_character).collect();
+    g.chars.extend(extra);
     g.food = 1.0;
     g.water = 1.0;
     g.hidden = false;
     g.survived = 0.0;
     g.fear = 0.0;
     g.tornado = None;
-    g.next_tornado = rand::gen_range(45.0, 70.0);
+    g.next_tornado = rand::gen_range(g.rules.tornado.0.min(45.0), g.rules.tornado.0.max(70.0));
     g.inf = 0.0;
     g.lost_control = false;
     g.meta_done = 0;
@@ -655,8 +773,8 @@ fn update_infection(g: &mut Game, dt: f32) {
     g.survived += dt;
     // Hunger and thirst (thirst is faster). Hiding still uses them up, slower.
     let rate = if g.hidden { 0.6 } else { 1.0 };
-    g.food = (g.food - dt * rate / 300.0).max(0.0);
-    g.water = (g.water - dt * rate / 200.0).max(0.0);
+    g.food = (g.food - dt * rate / g.rules.food_secs).max(0.0);
+    g.water = (g.water - dt * rate / g.rules.water_secs).max(0.0);
     if g.food <= 0.0 || g.water <= 0.0 {
         g.over_reason = format!("You collapsed from {}.", if g.water <= 0.0 { "thirst" } else { "hunger" });
         g.screen = Screen::Over;
@@ -868,7 +986,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         }
         if t.life <= 0.0 {
             g.tornado = None;
-            g.next_tornado = rand::gen_range(60.0, 110.0);
+            g.next_tornado = rand::gen_range(g.rules.tornado.0, g.rules.tornado.1 + 0.1);
         }
     }
     if hit {
@@ -988,9 +1106,18 @@ async fn main() {
         world_t: 0.0,
         room_input: String::new(),
         // Never the Mac's user name (it can be someone's real name): a random "Human-NN", or HOLLOW_NAME if set.
+        account: std::fs::read_to_string(account_file()).ok().and_then(|t| serde_json::from_str(&t).ok()),
+        login_email: String::new(),
+        login_pw: String::new(),
+        login_field: 0,
+        status: String::new(),
+        server_list: vec![],
+        rules: Rules::default(),
+        mod_chars: vec![],
         my_name: std::env::var("HOLLOW_NAME").map(|n| n.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(12).collect())
             .unwrap_or_else(|_| format!("Human-{}", rand::gen_range(10, 99))),
     };
+    if let Some(a) = &g.account { g.my_name = a.name.clone(); }
     // HOLLOW_ROOM=CODE: join a multiplayer room straight away (Infection mode).
     if let Ok(code) = std::env::var("HOLLOW_ROOM") {
         g.net = Some(net::Net::join(&code));
@@ -1029,8 +1156,20 @@ async fn main() {
                 if is_key_pressed(KeyCode::Key1) { g.courage = Courage::Brave; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key2) { g.courage = Courage::Normal; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
-                if is_key_pressed(KeyCode::Key4) { start_infection(&mut g); }
+                if is_key_pressed(KeyCode::Key4) { apply_mods(&mut g, &[]); start_infection(&mut g); }
                 if is_key_pressed(KeyCode::M) { g.screen = Screen::Consent; }
+                if is_key_pressed(KeyCode::S) { refresh_servers(&mut g); g.screen = Screen::Servers; }
+                if is_key_pressed(KeyCode::L) {
+                    if g.account.is_some() {
+                        g.account = None;
+                        let _ = std::fs::remove_file(account_file());
+                        g.my_name = format!("Human-{}", rand::gen_range(10, 99));
+                    } else {
+                        g.login_email.clear(); g.login_pw.clear(); g.login_field = 0; g.status.clear();
+                        while get_char_pressed().is_some() {}
+                        g.screen = Screen::Login;
+                    }
+                }
                 if is_key_pressed(KeyCode::J) { g.room_input.clear(); while get_char_pressed().is_some() {} g.screen = Screen::JoinRoom; }
 
                 if is_key_pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
@@ -1047,6 +1186,95 @@ async fn main() {
                 if is_key_pressed(KeyCode::Enter) { g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }
+            Screen::Login => {
+                draw_text("Log in to Hollow Hours", 60.0, 120.0, 40.0, WHITE);
+                let stars = "*".repeat(g.login_pw.chars().count());
+                for (i, (label, val)) in [("Email", g.login_email.clone()), ("Password", stars)].iter().enumerate() {
+                    let col = if g.login_field == i { YELLOW } else { Color::new(0.8, 0.82, 0.9, 1.0) };
+                    draw_text(&format!("{label}: {val}{}", if g.login_field == i { "_" } else { "" }), 60.0, 200.0 + i as f32 * 40.0, 26.0, col);
+                }
+                for (i, l) in ["Tab = next field · Enter = log in · Esc = back", &format!("No account? Make one at {}/register", site()), &g.status.clone()].iter().enumerate() {
+                    draw_text(l, 60.0, 310.0 + i as f32 * 30.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
+                }
+                while let Some(ch) = get_char_pressed() {
+                    if ch.is_control() { continue; }
+                    let f = if g.login_field == 0 { &mut g.login_email } else { &mut g.login_pw };
+                    if f.len() < 128 { f.push(ch); }
+                }
+                if is_key_pressed(KeyCode::Backspace) { if g.login_field == 0 { g.login_email.pop(); } else { g.login_pw.pop(); } }
+                if is_key_pressed(KeyCode::Tab) { g.login_field = 1 - g.login_field; }
+                if is_key_pressed(KeyCode::Escape) { g.login_pw.clear(); g.screen = Screen::Title; }
+                if is_key_pressed(KeyCode::Enter) {
+                    let body = json!({"email": g.login_email.trim(), "password": g.login_pw});
+                    let res = ureq::post(&format!("{}/api/login", site())).timeout(std::time::Duration::from_secs(10)).send_json(body);
+                    g.login_pw.clear(); // never kept
+                    match res.ok().and_then(|r| r.into_json::<serde_json::Value>().ok()) {
+                        Some(v) if v["token"].is_string() => {
+                            let a = Account { token: v["token"].as_str().unwrap().into(), name: v["name"].as_str().unwrap_or("Human").into() };
+                            let _ = std::fs::write(account_file(), serde_json::to_string(&a).unwrap_or_default());
+                            g.my_name = a.name.clone();
+                            g.account = Some(a);
+                            g.screen = Screen::Title;
+                        }
+                        _ => g.status = "Wrong email or password (or the website can't be reached).".into(),
+                    }
+                }
+            }
+            Screen::Servers => {
+                draw_text("Servers", 60.0, 100.0, 44.0, WHITE);
+                if g.server_list.is_empty() { draw_text("No public servers right now. N = make one.", 60.0, 160.0, 22.0, Color::new(0.7, 0.72, 0.8, 1.0)); }
+                for (i, sv) in g.server_list.iter().take(8).enumerate() {
+                    let mods: Vec<&str> = sv["mods"].as_array().map(|a| a.iter().filter_map(|m| m["name"].as_str()).collect()).unwrap_or_default();
+                    draw_text(&format!("{}  {}   {}/{}   host {}{}", i + 1, sv["name"].as_str().unwrap_or("?"), sv["players"], sv["max"], sv["host"].as_str().unwrap_or("?"),
+                        if mods.is_empty() { String::new() } else { format!("   mods: {}", mods.join(", ")) }), 60.0, 160.0 + i as f32 * 34.0, 22.0, Color::new(0.85, 0.87, 0.95, 1.0));
+                }
+                draw_text(&format!("1-8 join · R refresh · N make a server{} · Esc back", if g.account.is_none() { " (log in first: L)" } else { "" }), 60.0, 460.0, 20.0, Color::new(0.65, 0.68, 0.78, 1.0));
+                draw_text(&g.status.clone(), 60.0, 495.0, 20.0, Color::new(1.0, 0.75, 0.4, 1.0));
+                let keys = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8];
+                for (i, k) in keys.iter().enumerate() {
+                    if is_key_pressed(*k) {
+                        if let Some(sv) = g.server_list.get(i).cloned() {
+                            let mods: Vec<String> = sv["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                            apply_mods(&mut g, &mods);
+                            g.net = Some(net::Net::join(sv["code"].as_str().unwrap_or("")));
+                            start_infection(&mut g);
+                        }
+                    }
+                }
+                if is_key_pressed(KeyCode::R) { refresh_servers(&mut g); }
+                if is_key_pressed(KeyCode::N) {
+                    if g.account.is_some() { g.room_input = format!("{}'s server", g.my_name); while get_char_pressed().is_some() {} g.screen = Screen::MakeServer; }
+                    else { g.status = "Log in first (L on the title screen).".into(); }
+                }
+                if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
+            }
+            Screen::MakeServer => {
+                draw_text("Make a server", 60.0, 110.0, 40.0, WHITE);
+                draw_text(&format!("Name: {}_", g.room_input), 60.0, 190.0, 30.0, YELLOW);
+                draw_text("Enter = make it and join · Esc = back   (add mods to a server on the website)", 60.0, 250.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
+                draw_text(&g.status.clone(), 60.0, 290.0, 20.0, Color::new(1.0, 0.75, 0.4, 1.0));
+                while let Some(ch) = get_char_pressed() { if !ch.is_control() && g.room_input.len() < 32 { g.room_input.push(ch); } }
+                if is_key_pressed(KeyCode::Backspace) { g.room_input.pop(); }
+                if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Servers; }
+                if is_key_pressed(KeyCode::Enter) {
+                    let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
+                    let res = ureq::post(&format!("{}/api/servers", site())).set("Authorization", &format!("Bearer {token}"))
+                        .timeout(std::time::Duration::from_secs(10)).send_json(json!({"name": g.room_input.trim(), "max": 8, "public": true}));
+                    match res {
+                        Ok(r) => {
+                            let v: serde_json::Value = r.into_json().unwrap_or_default();
+                            if let Some(code) = v["code"].as_str() {
+                                apply_mods(&mut g, &[]);
+                                g.net = Some(net::Net::join(code));
+                                start_infection(&mut g);
+                                g.log.push(format!("Your server is up. Room code: {code}"));
+                            }
+                        }
+                        Err(ureq::Error::Status(_, r)) => g.status = r.into_json::<serde_json::Value>().ok().and_then(|v| v["error"].as_str().map(String::from)).unwrap_or("Couldn't make it.".into()),
+                        Err(_) => g.status = "The website can't be reached.".into(),
+                    }
+                }
+            }
             Screen::JoinRoom => {
                 draw_text("Multiplayer: Infection with friends", 60.0, 120.0, 40.0, Color::new(0.45, 0.95, 0.4, 1.0));
                 for (i, l) in ["Type a room code (4-8 letters or numbers) and press Enter.", "Everyone who types the same code plays together. The first one in is the host.",
@@ -1058,6 +1286,12 @@ async fn main() {
                 }
                 if is_key_pressed(KeyCode::Backspace) { g.room_input.pop(); }
                 if is_key_pressed(KeyCode::Enter) && g.room_input.len() >= 4 {
+                    // The room tells us its mods; look them up on the website first so everyone plays the same game.
+                    let code = g.room_input.clone();
+                    let mods: Vec<String> = refresh_servers_quiet(&mut g).into_iter().find(|s| s["code"] == code.as_str())
+                        .map(|s| s["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect())
+                        .unwrap_or_default();
+                    apply_mods(&mut g, &mods);
                     g.net = Some(net::Net::join(&g.room_input));
                     start_infection(&mut g);
                 }
@@ -1172,7 +1406,7 @@ fn update(g: &mut Game, dt: f32) {
         if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) { d.x -= 1.0; }
         if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) { d.x += 1.0; }
         if d != Vec2::ZERO {
-            let speed = if g.sneaking { 1.5 } else { 3.2 };
+            let speed = if g.sneaking { g.rules.sneak } else { 3.2 };
             if !g.sneaking { g.noise = 1.0; }
             let step = d.normalize() * speed * T * dt;
             let r = 10.0;
@@ -1202,10 +1436,11 @@ fn update(g: &mut Game, dt: f32) {
     let crowds_on = g.on(4);
     let is_guest = guest(g);
     let infection_on = g.infection;
+    let infected_speed = g.rules.infected_speed;
     for c in &mut g.chars {
         if c.bubble_t > 0.0 { c.bubble_t -= dt; }
         if is_guest { continue; } // the host moves everyone
-        let speed = if c.crazy > 0.0 { if c.infected { 2.4 } else { 1.9 } } else if c.kind { 2.8 } else { 1.0 } * T;
+        let speed = if c.crazy > 0.0 { if c.infected { infected_speed } else { 1.9 } } else if c.kind { 2.8 } else { 1.0 } * T;
         if c.crazy > 0.0 && (c.map == g.map || infection_on) {
             c.target = if infection_on { c.chase } else { g.pos };
             c.crazy -= dt;
@@ -1495,7 +1730,8 @@ fn draw_title(g: &Game) {
         "  2  Normal".into(),
         "  3  Many phobias: pick what scares you (and switch off what you can't handle)".into(),
         "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
-        "  J  INFECTION ONLINE: play with friends (type the same room code)".into(),
+        "  J  INFECTION ONLINE: play with friends (type the same room code)   S  server list".into(),
+        match &g.account { Some(a) => format!("  Logged in as {} (L to log out)", a.name), None => "  L  log in (make an account on the website)".into() },
         String::new(),
         format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),
         "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),
@@ -1525,4 +1761,23 @@ fn draw_phobias(g: &Game) {
         draw_text(&format!("{}  {:<14} {}   ({})", i + 1, name, if on { "ON " } else { "OFF" }, what), 60.0, 200.0 + i as f32 * 34.0, 24.0, col);
     }
     draw_text("1-6 toggle · Enter start · Esc back", 60.0, 440.0, 22.0, Color::new(0.7, 0.72, 0.8, 1.0));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Needs the website running locally (cd server && npx wrangler dev --port 8799) with a mod uploaded; skips otherwise.
+    #[test]
+    fn a_mod_downloads_and_becomes_a_character() {
+        let Ok(id) = std::env::var("HH_TEST_MOD") else { return };
+        let home = std::env::temp_dir().join(format!("hh-mod-{}", std::process::id()));
+        unsafe { std::env::set_var("HOME", &home); std::env::set_var("HOLLOW_SERVER", "ws://127.0.0.1:8799"); }
+        let m = load_mod(&id).expect("downloaded the mod");
+        assert!(account_file().with_file_name("mods").join(format!("{id}.json")).exists(), "cached on disk");
+        let c = mod_character(&m["content"]["characters"][0]).expect("a real character");
+        println!("mod {} -> character {} (infected: {}) at map {}", m["name"], c.name, c.infected, c.map);
+        assert!(load_mod("../../etc").is_none(), "only real mod ids");
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

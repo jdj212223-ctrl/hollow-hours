@@ -10,3 +10,8 @@ class_name = "Room"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hollow-hours"
+database_id = "5f6f724e-ce7d-40a3-bd6c-518e2f38c25a"

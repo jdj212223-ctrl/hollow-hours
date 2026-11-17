@@ -1,0 +1,3 @@
+{ "intro": "They're faster tonight. Sneak or don't move at all.",
+  "rules": { "infected_speed": 3.0, "tornado_min": 30, "tornado_max": 60, "food_minutes": 4, "water_minutes": 3 },
+  "characters": [ { "name": "Nyx", "color": "#7a3cff", "personality": "whispers in riddles and never blinks", "infected": true, "map": 0, "x": 22, "y": 12 } ] }

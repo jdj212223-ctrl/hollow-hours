@@ -55,6 +55,18 @@ Your name is a random `Human-NN` (set `HOLLOW_NAME` to pick one). The relay is a
 Object per room (`server/`, deployed at `hollow-hours-mp.<account>.workers.dev`): it keeps no game data and only
 the host may send the world.
 
+## Website, accounts, server list and .hh mods
+**https://hollow-hours-mp.jdj212223.workers.dev**: make an account (email, password, display name), see the public
+servers, make your own, and upload mods.
+- **Accounts**: passwords are stored only as salted PBKDF2 hashes; logins get a random session token (only its hash is
+  stored); 10 wrong passwords lock the account for 15 minutes. No emails are sent yet (so no confirmation or reset email).
+- **In the game**: **L** logs in (your display name becomes your player name; the game keeps the token, never the
+  password), **S** opens the server list (1-8 joins, **N** makes a server), **J** joins by code.
+- **.hh mods** (*H*ollow *H*ours): a zip with `hh.json` (name, version, description) and `content.json`: new
+  **characters**, **rules** (infected speed, tornado timing, how fast food and water run out, sneak speed) and an
+  **intro** line. Data only, never code; checked on upload and again in the game, values clamped to safe ranges.
+  Joining a modded server downloads its mods by itself. Example: `mods/FastInfected/` (`zip FastInfected.hh hh.json content.json`).
+
 ## Outside the window (asked once, on first launch)
 If you allow it, Infection mode reaches outside the game:
 - **Files** in a `Hollow Hours` folder on your Desktop (at 10%, 75% and 100% infection, when a Claude turns, and at the

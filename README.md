@@ -63,8 +63,8 @@ servers, make your own, and upload mods.
 - **Online play needs a login**: the game sends its login token when joining a room (in a header, never the
   address), the server checks it, and everyone sees your **verified account name** (the game can't fake it). One
   connection per account per room: joining again from somewhere else replaces the old one.
-- **In the game**: **L** logs in (your display name becomes your player name; the game keeps the token, never the
-  password), **S** opens the server list (1-8 joins, **N** makes a server), **J** joins by code.
+- **In the game**: **L** logs in (your display name becomes your player name; the game keeps only the login token, never the
+  password, in the **macOS Keychain**, so it remembers you across restarts and updates), **S** opens the server list (1-8 joins, **N** makes a server), **J** joins by code.
 - **.hh mods** (*H*ollow *H*ours) customise **the whole game**: a zip with `hh.json` (name, version, description) and
   `content.json` with any of: **maps** (your own 30×18 tile maps with colours, darkness, liminality and door links; add
   to the built-in three or replace them), **characters** (infected, kind followers or neutral) and **remove** (leave

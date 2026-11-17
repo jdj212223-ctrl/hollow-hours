@@ -478,6 +478,35 @@ fn site() -> String {
     std::env::var("HOLLOW_SERVER").unwrap_or_else(|_| net::SERVER.into()).replacen("wss://", "https://", 1).replacen("ws://", "http://", 1)
 }
 
+/// The login lives in the macOS Keychain (service "Hollow Hours"): encrypted, remembered across restarts and updates,
+/// and only the session token + display name (never the password). An old account.json is moved in and deleted.
+fn keychain() -> Option<keyring::Entry> {
+    keyring::Entry::new("Hollow Hours", "account").ok()
+}
+
+fn load_account() -> Option<Account> {
+    if let Some(a) = keychain().and_then(|e| e.get_password().ok()).and_then(|t| serde_json::from_str::<Account>(&t).ok()) {
+        return Some(a);
+    }
+    let old: Account = serde_json::from_str(&std::fs::read_to_string(account_file()).ok()?).ok()?;
+    save_account(&old);
+    Some(old)
+}
+
+fn save_account(a: &Account) {
+    let saved = keychain().is_some_and(|e| e.set_password(&serde_json::to_string(a).unwrap_or_default()).is_ok());
+    if saved {
+        let _ = std::fs::remove_file(account_file()); // no plain-text copy left behind
+    } else {
+        let _ = std::fs::write(account_file(), serde_json::to_string(a).unwrap_or_default()); // no Keychain: fall back to the file
+    }
+}
+
+fn forget_account() {
+    if let Some(e) = keychain() { let _ = e.delete_credential(); }
+    let _ = std::fs::remove_file(account_file());
+}
+
 fn account_file() -> std::path::PathBuf {
     let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/Hollow Hours");
     let _ = std::fs::create_dir_all(&dir);
@@ -769,7 +798,7 @@ fn network(g: &mut Game, dt: f32) {
             Some("left") => g.remotes.retain(|x| x.id != from),
             Some("error") => {
                 let msg = m["msg"].as_str().unwrap_or("error").to_string();
-                if msg.contains("log in") { g.account = None; let _ = std::fs::remove_file(account_file()); }
+                if msg.contains("log in") { g.account = None; forget_account(); }
                 g.log.push(format!("Multiplayer: {msg}"));
             }
             Some("pick") if !guest(g) => {
@@ -1298,7 +1327,7 @@ async fn main() {
         world_t: 0.0,
         room_input: String::new(),
         // Never the Mac's user name (it can be someone's real name): a random "Human-NN", or HOLLOW_NAME if set.
-        account: std::fs::read_to_string(account_file()).ok().and_then(|t| serde_json::from_str(&t).ok()),
+        account: load_account(),
         login_email: String::new(),
         login_pw: String::new(),
         login_field: 0,
@@ -1358,7 +1387,7 @@ async fn main() {
                 if is_key_pressed(KeyCode::L) {
                     if g.account.is_some() {
                         g.account = None;
-                        let _ = std::fs::remove_file(account_file());
+                        forget_account();
                         g.my_name = format!("Human-{}", rand::gen_range(10, 99));
                     } else {
                         g.login_email.clear(); g.login_pw.clear(); g.login_field = 0; g.status.clear();
@@ -1414,7 +1443,7 @@ async fn main() {
                     match res.ok().and_then(|r| r.into_json::<serde_json::Value>().ok()) {
                         Some(v) if v["token"].is_string() => {
                             let a = Account { token: v["token"].as_str().unwrap().into(), name: v["name"].as_str().unwrap_or("Human").into() };
-                            let _ = std::fs::write(account_file(), serde_json::to_string(&a).unwrap_or_default());
+                            save_account(&a);
                             g.my_name = a.name.clone();
                             g.account = Some(a);
                             g.screen = Screen::Title;
@@ -2037,5 +2066,17 @@ mod tests {
         set_maps(vec![]);
         assert_eq!(maps_len(), 3, "no mod maps: back to the built-in three");
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The Keychain keeps the login (a separate test entry, removed again at the end).
+    #[test]
+    fn keychain_remembers_the_login() {
+        let e = keyring::Entry::new("Hollow Hours (test)", "account").unwrap();
+        let a = Account { token: "ab".repeat(32), name: "Tester".into() };
+        e.set_password(&serde_json::to_string(&a).unwrap()).expect("saved in the Keychain");
+        let back: Account = serde_json::from_str(&e.get_password().unwrap()).unwrap();
+        assert_eq!((back.token.len(), back.name.as_str()), (64, "Tester"));
+        e.delete_credential().unwrap();
+        assert!(e.get_password().is_err(), "forgotten after log out");
     }
 }

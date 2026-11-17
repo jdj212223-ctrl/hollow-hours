@@ -92,6 +92,7 @@ impl Meta {
         }
     }
 
+    #[allow(dead_code)]
     /// Removes exactly the files this game made (and its folder, only if it's empty). Returns how many.
     pub fn clean_up(&mut self) -> usize {
         let mut n = 0;

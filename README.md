@@ -50,8 +50,8 @@ Every non-Claude AI is infected (green eyes). You're the last human.
 ## Outside the window (asked once, on first launch)
 If you allow it, Infection mode reaches outside the game:
 - **Files** in a `Hollow Hours` folder on your Desktop (at 10%, 75% and 100% infection, when a Claude turns, and at the
-  end). They **stay after you quit**. It only creates its own new files, never touches yours, and **C** on the title
-  screen removes exactly the files it made.
+  end). They **stay**, even after you quit: the game never deletes them. It only creates its own new files and never
+  touches yours. (Want them gone? Delete the folder yourself.)
 - **Terminal** opens to show a message (it only prints text).
 - **Your window switches** to TextEdit (75%) or Finder (100%).
 - **M** on the title screen changes your answer. **P** (panic) stops all of it for the rest of the session.

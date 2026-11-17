@@ -502,7 +502,7 @@ fn meta_event(g: &mut Game, e: MetaEvent) {
             g.meta.write(&format!("{}_is_infected.txt", name.replace(' ', "_")), &format!("{name} tried to protect you.\n{name} is one of them now.\n"));
         }
         MetaEvent::AllGone => {
-            g.meta.write("THE_END.txt", &format!("Every Claude is infected.\nThe last human lasted {t}.\n\nThese files are all that is left.\n(Hollow Hours: press C on the title screen to remove them.)\n"));
+            g.meta.write("THE_END.txt", &format!("Every Claude is infected.\nThe last human lasted {t}.\n\nThese files are all that is left.\n"));
             g.meta.terminal(&["they are all ours now", "", "every claude is infected", "the files on your desktop are all that is left of you"]);
         }
     }
@@ -896,10 +896,7 @@ async fn main() {
                 if is_key_pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
                 if is_key_pressed(KeyCode::Key4) { start_infection(&mut g); }
                 if is_key_pressed(KeyCode::M) { g.screen = Screen::Consent; }
-                if is_key_pressed(KeyCode::C) && !g.meta.created.is_empty() {
-                    let n = g.meta.clean_up();
-                    g.log = vec![format!("Removed the {n} files Hollow Hours had made.")];
-                }
+
                 if is_key_pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
                 if is_key_pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
                 if is_key_pressed(KeyCode::RightBracket) { g.vest.strength = (g.vest.strength + 0.1).min(1.0); }
@@ -918,12 +915,12 @@ async fn main() {
                 draw_text("Hollow Hours wants to reach outside its window", 50.0, 120.0, 34.0, Color::new(0.85, 0.3, 0.35, 1.0));
                 for (i, l) in [
                     "This update can scare you OUTSIDE the game:",
-                    "  - create files in a \"Hollow Hours\" folder on your Desktop (they stay after you quit)",
+                    "  - create files in a \"Hollow Hours\" folder on your Desktop. They STAY, even after you quit.",
                     "  - open Terminal to show you a message (it only prints text)",
                     "  - switch your window to TextEdit or Finder to show you its files",
                     "",
                     "It only ever creates its OWN new files. It never changes, moves or deletes yours.",
-                    "C on the title screen removes every file it made. P (panic) stops all of this at once.",
+                    "P (panic) stops all of this at once.",
                     "",
                     "Y = allow        N = keep everything inside the game",
                 ].iter().enumerate() {
@@ -1330,7 +1327,7 @@ fn draw_title(g: &Game) {
         "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),
         "No flashing lights. P = panic at any time: everything stops.".into(),
         format!("Outside the window: {}   {}", match g.meta.allowed { Some(true) => "ALLOWED (files, Terminal, window switching)", Some(false) => "off", None => "not asked" },
-            if g.meta.created.is_empty() { "M to change".to_string() } else { format!("M to change, C removes its {} files", g.meta.created.len()) }),
+            if g.meta.created.is_empty() { "M to change".to_string() } else { format!("M to change · {} files on your Desktop", g.meta.created.len()) }),
     ];
     for (i, l) in lines.iter().enumerate() {
         draw_text(l, 60.0, 170.0 + i as f32 * 28.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));

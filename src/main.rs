@@ -30,7 +30,8 @@ struct Map {
     floor: Color,
 }
 
-const MAPS: [Map; 3] = [
+/// The three built-in maps. Mods can add to them or replace them (see MapData).
+const BUILTIN: [Map; 3] = [
     Map {
         name: "The cozy house",
         rows: [
@@ -111,11 +112,58 @@ const MAPS: [Map; 3] = [
     },
 ];
 
+/// A map as the game uses it: the built-in ones, or one from a .hh mod.
+#[derive(Clone)]
+struct MapData {
+    name: String,
+    rows: Vec<Vec<u8>>,
+    dark: f32,
+    liminal: f32,
+    floor: Color,
+    wall: Color,
+    /// Door letter → (map it leads to, where you arrive in tiles)
+    doors: Vec<(char, usize, Vec2)>,
+    /// The empty pool look for its water tiles.
+    drained: bool,
+}
+
+fn builtin_maps() -> Vec<MapData> {
+    let doors: [Vec<(char, usize, Vec2)>; 3] = [
+        vec![('B', 1, vec2(1.5, 9.5))],
+        vec![('A', 0, vec2(28.5, 13.5)), ('C', 2, vec2(1.5, 8.5))],
+        vec![('B', 1, vec2(28.5, 14.5))],
+    ];
+    BUILTIN.iter().zip(doors).enumerate().map(|(i, (m, d))| MapData {
+        name: m.name.into(), rows: m.rows.iter().map(|r| r.as_bytes().to_vec()).collect(), dark: m.dark, liminal: m.liminal,
+        floor: m.floor, wall: Color::new(0.22, 0.2, 0.24, 1.0), doors: d, drained: i == 2,
+    }).collect()
+}
+
+thread_local! {
+    /// The maps of the game being played (built-in, or changed by mods).
+    static WORLD: std::cell::RefCell<Vec<MapData>> = std::cell::RefCell::new(builtin_maps());
+}
+
+fn set_maps(maps: Vec<MapData>) {
+    WORLD.with(|w| *w.borrow_mut() = if maps.is_empty() { builtin_maps() } else { maps });
+}
+fn maps_len() -> usize { WORLD.with(|w| w.borrow().len()) }
+fn with_map<R>(m: usize, f: impl FnOnce(&MapData) -> R) -> R {
+    WORLD.with(|w| { let w = w.borrow(); f(&w[m.min(w.len() - 1)]) })
+}
+fn map_name(m: usize) -> String { with_map(m, |d| d.name.clone()) }
+fn map_dark(m: usize) -> f32 { with_map(m, |d| d.dark) }
+fn map_liminal(m: usize) -> f32 { with_map(m, |d| d.liminal) }
+fn map_floor(m: usize) -> Color { with_map(m, |d| d.floor) }
+fn map_wall(m: usize) -> Color { with_map(m, |d| d.wall) }
+fn map_drained(m: usize) -> bool { with_map(m, |d| d.drained) }
+fn map_has_water(m: usize) -> bool { with_map(m, |d| d.rows.iter().any(|r| r.contains(&b'~'))) }
+
 fn tile(m: usize, x: i32, y: i32) -> char {
     if x < 0 || y < 0 || x >= MW as i32 || y >= MH as i32 {
         return '#';
     }
-    MAPS[m].rows[y as usize].as_bytes()[x as usize] as char
+    WORLD.with(|w| w.borrow().get(m).map(|d| d.rows[y as usize][x as usize] as char).unwrap_or('#'))
 }
 
 fn solid(m: usize, x: f32, y: f32) -> bool {
@@ -124,13 +172,8 @@ fn solid(m: usize, x: f32, y: f32) -> bool {
 
 /// Door letter → (map, where you arrive)
 fn door(c: char, from: usize) -> Option<(usize, Vec2)> {
-    match (c, from) {
-        ('B', 0) => Some((1, vec2(1.5, 9.5))),
-        ('A', 1) => Some((0, vec2(28.5, 13.5))),
-        ('C', 1) => Some((2, vec2(1.5, 8.5))),
-        ('B', 2) => Some((1, vec2(28.5, 14.5))),
-        _ => None,
-    }
+    if !c.is_ascii_uppercase() { return None; }
+    with_map(from, |d| d.doors.iter().find(|(l, _, _)| *l == c).map(|(_, to, at)| (*to, *at)))
 }
 
 // ---------------- Characters ----------------
@@ -329,20 +372,106 @@ struct Account {
     name: String,
 }
 
-/// Game rules a .hh mod can change (within limits).
+/// Everything a .hh mod can change (always kept within safe limits).
 #[derive(Clone)]
 struct Rules {
     infected_speed: f32,
-    tornado: (f32, f32),
+    player_speed: f32,
+    sneak: f32,
+    sight: f32,
+    hearing: f32,
+    infect_touch: f32,
+    infect_near: f32,
+    claude_infect: f32,
     food_secs: f32,
     water_secs: f32,
-    sneak: f32,
+    supplies: usize,
+    supply_amount: f32,
+    tornado: (f32, f32),
+    tornado_speed: f32,
+    tornado_radius: f32,
+    title: String,
+    over_infected: String,
+    over_claudes: String,
+    warnings: Vec<String>,
+    eye: Color,
+    halo: Color,
+    hud: Color,
+    /// Where you start: (map, tile position)
+    start: (usize, Vec2),
+    /// Built-in characters a mod leaves out.
+    remove: Vec<String>,
 }
 
 impl Default for Rules {
     fn default() -> Self {
-        Rules { infected_speed: 2.4, tornado: (60.0, 110.0), food_secs: 300.0, water_secs: 200.0, sneak: 1.5 }
+        Rules {
+            infected_speed: 2.4, player_speed: 3.2, sneak: 1.5, sight: 8.0, hearing: 6.0, infect_touch: 0.22, infect_near: 0.02,
+            claude_infect: 0.18, food_secs: 300.0, water_secs: 200.0, supplies: 5, supply_amount: 0.4, tornado: (60.0, 110.0),
+            tornado_speed: 2.6, tornado_radius: 1.6, title: "HOLLOW HOURS".into(),
+            over_infected: "You're infected. You can still see... but your body isn't yours anymore.".into(),
+            over_claudes: "Every Claude is infected. Nobody is left to protect anyone.".into(),
+            warnings: ["{} is coming! Hide!", "{} saw you. Move!", "Quiet... {} is close.", "Run! {}!"].map(String::from).to_vec(),
+            eye: Color::new(0.3, 1.0, 0.2, 1.0), halo: Color::new(1.0, 0.95, 0.6, 0.8), hud: Color::new(0.05, 0.05, 0.07, 1.0),
+            start: (0, vec2(4.5, 5.0)), remove: vec![],
+        }
     }
+}
+
+fn hex_color(v: &serde_json::Value) -> Option<Color> {
+    let hex = v.as_str()?.trim_start_matches('#');
+    let n = u32::from_str_radix(hex, 16).ok().filter(|_| hex.len() == 6)?;
+    Some(Color::new(((n >> 16) & 255) as f32 / 255.0, ((n >> 8) & 255) as f32 / 255.0, (n & 255) as f32 / 255.0, 1.0))
+}
+
+fn clean_text(v: &serde_json::Value, max: usize) -> Option<String> {
+    let t: String = v.as_str()?.chars().filter(|c| !c.is_control()).take(max).collect();
+    (!t.trim().is_empty()).then_some(t)
+}
+
+/// A mod map, checked again: exactly 18 rows of 30 known tiles; doors only to maps that exist.
+fn mod_map(v: &serde_json::Value, total: usize) -> Option<MapData> {
+    let rows: Vec<Vec<u8>> = v["rows"].as_array()?.iter().filter_map(|r| r.as_str().map(|s| s.as_bytes().to_vec())).collect();
+    if rows.len() != MH || rows.iter().any(|r| r.len() != MW || r.iter().any(|b| !b"#.,~bLd".contains(b) && !b.is_ascii_uppercase())) { return None; }
+    let doors = v["doors"].as_object().map(|o| o.iter().filter_map(|(k, d)| {
+        let c = k.chars().next().filter(|c| c.is_ascii_uppercase() && k.len() == 1)?;
+        let to = d["to"].as_u64()? as usize;
+        let (x, y) = (d["x"].as_f64()?.clamp(1.0, 28.0) as f32 + 0.5, d["y"].as_f64()?.clamp(1.0, 16.0) as f32 + 0.5);
+        (to < total).then_some((c, to, vec2(x, y)))
+    }).collect()).unwrap_or_default();
+    Some(MapData {
+        name: clean_text(&v["name"], 32).unwrap_or_else(|| "A strange place".into()), rows,
+        dark: v["dark"].as_f64().unwrap_or(0.4).clamp(0.0, 1.0) as f32, liminal: v["liminal"].as_f64().unwrap_or(0.3).clamp(0.0, 1.0) as f32,
+        floor: hex_color(&v["floor"]).unwrap_or(Color::new(0.5, 0.45, 0.4, 1.0)), wall: hex_color(&v["wall"]).unwrap_or(Color::new(0.22, 0.2, 0.24, 1.0)),
+        doors, drained: false,
+    })
+}
+
+/// Mods made on this computer: folders (hh.json + content.json) or .hh files in
+/// ~/Library/Application Support/Hollow Hours/mods/local. Offline Infection (4) uses them.
+fn local_mods() -> Vec<serde_json::Value> {
+    let dir = account_file().with_file_name("mods").join("local");
+    let _ = std::fs::create_dir_all(&dir);
+    let mut out = vec![];
+    let Ok(rd) = std::fs::read_dir(&dir) else { return out };
+    let mut entries: Vec<_> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
+    entries.sort();
+    for p in entries.into_iter().take(8) {
+        let read = |name: &str| -> Option<serde_json::Value> {
+            if p.is_dir() { return serde_json::from_slice(&std::fs::read(p.join(name)).ok()?).ok(); }
+            let mut z = zip::ZipArchive::new(std::fs::File::open(&p).ok()?).ok()?;
+            let mut f = z.by_name(name).ok()?;
+            if f.size() > 200 * 1024 { return None; }
+            let mut b = vec![];
+            std::io::Read::read_to_end(&mut f, &mut b).ok()?;
+            serde_json::from_slice(&b).ok()
+        };
+        if p.is_file() && p.extension().is_none_or(|e| e != "hh") { continue; }
+        if let (Some(hh), Some(content)) = (read("hh.json"), read("content.json")) {
+            out.push(serde_json::json!({"name": hh["name"], "content": content}));
+        }
+    }
+    out
 }
 
 fn site() -> String {
@@ -367,26 +496,78 @@ fn load_mod(id: &str) -> Option<serde_json::Value> {
     Some(v)
 }
 
-/// Applies the server's mods: rules (clamped to the allowed ranges, whatever the file says) and extra characters.
+/// Applies the server's mods (downloaded by id from the website).
 fn apply_mods(g: &mut Game, ids: &[String]) {
+    let mut mods = vec![];
+    for id in ids.iter().take(8) {
+        match load_mod(id) { Some(m) => mods.push(m), None => g.log.push(format!("Couldn't download mod {id}.")) }
+    }
+    apply_contents(g, &mods);
+}
+
+/// Applies mods ({name, content}) in order: later ones win. Every value is checked and clamped here, whatever the file
+/// says, so a broken or hostile mod can only make the game different, never unsafe.
+fn apply_contents(g: &mut Game, mods: &[serde_json::Value]) {
     g.rules = Rules::default();
     g.mod_chars.clear();
+    let mut maps = builtin_maps();
     let mut names = vec![];
-    for id in ids.iter().take(8) {
-        let Some(m) = load_mod(id) else { g.log.push(format!("Couldn't download mod {id}.")); continue };
+    for m in mods {
         let c = &m["content"];
         let r = &c["rules"];
         let get = |k: &str, lo: f64, hi: f64| r[k].as_f64().map(|v| v.clamp(lo, hi) as f32);
-        if let Some(v) = get("infected_speed", 1.0, 4.0) { g.rules.infected_speed = v; }
-        if let Some(v) = get("tornado_min", 20.0, 600.0) { g.rules.tornado.0 = v; }
-        if let Some(v) = get("tornado_max", 20.0, 900.0) { g.rules.tornado.1 = v.max(g.rules.tornado.0); }
-        if let Some(v) = get("food_minutes", 1.0, 30.0) { g.rules.food_secs = v * 60.0; }
-        if let Some(v) = get("water_minutes", 1.0, 30.0) { g.rules.water_secs = v * 60.0; }
-        if let Some(v) = get("sneak_speed", 0.8, 2.5) { g.rules.sneak = v; }
+        let rl = &mut g.rules;
+        if let Some(v) = get("infected_speed", 1.0, 4.0) { rl.infected_speed = v; }
+        if let Some(v) = get("player_speed", 2.0, 5.0) { rl.player_speed = v; }
+        if let Some(v) = get("sneak_speed", 0.8, 2.5) { rl.sneak = v; }
+        if let Some(v) = get("sight_tiles", 3.0, 14.0) { rl.sight = v; }
+        if let Some(v) = get("hearing_tiles", 2.0, 12.0) { rl.hearing = v; }
+        if let Some(v) = get("infect_touch", 0.05, 1.0) { rl.infect_touch = v; }
+        if let Some(v) = get("infect_near", 0.0, 0.2) { rl.infect_near = v; }
+        if let Some(v) = get("claude_infect", 0.05, 1.0) { rl.claude_infect = v; }
+        if let Some(v) = get("food_minutes", 1.0, 30.0) { rl.food_secs = v * 60.0; }
+        if let Some(v) = get("water_minutes", 1.0, 30.0) { rl.water_secs = v * 60.0; }
+        if let Some(v) = get("supplies_per_map", 0.0, 12.0) { rl.supplies = v as usize; }
+        if let Some(v) = get("supply_amount", 0.1, 1.0) { rl.supply_amount = v; }
+        if let Some(v) = get("tornado_min", 20.0, 600.0) { rl.tornado.0 = v; }
+        if let Some(v) = get("tornado_max", 20.0, 900.0) { rl.tornado.1 = v; }
+        rl.tornado.1 = rl.tornado.1.max(rl.tornado.0);
+        if let Some(v) = get("tornado_speed", 1.0, 6.0) { rl.tornado_speed = v; }
+        if let Some(v) = get("tornado_radius", 0.5, 4.0) { rl.tornado_radius = v; }
+        let t = &c["text"];
+        if let Some(v) = clean_text(&t["title"], 24) { rl.title = v; }
+        if let Some(v) = clean_text(&t["over_infected"], 120) { rl.over_infected = v; }
+        if let Some(v) = clean_text(&t["over_claudes"], 120) { rl.over_claudes = v; }
+        if let Some(w) = t["warnings"].as_array() {
+            let w: Vec<String> = w.iter().filter_map(|x| clean_text(x, 60)).take(8).collect();
+            if !w.is_empty() { rl.warnings = w; }
+        }
+        let th = &c["theme"];
+        if let Some(v) = hex_color(&th["infected_eye"]) { rl.eye = v; }
+        if let Some(v) = hex_color(&th["kind_halo"]) { rl.halo = Color { a: 0.8, ..v }; }
+        if let Some(v) = hex_color(&th["hud"]) { rl.hud = v; }
+        if let Some(rm) = c["remove"].as_array() { rl.remove.extend(rm.iter().filter_map(|x| clean_text(x, 16)).take(20)); }
+        // Maps: replace the built-in ones, or add after them.
+        if let Some(list) = c["maps"].as_array() {
+            if c["replace_maps"].as_bool() == Some(true) { maps.clear(); }
+            let total = maps.len() + list.len().min(8);
+            maps.extend(list.iter().take(8).filter_map(|v| mod_map(v, total)));
+        }
+        if let Some(st) = c["start"].as_object() {
+            let map = st.get("map").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let pos = vec2(st.get("x").and_then(|v| v.as_f64()).unwrap_or(4.0).clamp(1.0, 28.0) as f32 + 0.5,
+                st.get("y").and_then(|v| v.as_f64()).unwrap_or(5.0).clamp(1.0, 16.0) as f32 + 0.5);
+            g.rules.start = (map, pos);
+        }
         for ch in c["characters"].as_array().cloned().unwrap_or_default().into_iter().take(12) { g.mod_chars.push(ch); }
-        if let Some(t) = c["intro"].as_str() { g.log.push(t.chars().take(200).collect()); }
+        if let Some(t) = clean_text(&c["intro"], 200) { g.log.push(t); }
         names.push(m["name"].as_str().unwrap_or("?").to_string());
     }
+    // Doors that point past the last map (because a later mod replaced the maps) are dropped.
+    let n = maps.len().max(1);
+    for m in &mut maps { m.doors.retain(|d| d.1 < n); }
+    if g.rules.start.0 >= n { g.rules.start.0 = 0; }
+    set_maps(maps);
     if !names.is_empty() { g.log.push(format!("Mods: {}", names.join(", "))); }
 }
 
@@ -394,16 +575,15 @@ fn apply_mods(g: &mut Game, ids: &[String]) {
 fn mod_character(v: &serde_json::Value) -> Option<Character> {
     let name: String = v["name"].as_str()?.chars().filter(|c| c.is_alphanumeric() || " ._-".contains(*c)).take(16).collect();
     if name.is_empty() { return None; }
-    let hex = v["color"].as_str()?.trim_start_matches('#');
-    let n = u32::from_str_radix(hex, 16).ok().filter(|_| hex.len() == 6)?;
-    let color = Color::new(((n >> 16) & 255) as f32 / 255.0, ((n >> 8) & 255) as f32 / 255.0, (n & 255) as f32 / 255.0, 1.0);
+    let color = hex_color(&v["color"])?;
     let personality: String = v["personality"].as_str().unwrap_or("quiet").chars().take(200).collect();
-    let map = (v["map"].as_u64().unwrap_or(0) as usize).min(MAPS.len() - 1);
+    let map = (v["map"].as_u64().unwrap_or(0) as usize).min(maps_len() - 1);
     let pos = vec2(v["x"].as_f64().unwrap_or(10.0).clamp(1.0, 28.0) as f32, v["y"].as_f64().unwrap_or(8.0).clamp(1.0, 16.0) as f32) * T;
     Some(Character {
         name: Box::leak(name.into_boxed_str()), inspired: "a character from a mod", color, backend: "ollama", model: "qwen3:4b-instruct",
         personality: Box::leak(personality.into_boxed_str()), map, pos, target: pos, crazy: 0.0, history: vec![],
-        bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false, kind: false,
+        bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
+        kind: v["kind"].as_bool() == Some(true) && v["infected"].as_bool() != Some(true),
         infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, claude: false,
     })
 }
@@ -435,7 +615,7 @@ impl Game {
             "You are {}, a character in a small cozy-but-creepy game called Hollow Hours. Personality: {}. \
              You are an AI and you know it. You are in \"{}\". It is {} at night. Reply in 1-3 short sentences, \
              in character, no emojis, no lists. Keep it family-friendly: spooky is fine, gore is not.",
-            c.name, c.personality, MAPS[c.map].name, self.time_text()
+            c.name, c.personality, map_name(c.map), self.time_text()
         );
         if self.infection && c.kind {
             s = format!(
@@ -479,7 +659,7 @@ impl Game {
         let mut out = vec![format!(
             "Mode: {}. Place: {} (the player is here too: {}). Time: {}.",
             if self.infection { "Infection (everyone outside the Claude family is infected; the player is the last human)" } else { "normal night" },
-            MAPS[self.map].name, if me.map == self.map { "yes" } else { "no" }, self.time_text()
+            map_name(self.map), if me.map == self.map { "yes" } else { "no" }, self.time_text()
         )];
         let mut player = format!("The player: fear {}%", (self.fear * 100.0) as i32);
         if self.infection {
@@ -576,7 +756,7 @@ fn network(g: &mut Game, dt: f32) {
             Some("state") => {
                 let r = Remote {
                     id: from.clone(), name: m["name"].as_str().unwrap_or("?").chars().take(12).collect(),
-                    map: (m["map"].as_u64().unwrap_or(0) as usize).min(MAPS.len() - 1),
+                    map: (m["map"].as_u64().unwrap_or(0) as usize).min(maps_len() - 1),
                     pos: vec2(m["x"].as_f64().unwrap_or(0.0) as f32, m["y"].as_f64().unwrap_or(0.0) as f32) * T,
                     inf: m["inf"].as_f64().unwrap_or(0.0) as f32, lc: m["lc"].as_bool().unwrap_or(false),
                     hid: m["hid"].as_bool().unwrap_or(false), noise: m["noise"].as_f64().unwrap_or(0.0) as f32, seen: now,
@@ -623,7 +803,7 @@ fn apply_world(g: &mut Game, m: &serde_json::Value) {
         for v in list {
             let Some(name) = v["n"].as_str() else { continue };
             if let Some(c) = g.chars.iter_mut().find(|c| c.name == name) {
-                c.map = (v["m"].as_u64().unwrap_or(0) as usize).min(MAPS.len() - 1);
+                c.map = (v["m"].as_u64().unwrap_or(0) as usize).min(maps_len() - 1);
                 let p = vec2(v["x"].as_f64().unwrap_or(0.0) as f32, v["y"].as_f64().unwrap_or(0.0) as f32) * T;
                 c.pos = if c.pos.distance(p) > 3.0 * T { p } else { c.pos.lerp(p, 0.5) };
                 c.target = p;
@@ -636,7 +816,7 @@ fn apply_world(g: &mut Game, m: &serde_json::Value) {
         }
     }
     if let Some(list) = m["items"].as_array() {
-        g.items = list.iter().filter_map(|v| Some(((v[0].as_u64()? as usize).min(MAPS.len() - 1),
+        g.items = list.iter().filter_map(|v| Some(((v[0].as_u64()? as usize).min(maps_len() - 1),
             vec2(v[1].as_f64()? as f32, v[2].as_f64()? as f32) * T, v[3].as_bool()?))).collect();
     }
     g.tornado = m["tornado"].as_object().filter(|t| t.get("m").and_then(|x| x.as_u64()) == Some(g.map as u64)).map(|t| Tornado {
@@ -649,8 +829,8 @@ fn start_infection(g: &mut Game) {
     g.infection = true;
     g.courage = Courage::Normal;
     g.chars = characters();
-    g.map = 0;
-    g.pos = vec2(4.5, 5.0) * T;
+    g.map = g.rules.start.0;
+    g.pos = g.rules.start.1 * T;
     // The Claude family stays friendly; everyone else is infected and starts far away from you (never on top of you).
     let start = g.pos;
     for c in &mut g.chars {
@@ -668,6 +848,9 @@ fn start_infection(g: &mut Game) {
         }
     }
     g.chars.extend(kind_characters());
+    // Mods can leave built-in characters out.
+    let remove = g.rules.remove.clone();
+    g.chars.retain(|c| !remove.iter().any(|r| r.eq_ignore_ascii_case(c.name)));
     // Characters from the server's .hh mods.
     let extra: Vec<Character> = g.mod_chars.iter().filter_map(mod_character).collect();
     g.chars.extend(extra);
@@ -682,8 +865,8 @@ fn start_infection(g: &mut Game) {
     g.lost_control = false;
     g.meta_done = 0;
     g.items.clear();
-    for m in 0..MAPS.len() {
-        for k in 0..5 {
+    for m in 0..maps_len() {
+        for k in 0..g.rules.supplies {
             if let Some(p) = random_floor(m) {
                 g.items.push((m, p, k % 2 == 1));
             }
@@ -754,12 +937,12 @@ fn can_hide(g: &Game) -> bool {
 }
 
 /// Can an infected at `from` on map `m` see someone at `to`?
-fn sees_at(m: usize, from: Vec2, to: Vec2, hidden: bool) -> bool {
+fn sees_at(m: usize, from: Vec2, to: Vec2, hidden: bool, sight: f32) -> bool {
     let d = from.distance(to);
     if hidden {
         return d < 0.9 * T;
     }
-    if d > (8.0 - MAPS[m].dark * 4.0) * T {
+    if d > (sight - map_dark(m) * 4.0).max(2.0) * T {
         return false;
     }
     let steps = (d / (T / 3.0)) as i32;
@@ -804,7 +987,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         if let Some(n) = &g.net {
             n.send(json!({"t": "pick", "map": im, "x": ip.x / T, "y": ip.y / T}));
         }
-        if water { g.water = (g.water + 0.4).min(1.0); } else { g.food = (g.food + 0.4).min(1.0); }
+        if water { g.water = (g.water + g.rules.supply_amount).min(1.0); } else { g.food = (g.food + g.rules.supply_amount).min(1.0); }
         g.log.push(if water { "You sip the water as quietly as you can.".into() } else { "You eat, trying not to crunch.".into() });
         let pos = g.pos;
         for c in g.chars.iter_mut().filter(|c| c.infected && c.map == here) {
@@ -812,8 +995,8 @@ fn update_infection(g: &mut Game, dt: f32) {
                 c.crazy = 5.0; // heard you
             }
         }
-        if let Some(p) = random_floor(rand::gen_range(0, MAPS.len())) {
-            g.items.push((rand::gen_range(0, MAPS.len()), p, rand::gen_range(0, 2) == 1));
+        if let Some(p) = random_floor(rand::gen_range(0, maps_len())) {
+            g.items.push((rand::gen_range(0, maps_len()), p, rand::gen_range(0, 2) == 1));
         }
     }
     // Infected: chase while they see you, keep going a few seconds after you vanish; caught = game over.
@@ -830,7 +1013,8 @@ fn update_infection(g: &mut Game, dt: f32) {
         let mut humans: Vec<(Vec2, bool, f32)> = vec![];
         if g.map == me.0 && !g.lost_control { humans.push((g.pos, g.hidden, g.noise)); }
         humans.extend(g.remotes.iter().filter(|r| r.map == me.0 && !r.lc).map(|r| (r.pos, r.hid, r.noise)));
-        let target = humans.iter().filter(|(p, hid, noise)| sees_at(me.0, me.1, *p, *hid) || (*noise > 0.05 && me.1.distance(*p) < noise * 6.0 * T))
+        let (sight, hearing) = (g.rules.sight, g.rules.hearing);
+        let target = humans.iter().filter(|(p, hid, noise)| sees_at(me.0, me.1, *p, *hid, sight) || (*noise > 0.05 && me.1.distance(*p) < noise * hearing * T))
             .min_by(|a, b| a.0.distance(me.1).partial_cmp(&b.0.distance(me.1)).unwrap()).map(|h| h.0);
         if let Some(t) = target { g.chars[i].chase = t; }
         let seen = target.is_some();
@@ -858,9 +1042,9 @@ fn update_infection(g: &mut Game, dt: f32) {
         let d = c.pos.distance(g.pos);
         if d < 0.8 * T && (!g.hidden || d < 0.5 * T) {
             if g.inf < 0.02 { g.scare_t = 0.5; g.scare_face = c.color; g.vest.play(haptics::Effect::Chill); }
-            g.inf += dt * 0.22;
+            g.inf += dt * g.rules.infect_touch;
         } else if d < 2.0 * T && !g.hidden {
-            g.inf += dt * 0.02;
+            g.inf += dt * g.rules.infect_near;
         }
     }
     // The infection spreads to the Claude family too: any infected (you included, once you've turned) near them.
@@ -869,11 +1053,12 @@ fn update_infection(g: &mut Game, dt: f32) {
         .chain(g.remotes.iter().filter(|r| r.lc).map(|r| (r.map, r.pos))).collect();
     let mut turned = vec![];
     let is_guest = guest(g);
+    let claude_rate = g.rules.claude_infect;
     for (i, c) in g.chars.iter_mut().enumerate() {
         if !c.claude || c.infected || is_guest { continue; }
         let near = spreaders.iter().filter(|(m, p)| *m == c.map && p.distance(c.pos) < 0.9 * T).count();
         if near > 0 {
-            c.infect += dt * 0.18 * near as f32;
+            c.infect += dt * claude_rate * near as f32;
             if c.infect >= 1.0 {
                 c.infected = true;
                 c.kind = false;
@@ -893,7 +1078,7 @@ fn update_infection(g: &mut Game, dt: f32) {
     if g.inf >= 1.0 && !g.lost_control {
         g.lost_control = true;
         g.hidden = false;
-        g.log.push("You're infected. You can still see... but your body isn't yours anymore.".into());
+        g.log.push(g.rules.over_infected.clone());
         meta_event(g, MetaEvent::Turned);
     }
     // You've turned: your body hunts the Claudes on its own.
@@ -914,8 +1099,9 @@ fn update_infection(g: &mut Game, dt: f32) {
         }
     }
     // Every Claude infected: it's over.
-    if g.chars.iter().filter(|c| c.claude).all(|c| c.infected) {
-        g.over_reason = "Every Claude is infected. Nobody is left to protect anyone.".into();
+    let claudes: Vec<bool> = g.chars.iter().filter(|c| c.claude).map(|c| c.infected).collect();
+    if !claudes.is_empty() && claudes.iter().all(|x| *x) {
+        g.over_reason = g.rules.over_claudes.clone();
         meta_event(g, MetaEvent::AllGone);
         g.screen = Screen::Over;
         return;
@@ -947,7 +1133,7 @@ fn update_infection(g: &mut Game, dt: f32) {
     if let Some(name) = danger {
         if g.next_warning <= 0.0 {
             g.next_warning = 6.0;
-            let lines = ["{} is coming! Hide!", "{} saw you. Move!", "Quiet... {} is close.", "Run! {}!"];
+            let lines = g.rules.warnings.clone();
             let line = lines[rand::gen_range(0, lines.len())].replace("{}", name);
             if let Some(c) = g.chars.iter_mut().filter(|c| c.kind && !c.thinking).nth(rand::gen_range(0, 4)) {
                 c.bubble = line;
@@ -961,11 +1147,13 @@ fn update_infection(g: &mut Game, dt: f32) {
     if g.tornado.is_none() && g.next_tornado <= 0.0 && !guest(g) {
         let from_left = rand::gen_range(0, 2) == 0;
         let y = rand::gen_range(2.0, MH as f32 - 2.0) * T;
-        let (x, vx) = if from_left { (-1.0 * T, 2.6 * T) } else { ((MW as f32 + 1.0) * T, -2.6 * T) };
+        let ts = g.rules.tornado_speed;
+        let (x, vx) = if from_left { (-1.0 * T, ts * T) } else { ((MW as f32 + 1.0) * T, -ts * T) };
         g.tornado = Some(Tornado { pos: vec2(x, y), vel: vec2(vx, rand::gen_range(-0.8, 0.8) * T), warn: 6.0, life: 18.0 });
         g.log.push("TORNADO WARNING! Get down behind something solid!".into());
     }
     let mut hit = false;
+    let radius = g.rules.tornado_radius;
     if let Some(t) = &mut g.tornado {
         if t.warn > 0.0 {
             t.warn -= dt;
@@ -973,11 +1161,11 @@ fn update_infection(g: &mut Game, dt: f32) {
             t.pos += t.vel * dt;
             if t.pos.y < T || t.pos.y > (MH as f32 - 1.0) * T { t.vel.y = -t.vel.y; }
             t.life -= dt;
-            if t.pos.distance(g.pos) < 1.6 * T && !g.hidden {
+            if t.pos.distance(g.pos) < radius * T && !g.hidden {
                 hit = true;
             }
             for c in g.chars.iter_mut().filter(|c| c.infected && c.map == g.map) {
-                if c.pos.distance(t.pos) < 1.6 * T {
+                if c.pos.distance(t.pos) < radius * T {
                     c.stun = 4.0;
                     c.pos = t.pos + vec2(rand::gen_range(-3.0, 3.0), rand::gen_range(-3.0, 3.0)) * T;
                     c.pos = c.pos.clamp(vec2(T, T), vec2((MW as f32 - 2.0) * T, (MH as f32 - 2.0) * T));
@@ -1156,7 +1344,7 @@ async fn main() {
                 if is_key_pressed(KeyCode::Key1) { g.courage = Courage::Brave; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key2) { g.courage = Courage::Normal; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
-                if is_key_pressed(KeyCode::Key4) { apply_mods(&mut g, &[]); start_infection(&mut g); }
+                if is_key_pressed(KeyCode::Key4) { let local = local_mods(); apply_contents(&mut g, &local); start_infection(&mut g); }
                 if is_key_pressed(KeyCode::M) { g.screen = Screen::Consent; }
                 if is_key_pressed(KeyCode::S) { refresh_servers(&mut g); g.screen = Screen::Servers; }
                 if is_key_pressed(KeyCode::L) {
@@ -1406,7 +1594,7 @@ fn update(g: &mut Game, dt: f32) {
         if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) { d.x -= 1.0; }
         if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) { d.x += 1.0; }
         if d != Vec2::ZERO {
-            let speed = if g.sneaking { g.rules.sneak } else { 3.2 };
+            let speed = if g.sneaking { g.rules.sneak } else { g.rules.player_speed };
             if !g.sneaking { g.noise = 1.0; }
             let step = d.normalize() * speed * T * dt;
             let r = 10.0;
@@ -1419,7 +1607,7 @@ fn update(g: &mut Game, dt: f32) {
         if let Some((m, at)) = door(here, g.map) {
             g.map = m;
             g.pos = at * T;
-            g.log.push(format!("You walk into {}.", MAPS[m].name));
+            g.log.push(format!("You walk into {}.", map_name(m)));
         }
         // Talk: E next to someone.
         if is_key_pressed(KeyCode::E) {
@@ -1510,16 +1698,15 @@ fn update(g: &mut Game, dt: f32) {
     }
 
     // Meters.
-    let m = &MAPS[g.map];
-    let dark = if g.on(0) { m.dark } else { 0.1 };
+    let dark = if g.on(0) { map_dark(g.map) } else { 0.1 };
     let crazy_near = g.chars.iter().filter(|c| c.crazy > 0.0 && c.map == g.map).map(|c| 1.0 - (c.pos.distance(g.pos) / (10.0 * T)).min(1.0)).fold(0.0f32, f32::max);
-    let water_near = g.on(1) && (g.map == 1 || g.map == 2);
+    let water_near = g.on(1) && map_has_water(g.map);
     let fear_target = (dark * 0.45 + crazy_near * 0.7 + if water_near { 0.1 } else { 0.0 }).min(1.0) * if g.courage == Courage::Brave { 0.4 } else { 1.0 };
     g.fear += (fear_target - g.fear) * dt * 0.4;
     let closest = g.chars.iter().filter(|c| c.map == g.map).map(|c| c.pos.distance(g.pos)).fold(f32::MAX, f32::min);
     let disc_target: f32 = if crowds_on && closest < 1.4 * T { 0.7 } else { 0.0 } + if g.on(2) && near_doll(g) { 0.35 } else { 0.0 };
     g.discomfort += (disc_target.min(1.0) - g.discomfort) * dt * 0.5;
-    let lim_target = if g.on(5) { m.liminal } else { m.liminal * 0.3 };
+    let lim_target = if g.on(5) { map_liminal(g.map) } else { map_liminal(g.map) * 0.3 };
     g.liminality += (lim_target - g.liminality) * dt * 0.3;
     // Heartbeat on the vest when you're very scared.
     g.beat_t -= dt;
@@ -1547,7 +1734,7 @@ fn nearest(g: &Game, within: f32) -> Option<usize> {
 }
 
 fn draw_world(g: &Game, light: &Texture2D) {
-    let m = &MAPS[g.map];
+    let (floor, wall, m_name, drained) = (map_floor(g.map), map_wall(g.map), map_name(g.map), map_drained(g.map));
     let shake = if g.fear > 0.75 { rand::gen_range(-1.5, 1.5) } else { 0.0 };
     // Tiles.
     for y in 0..MH {
@@ -1555,17 +1742,17 @@ fn draw_world(g: &Game, light: &Texture2D) {
             let (px, py) = (x as f32 * T + shake, y as f32 * T + shake);
             let c = tile(g.map, x as i32, y as i32);
             let col = match c {
-                '#' => Color::new(0.22, 0.2, 0.24, 1.0),
+                '#' => wall,
                 'b' => Color::new(0.42, 0.3, 0.22, 1.0),
                 '~' if !g.on(1) => Color::new(0.6, 0.62, 0.6, 1.0), // Water phobia off: no water at all (calm tiles)
-                '~' if g.map == 2 => Color::new(0.55, 0.78, 0.8, 1.0), // the drained pool
+                '~' if drained => Color::new(0.55, 0.78, 0.8, 1.0), // the drained pool
                 '~' => Color::new(0.05, 0.12 + 0.03 * (get_time() as f32 + x as f32 * 0.3).sin(), 0.25, 1.0),
-                ',' => m.floor,
-                'A' | 'B' | 'C' => Color::new(0.9, 0.85, 0.5, 1.0),
-                _ => m.floor,
+                ',' => Color::new(floor.r * 1.1, floor.g * 1.05, floor.b * 0.9, 1.0),
+                c if c.is_ascii_uppercase() => Color::new(0.9, 0.85, 0.5, 1.0),
+                _ => floor,
             };
             draw_rectangle(px, py, T, T, col);
-            if g.map == 2 && c != '#' && (x + y) % 2 == 0 { draw_rectangle(px, py, T, T, Color::new(1.0, 1.0, 1.0, 0.05)); }
+            if drained && c != '#' && (x + y) % 2 == 0 { draw_rectangle(px, py, T, T, Color::new(1.0, 1.0, 1.0, 0.05)); }
             if c == 'L' { draw_circle(px + T / 2.0, py + T / 2.0, 7.0, Color::new(1.0, 0.85, 0.5, 1.0)); }
             if c == 'd' && g.on(2) {
                 // A doll that turns its eyes toward you.
@@ -1590,10 +1777,10 @@ fn draw_world(g: &Game, light: &Texture2D) {
     }
     // Characters.
     for c in g.chars.iter().filter(|c| c.map == g.map) {
-        if c.kind { draw_circle_lines(c.pos.x + shake, c.pos.y + shake, 16.0, 2.0, Color::new(1.0, 0.95, 0.6, 0.8)); }
+        if c.kind { draw_circle_lines(c.pos.x + shake, c.pos.y + shake, 16.0, 2.0, g.rules.halo); }
         let body = if c.infected { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
         draw_circle(c.pos.x + shake, c.pos.y + shake, 12.0, body);
-        let eye = if c.infected { if c.stun > 0.0 { GRAY } else { Color::new(0.3, 1.0, 0.2, 1.0) } } else if c.crazy > 0.0 { RED } else { BLACK };
+        let eye = if c.infected { if c.stun > 0.0 { GRAY } else { g.rules.eye } } else if c.crazy > 0.0 { RED } else { BLACK };
         let look = (g.pos - c.pos).normalize_or_zero() * 2.0;
         draw_circle(c.pos.x - 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
         draw_circle(c.pos.x + 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
@@ -1617,11 +1804,11 @@ fn draw_world(g: &Game, light: &Texture2D) {
             let x = t.pos.x.clamp(T, (MW as f32 - 1.0) * T);
             for k in 0..12 {
                 let a = k as f32 / 12.0 * std::f32::consts::TAU + get_time() as f32;
-                draw_circle(x + a.cos() * 1.6 * T, t.pos.y + a.sin() * 1.6 * T, 3.0, Color::new(0.8, 0.8, 0.85, 0.6));
+                draw_circle(x + a.cos() * g.rules.tornado_radius * T, t.pos.y + a.sin() * g.rules.tornado_radius * T, 3.0, Color::new(0.8, 0.8, 0.85, 0.6));
             }
         } else {
             for k in 0..6 {
-                let r = (1.6 - k as f32 * 0.22) * T;
+                let r = g.rules.tornado_radius * (1.0 - k as f32 * 0.14) * T;
                 let a = get_time() as f32 * (4.0 + k as f32) + k as f32;
                 draw_circle_lines(t.pos.x + a.cos() * 4.0, t.pos.y + a.sin() * 4.0, r, 3.0, Color::new(0.55, 0.55, 0.6, 0.75));
             }
@@ -1629,7 +1816,7 @@ fn draw_world(g: &Game, light: &Texture2D) {
     }
 
     // Darkness: the room is dark except a soft circle of light around you (smaller when you're scared).
-    let dark = if g.on(0) { m.dark } else { 0.1 };
+    let dark = if g.on(0) { map_dark(g.map) } else { 0.1 };
     let radius = (7.5 - g.fear * 3.0) * T;
     let a = (dark + g.fear * 0.25).min(0.97);
     let (sw, sh) = (MW as f32 * T, MH as f32 * T);
@@ -1645,7 +1832,7 @@ fn draw_world(g: &Game, light: &Texture2D) {
     // Infection mode: your noise as a ring (they hear you inside it), and the world turning green as you turn.
     if g.infection {
         if g.noise > 0.05 && !g.lost_control {
-            draw_circle_lines(g.pos.x, g.pos.y, g.noise * 6.0 * T, 2.0, Color::new(1.0, 1.0, 1.0, 0.25 * g.noise));
+            draw_circle_lines(g.pos.x, g.pos.y, g.noise * g.rules.hearing * T, 2.0, Color::new(1.0, 1.0, 1.0, 0.25 * g.noise));
         }
         if g.sneaking && !g.lost_control { draw_text("sneaking", g.pos.x - 26.0, g.pos.y + 28.0, 14.0, Color::new(0.7, 0.8, 1.0, 0.9)); }
         if g.inf > 0.0 { draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.1, 0.8, 0.1, g.inf * 0.18)); }
@@ -1683,7 +1870,7 @@ fn draw_world(g: &Game, light: &Texture2D) {
 
     // HUD.
     let y0 = sh;
-    draw_rectangle(0.0, y0, sw, HUD, Color::new(0.05, 0.05, 0.07, 1.0));
+    draw_rectangle(0.0, y0, sw, HUD, g.rules.hud);
     if !g.infection { meter(14.0, y0 + 24.0, "Fear", g.fear, Color::new(0.9, 0.2, 0.2, 1.0), 0.0); }
     if g.infection {
         meter(14.0, y0 + 24.0, "Infection", g.inf, Color::new(0.35, 0.95, 0.3, 1.0), if g.inf > 0.5 { g.inf * 2.0 } else { 0.0 });
@@ -1708,7 +1895,7 @@ fn draw_world(g: &Game, light: &Texture2D) {
         }
     }
     let courage = match g.courage { Courage::Brave => "Brave", Courage::Normal => "Normal", Courage::Phobias => "Phobias" };
-    draw_text(&format!("{}  ·  {}  ·  {}", m.name, g.time_text(), courage), 320.0, y0 + 24.0, 18.0, Color::new(0.85, 0.85, 0.9, 1.0));
+    draw_text(&format!("{}  ·  {}  ·  {}", m_name, g.time_text(), courage), 320.0, y0 + 24.0, 18.0, Color::new(0.85, 0.85, 0.9, 1.0));
     for (i, l) in g.log.iter().rev().take(2).enumerate() {
         draw_text(l, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
@@ -1718,7 +1905,7 @@ fn draw_world(g: &Game, light: &Texture2D) {
 }
 
 fn draw_title(g: &Game) {
-    draw_text("HOLLOW HOURS", 60.0, 110.0, 64.0, Color::new(0.85, 0.3, 0.35, 1.0));
+    draw_text(&g.rules.title, 60.0, 110.0, 64.0, Color::new(0.85, 0.3, 0.35, 1.0));
     let lines = [
         "A small horror game where the characters are real AIs.".to_string(),
         format!("Claude app: {}", if ai::claude_cli().is_some() { "found, so the Claude characters talk through it (real Claude)" } else { "not found" }),
@@ -1778,6 +1965,31 @@ mod tests {
         let c = mod_character(&m["content"]["characters"][0]).expect("a real character");
         println!("mod {} -> character {} (infected: {}) at map {}", m["name"], c.name, c.infected, c.map);
         assert!(load_mod("../../etc").is_none(), "only real mod ids");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A total-conversion .hh as a local mod: its own maps replace the built-in ones and the doors link them.
+    #[test]
+    fn night_mall_maps_and_doors() {
+        let home = std::env::temp_dir().join(format!("hh-local-{}", std::process::id()));
+        let local = home.join("Library/Application Support/Hollow Hours/mods/local");
+        std::fs::create_dir_all(&local).unwrap();
+        std::fs::copy("mods/NightMall.hh", local.join("NightMall.hh")).unwrap();
+        unsafe { std::env::set_var("HOME", &home); }
+        let mods = local_mods();
+        assert_eq!(mods.len(), 1, "read the .hh zip");
+        let list = mods[0]["content"]["maps"].as_array().unwrap().clone();
+        let maps: Vec<MapData> = list.iter().filter_map(|v| mod_map(v, list.len())).collect();
+        assert_eq!(maps.len(), 2, "both maps are valid");
+        set_maps(maps);
+        assert_eq!((maps_len(), map_name(0)), (2, "The night mall".to_string()));
+        assert_eq!(door('G', 0).map(|d| d.0), Some(1), "the mall's G door leads to the garage");
+        assert_eq!(door('M', 1).map(|d| d.0), Some(0), "and back");
+        let mut bad = list[0].clone();
+        bad["rows"][3] = serde_json::json!("too short");
+        assert!(mod_map(&bad, 2).is_none(), "a broken map is refused");
+        set_maps(vec![]);
+        assert_eq!(maps_len(), 3, "no mod maps: back to the built-in three");
         let _ = std::fs::remove_dir_all(&home);
     }
 }

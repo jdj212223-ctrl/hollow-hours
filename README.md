@@ -62,10 +62,17 @@ servers, make your own, and upload mods.
   stored); 10 wrong passwords lock the account for 15 minutes. No emails are sent yet (so no confirmation or reset email).
 - **In the game**: **L** logs in (your display name becomes your player name; the game keeps the token, never the
   password), **S** opens the server list (1-8 joins, **N** makes a server), **J** joins by code.
-- **.hh mods** (*H*ollow *H*ours): a zip with `hh.json` (name, version, description) and `content.json`: new
-  **characters**, **rules** (infected speed, tornado timing, how fast food and water run out, sneak speed) and an
-  **intro** line. Data only, never code; checked on upload and again in the game, values clamped to safe ranges.
-  Joining a modded server downloads its mods by itself. Example: `mods/FastInfected/` (`zip FastInfected.hh hh.json content.json`).
+- **.hh mods** (*H*ollow *H*ours) customise **the whole game**: a zip with `hh.json` (name, version, description) and
+  `content.json` with any of: **maps** (your own 30×18 tile maps with colours, darkness, liminality and door links; add
+  to the built-in three or replace them), **characters** (infected, kind followers or neutral) and **remove** (leave
+  built-in ones out), **rules** (player/sneak/infected speed, sight and hearing range, how fast infection spreads to you
+  and to the Claudes, food and water drain, supplies, tornado timing/speed/size), **text** (title, game-over messages,
+  the kind AIs' warnings), **theme** (infected eyes, kind halo, HUD colour) and **start** (where you spawn).
+  Data only, never code; checked on upload and again in the game, every value clamped to a safe range.
+  Joining a modded server downloads its mods by itself. **Local mods**: put a mod folder or `.hh` file in
+  `~/Library/Application Support/Hollow Hours/mods/local/`, and offline Infection (4) uses it.
+  Examples in `mods/`: **FastInfected** (rules + a character) and **NightMall** (a total conversion: a closed mall and
+  its parking garage, mannequins, a night guard, new rules, texts and colours).
 
 ## Outside the window (asked once, on first launch)
 If you allow it, Infection mode reaches outside the game:

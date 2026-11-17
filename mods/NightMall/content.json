@@ -1,0 +1,145 @@
+{
+ "intro": "The mall closed hours ago. The escalators are still running.",
+ "replace_maps": true,
+ "maps": [
+  {
+   "name": "The night mall",
+   "rows": [
+    "##############################",
+    "#............................#",
+    "#..bb.....bb.....bb.....bb...#",
+    "#..bb.....bb..L..bb.d...bb...#",
+    "#............................#",
+    "#............................#",
+    "######..##############..######",
+    "#............................#",
+    "#....L........L..............G",
+    "#...........d...........L....G",
+    "#............................#",
+    "######..##############..######",
+    "#............................#",
+    "#..bb.....bb.....bb.....bb...#",
+    "#..bb.....bb..L..bb.....bb...#",
+    "#............................#",
+    "#............................#",
+    "##############################"
+   ],
+   "dark": 0.55,
+   "liminal": 0.85,
+   "floor": "#c9c2b8",
+   "wall": "#3a3440",
+   "doors": {
+    "G": {
+     "to": 1,
+     "x": 2,
+     "y": 9
+    }
+   }
+  },
+  {
+   "name": "The parking garage",
+   "rows": [
+    "##############################",
+    "#............................#",
+    "#.....bb....bb....bb....bb...#",
+    "#............................#",
+    "#............................#",
+    "#..............L.............#",
+    "#.....bb....bb....bb....bb...#",
+    "#............................#",
+    "M............................#",
+    "M............................#",
+    "#.....bb....bb....bb....bb...#",
+    "#............................#",
+    "#..............L.............#",
+    "#............................#",
+    "#.....bb....bb....bb....bbd..#",
+    "#............................#",
+    "#............................#",
+    "##############################"
+   ],
+   "dark": 0.8,
+   "liminal": 0.7,
+   "floor": "#5d5f63",
+   "wall": "#26282c",
+   "doors": {
+    "M": {
+     "to": 0,
+     "x": 27,
+     "y": 9
+    }
+   }
+  }
+ ],
+ "start": {
+  "map": 0,
+  "x": 14,
+  "y": 9
+ },
+ "remove": [
+  "Spark",
+  "Twin"
+ ],
+ "characters": [
+  {
+   "name": "Mannequin",
+   "color": "#e8d8c8",
+   "personality": "never moves while you look at it, speaks in store announcements",
+   "infected": true,
+   "map": 0,
+   "x": 25,
+   "y": 4
+  },
+  {
+   "name": "Security",
+   "color": "#2f4a7a",
+   "personality": "a night guard AI still doing its rounds, flashlight sweeping",
+   "infected": true,
+   "map": 1,
+   "x": 20,
+   "y": 13
+  },
+  {
+   "name": "Kiosk",
+   "color": "#f2c14e",
+   "personality": "a cheerful info kiosk that is not infected and wants to help you find the exit",
+   "infected": false,
+   "kind": true,
+   "map": 0,
+   "x": 13,
+   "y": 8
+  }
+ ],
+ "rules": {
+  "infected_speed": 2.8,
+  "player_speed": 3.4,
+  "sneak_speed": 1.6,
+  "sight_tiles": 10,
+  "hearing_tiles": 8,
+  "infect_touch": 0.3,
+  "food_minutes": 6,
+  "water_minutes": 4,
+  "supplies_per_map": 7,
+  "supply_amount": 0.35,
+  "tornado_min": 90,
+  "tornado_max": 160,
+  "tornado_speed": 3.5,
+  "tornado_radius": 2.2
+ },
+ "text": {
+  "title": "NIGHT MALL",
+  "over_infected": "Attention shoppers: you are now part of the store.",
+  "over_claudes": "The mall is closed. Every Claude works here now.",
+  "warnings": [
+   "{} is in aisle 3!",
+   "Cleanup on aisle you: {}!",
+   "{} heard the escalator.",
+   "Hide, {} is doing rounds."
+  ]
+ },
+ "theme": {
+  "infected_eye": "#ff3b3b",
+  "kind_halo": "#7fd6ff",
+  "hud": "#14121a"
+ }
+}

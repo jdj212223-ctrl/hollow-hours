@@ -205,12 +205,26 @@ async function modsPage(env, user, msg = "") {
 ${results.map((m) => `<p><a href="/mods/${m.id}"><b>${esc(m.name)}</b></a> ${esc(m.version)} <span class="dim small">by ${esc(m.author)} · id <code>${m.id}</code></span><br><span class="small">${esc(m.description)}</span></p>`).join("") || '<p class="dim">No mods yet.</p>'}</div>
 <div class="card"><h2 style="margin-top:0">Make a mod</h2><p>A <code>.hh</code> file is a zip with two files. It's <b>data only</b>: it can't run code on anyone's computer.</p>
 <p><code>hh.json</code>: <code>{"name": "Fast Infected", "version": "1.0", "description": "..."}</code></p>
-<p><code>content.json</code> (all optional):</p>
-<pre style="white-space:pre-wrap" class="small"><code>{ "intro": "One line shown when the game starts",
-  "rules": { "infected_speed": 3.0, "tornado_min": 30, "tornado_max": 60,
-             "food_minutes": 4, "water_minutes": 3, "sneak_speed": 1.5 },
-  "characters": [ { "name": "Nyx", "color": "#7a3cff", "personality": "whispers in riddles",
-                    "infected": true, "map": 0, "x": 20, "y": 10 } ] }</code></pre>
+<p><code>content.json</code>: every part is optional. A mod can change the whole game:</p>
+<pre style="white-space:pre-wrap" class="small"><code>{ "intro": "One line when the game starts",
+  "text":  { "title": "NIGHT MALL", "over_infected": "...", "over_claudes": "...",
+             "warnings": ["{} is in aisle 3!", "Hide, {} is doing rounds."] },
+  "theme": { "infected_eye": "#ff3b3b", "kind_halo": "#7fd6ff", "hud": "#14121a" },
+  "rules": { "player_speed": 3.4, "sneak_speed": 1.6, "infected_speed": 2.8,
+             "sight_tiles": 10, "hearing_tiles": 8, "infect_touch": 0.3, "infect_near": 0.02,
+             "claude_infect": 0.18, "food_minutes": 6, "water_minutes": 4,
+             "supplies_per_map": 7, "supply_amount": 0.35,
+             "tornado_min": 90, "tornado_max": 160, "tornado_speed": 3.5, "tornado_radius": 2.2 },
+  "replace_maps": true,
+  "maps": [ { "name": "The night mall", "rows": [ 18 rows of 30 tiles ],
+              "dark": 0.55, "liminal": 0.85, "floor": "#c9c2b8", "wall": "#3a3440",
+              "doors": { "G": { "to": 1, "x": 2, "y": 9 } } } ],
+  "start": { "map": 0, "x": 14, "y": 9 },
+  "remove": ["Spark", "Twin"],
+  "characters": [ { "name": "Kiosk", "color": "#f2c14e", "personality": "wants to help you find the exit",
+                    "infected": false, "kind": true, "map": 0, "x": 13, "y": 8 } ] }</code></pre>
+<p class="small">Tiles: <code>#</code> wall · <code>.</code> floor · <code>,</code> sand · <code>~</code> water · <code>b</code> furniture (hide next to it) · <code>L</code> lamp · <code>d</code> doll · <code>A</code>-<code>Z</code> doors (say where each leads in <code>doors</code>).
+Characters can be <b>infected</b>, <b>kind</b> (they follow and protect the player) or neither.</p>
 <p class="small dim">Zip it (Terminal: <code>zip MyMod.hh hh.json content.json</code>) and upload it here.</p>
 ${user ? `<form method="post" action="/mods/upload" enctype="multipart/form-data"><input type="file" name="file" accept=".hh,.zip" required><p><button class="btn" type="submit">Upload and check</button></p></form>` : '<p><a href="/login">Log in</a> to upload a mod.</p>'}</div>`);
 }

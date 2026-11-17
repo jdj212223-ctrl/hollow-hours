@@ -1392,13 +1392,17 @@ async fn main() {
                     let col = if g.login_field == i { YELLOW } else { Color::new(0.8, 0.82, 0.9, 1.0) };
                     draw_text(&format!("{label}: {val}{}", if g.login_field == i { "_" } else { "" }), 60.0, 200.0 + i as f32 * 40.0, 26.0, col);
                 }
-                for (i, l) in ["Tab = next field · Enter = log in · Esc = back", &format!("No account? Make one at {}/register", site()), &g.status.clone()].iter().enumerate() {
+                for (i, l) in ["Tab = next field · Cmd+V paste · Enter = log in · Esc = back", &format!("No account? Make one at {}/register", site()), &g.status.clone()].iter().enumerate() {
                     draw_text(l, 60.0, 310.0 + i as f32 * 30.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
                 }
-                while let Some(ch) = get_char_pressed() {
+                for ch in typed() {
                     if ch.is_control() { continue; }
                     let f = if g.login_field == 0 { &mut g.login_email } else { &mut g.login_pw };
                     if f.len() < 128 { f.push(ch); }
+                }
+                if let Some(t) = pasted() {
+                    let f = if g.login_field == 0 { &mut g.login_email } else { &mut g.login_pw };
+                    f.extend(t.chars().take(128usize.saturating_sub(f.chars().count())));
                 }
                 if is_key_pressed(KeyCode::Backspace) { if g.login_field == 0 { g.login_email.pop(); } else { g.login_pw.pop(); } }
                 if is_key_pressed(KeyCode::Tab) { g.login_field = 1 - g.login_field; }
@@ -1454,7 +1458,9 @@ async fn main() {
                 draw_text(&format!("Name: {}_", g.room_input), 60.0, 190.0, 30.0, YELLOW);
                 draw_text("Enter = make it and join · Esc = back   (add mods to a server on the website)", 60.0, 250.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
                 draw_text(&g.status.clone(), 60.0, 290.0, 20.0, Color::new(1.0, 0.75, 0.4, 1.0));
-                while let Some(ch) = get_char_pressed() { if !ch.is_control() && g.room_input.len() < 32 { g.room_input.push(ch); } }
+                let mut chars = typed();
+                if let Some(t) = pasted() { chars.extend(t.chars()); }
+                for ch in chars { if !ch.is_control() && g.room_input.chars().count() < 32 { g.room_input.push(ch); } }
                 if is_key_pressed(KeyCode::Backspace) { g.room_input.pop(); }
                 if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Servers; }
                 if is_key_pressed(KeyCode::Enter) {
@@ -1482,7 +1488,9 @@ async fn main() {
                     "", &format!("Room: {}_", g.room_input), "", "Esc = back"].iter().enumerate() {
                     draw_text(l, 60.0, 190.0 + i as f32 * 32.0, if i == 3 { 34.0 } else { 22.0 }, Color::new(0.82, 0.84, 0.9, 1.0));
                 }
-                while let Some(ch) = get_char_pressed() {
+                let mut chars = typed();
+                if let Some(t) = pasted() { chars.extend(t.chars()); }
+                for ch in chars {
                     if ch.is_ascii_alphanumeric() && g.room_input.len() < 8 { g.room_input.push(ch.to_ascii_uppercase()); }
                 }
                 if is_key_pressed(KeyCode::Backspace) { g.room_input.pop(); }
@@ -1555,11 +1563,35 @@ async fn main() {
     g.vest.play(haptics::Effect::StopAll);
 }
 
+fn cmd_held() -> bool {
+    is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper) || is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl)
+}
+
+/// ⌘V (Ctrl+V elsewhere): the clipboard as one line of text, without control characters.
+fn pasted() -> Option<String> {
+    if !(cmd_held() && is_key_pressed(KeyCode::V)) { return None; }
+    let t = macroquad::miniquad::window::clipboard_get()?;
+    let t: String = t.chars().map(|c| if c == '\n' || c == '\t' { ' ' } else { c }).filter(|c| !c.is_control()).collect();
+    Some(t.trim().to_string())
+}
+
+/// Characters typed this frame, leaving out the ones typed while ⌘/Ctrl is held (shortcuts, not text).
+fn typed() -> Vec<char> {
+    let mut v = vec![];
+    while let Some(ch) = get_char_pressed() { v.push(ch); }
+    if cmd_held() { v.clear(); }
+    v
+}
+
 fn typing(g: &mut Game, i: usize) {
-    while let Some(ch) = get_char_pressed() {
+    for ch in typed() {
         if !ch.is_control() && g.input.chars().count() < 120 {
             g.input.push(ch);
         }
+    }
+    if let Some(t) = pasted() {
+        let room = 120usize.saturating_sub(g.input.chars().count());
+        g.input.extend(t.chars().take(room));
     }
     if is_key_pressed(KeyCode::Backspace) { g.input.pop(); }
     let w = screen_width();

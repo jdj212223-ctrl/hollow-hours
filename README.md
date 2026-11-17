@@ -87,6 +87,15 @@ servers, make your own, and upload mods.
 Host Hollow Hours online yourself and list it on the website: see [`selfhost/`](selfhost/README.md). Players' logins
 never go to your server: the game brings a 60-second, single-use ticket signed by the website instead.
 
+## Let an AI play (Hollow Hours MCP)
+The game has a bridge on this computer only (127.0.0.1, locked with a token in
+`~/Library/Application Support/Hollow Hours/bridge.json`, readable only by you), and `hh-mcp` turns it into MCP tools:
+`hh_state`, `hh_start`, `hh_move`, `hh_go_to`, `hh_stop`, `hh_hide`, `hh_talk`, `hh_panic`, `hh_back`, `hh_screenshot`.
+```
+claude mcp add --scope user hollow-hours -- "/Applications/Hollow Hours.app/Contents/MacOS/hh-mcp"
+```
+While an AI plays, the game shows "Claude is playing"; your keys always win, and P (panic) stops everything.
+
 ## Outside the window (asked once, on first launch)
 If you allow it, Infection mode reaches outside the game:
 - **Files** in a `Hollow Hours` folder on your Desktop (at 10%, 75% and 100% infection, when a Claude turns, and at the
@@ -107,6 +116,8 @@ jumpscare (one quick fade, **no flashing**) and you wake up in the cozy house. N
   them weaker or stronger. Don't use it with a heart condition.
 
 ## Run
+The window can be any size or full screen: the game scales to fit (black bars keep its shape).
+
 `macos/bundle.sh --install` builds **Hollow Hours.app** (ghost icon, registers `hollowhours://` links) into /Applications.
 
 ```

@@ -10,6 +10,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 xcrun swiftc -O macos/Launcher.swift -o "$APP/Contents/MacOS/Hollow Hours"
 cp target/release/hollow-hours "$APP/Contents/MacOS/hollow-hours-game"
+cp target/release/hh-mcp "$APP/Contents/MacOS/hh-mcp"
 cp macos/Info.plist "$APP/Contents/Info.plist"
 cp macos/HollowHours.icns "$APP/Contents/Resources/HollowHours.icns"
 codesign --force --deep --sign - "$APP" 2>/dev/null || true

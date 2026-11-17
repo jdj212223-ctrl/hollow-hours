@@ -8,6 +8,7 @@ mod ai;
 mod haptics;
 mod meta;
 mod net;
+mod bridge;
 
 use serde_json::json;
 
@@ -360,6 +361,14 @@ struct Game {
     login_field: usize,
     /// Show the password while typing it (F1 or the Show button).
     show_pw: bool,
+    /// The MCP bridge (Claude playing): requests from bin/hh-mcp arrive here.
+    bridge: Option<std::sync::mpsc::Receiver<bridge::Request>>,
+    /// What Claude asked the player to do: walk a direction or to a spot, sneaking or not.
+    ai: Option<AiMove>,
+    /// Seconds since Claude's last command (shows "Claude is playing" while recent).
+    ai_t: f32,
+    /// Screenshot requests: answered at the end of the frame, once it's drawn.
+    shots: Vec<std::sync::mpsc::Sender<serde_json::Value>>,
     /// A browser login in progress (B on the login screen): the answer arrives here.
     browser_login: Option<std::sync::mpsc::Receiver<Result<Account, String>>>,
     status: String,
@@ -715,6 +724,16 @@ fn mod_character(v: &serde_json::Value) -> Option<Character> {
     })
 }
 
+/// A move Claude asked for through the MCP.
+struct AiMove {
+    dir: Vec2,
+    /// Walk to this tile spot (on this map) instead of a fixed direction.
+    goto: Option<Vec2>,
+    /// Seconds left (directions) or until it gives up (go_to).
+    t: f32,
+    sneak: bool,
+}
+
 /// Another human in the room.
 struct Remote {
     id: String,
@@ -867,6 +886,87 @@ fn refresh_servers_quiet(g: &mut Game) -> Vec<serde_json::Value> {
 fn refresh_servers(g: &mut Game) {
     g.status = String::new();
     if refresh_servers_quiet(g).is_empty() { g.status = "No servers (or the website can't be reached).".into(); }
+}
+
+/// One MCP command. Returns the answer now, or None if it answers later (screenshots).
+fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync::mpsc::Sender<serde_json::Value>) -> Option<serde_json::Value> {
+    let tile = |p: Vec2| json!([(p.x / T * 10.0).round() / 10.0, (p.y / T * 10.0).round() / 10.0]);
+    Some(match cmd {
+        "state" => {
+            let here = g.map;
+            let chars: Vec<_> = g.chars.iter().filter(|c| c.map == here).map(|c| json!({
+                "name": c.name, "at": tile(c.pos), "distance": ((c.pos.distance(g.pos) / T) * 10.0).round() / 10.0,
+                "infected": c.infected, "kind": c.kind, "claude_family": c.claude, "chasing": c.crazy > 0.0 && (c.infected || !g.infection),
+                "stunned": c.stun > 0.0, "infection": (c.infect * 100.0) as i32, "thinking": c.thinking,
+                "saying": if c.bubble_t > 0.0 && !c.thinking { c.bubble.clone() } else { String::new() }})).collect();
+            let mut items: Vec<_> = g.items.iter().filter(|(m, _, _)| *m == here).map(|(_, p, w)| (p.distance(g.pos), json!({"what": if *w { "water" } else { "food" }, "at": tile(*p)}))).collect();
+            items.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+            let doors: Vec<_> = with_map(here, |d| d.doors.iter().map(|(l, to, _)| {
+                let spots: Vec<_> = (0..MH).flat_map(|y| (0..MW).map(move |x| (x, y))).filter(|(x, y)| d.rows[*y][*x] as char == *l).map(|(x, y)| json!([x as f32 + 0.5, y as f32 + 0.5])).take(2).collect();
+                json!({"door": l.to_string(), "to": map_name(*to), "at": spots})
+            }).collect());
+            json!({
+                "screen": match g.screen { Screen::Title => "title", Screen::Play => "playing", Screen::Typing(_) => "typing", Screen::Safe => "safe (after panic)",
+                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias" },
+                "mode": if g.infection { "infection" } else { "normal" },
+                "map": map_name(here), "you": {"at": tile(g.pos), "hidden": g.hidden, "can_hide_here": can_hide(g), "sneaking": g.sneaking,
+                    "lost_control": g.lost_control, "infection": (g.inf * 100.0) as i32, "food": (g.food * 100.0) as i32, "water": (g.water * 100.0) as i32,
+                    "fear": (g.fear * 100.0) as i32, "noise": (g.noise * 100.0) as i32},
+                "time": g.time_text(), "survived_s": g.survived as i32,
+                "characters": chars, "supplies_nearest_first": items.into_iter().take(6).map(|x| x.1).collect::<Vec<_>>(), "doors": doors,
+                "tornado": g.tornado.as_ref().map(|t| json!({"at": tile(t.pos), "warning": t.warn > 0.0})),
+                "recent": g.log.iter().rev().take(5).cloned().collect::<Vec<_>>(),
+                "game_over": if g.screen == Screen::Over { g.over_reason.clone() } else { String::new() },
+                "online": g.net.as_ref().map(|n| json!({"room": n.room, "players": n.players, "host": n.is_host()})),
+                "account": g.account.as_ref().map(|a| a.name.clone()),
+                "map_size_tiles": [MW, MH],
+            })
+        }
+        "start" => {
+            if !matches!(g.screen, Screen::Title | Screen::Over | Screen::Safe) { return Some(json!({"error": "only from the title, game-over or safe screen"})); }
+            match a["mode"].as_str().unwrap_or("infection") {
+                "brave" => { g.courage = Courage::Brave; g.infection = false; g.screen = Screen::Play; }
+                "normal" => { g.courage = Courage::Normal; g.infection = false; g.screen = Screen::Play; }
+                _ => { let local = local_mods(); apply_contents(g, &local); start_infection(g); }
+            }
+            json!({"ok": true, "mode": if g.infection { "infection" } else { "normal" }})
+        }
+        "move" => {
+            let secs = a["seconds"].as_f64().unwrap_or(1.0).clamp(0.1, 5.0) as f32;
+            let dir = match a["direction"].as_str().unwrap_or("") {
+                "up" | "north" => vec2(0.0, -1.0), "down" | "south" => vec2(0.0, 1.0), "left" | "west" => vec2(-1.0, 0.0), "right" | "east" => vec2(1.0, 0.0),
+                "north-east" => vec2(1.0, -1.0), "north-west" => vec2(-1.0, -1.0), "south-east" => vec2(1.0, 1.0), "south-west" => vec2(-1.0, 1.0),
+                _ => return Some(json!({"error": "direction: up/down/left/right or north/south/east/west (and north-east...)"})),
+            };
+            g.ai = Some(AiMove { dir: dir.normalize(), goto: None, t: secs, sneak: a["sneak"].as_bool().unwrap_or(false) });
+            json!({"ok": true, "walking": a["direction"], "seconds": secs})
+        }
+        "go_to" => {
+            let (x, y) = (a["x"].as_f64().unwrap_or(-1.0) as f32, a["y"].as_f64().unwrap_or(-1.0) as f32);
+            if !(0.0..MW as f32).contains(&x) || !(0.0..MH as f32).contains(&y) { return Some(json!({"error": "x 0-30, y 0-18 (tiles)"})); }
+            g.ai = Some(AiMove { dir: Vec2::ZERO, goto: Some(vec2(x, y)), t: 12.0, sneak: a["sneak"].as_bool().unwrap_or(false) });
+            json!({"ok": true, "going_to": [x, y], "note": "walks straight there; walls stop it, so go around through gaps and doors"})
+        }
+        "stop" => { g.ai = None; json!({"ok": true}) }
+        "hide" => {
+            if !g.infection { return Some(json!({"error": "hiding is for Infection mode"})); }
+            if g.hidden { g.hidden = false; } else if can_hide(g) { g.hidden = true; } else { return Some(json!({"error": "no furniture right next to you to hide behind"})); }
+            json!({"ok": true, "hidden": g.hidden})
+        }
+        "talk" => {
+            let name = a["name"].as_str().unwrap_or("");
+            let text: String = a["text"].as_str().unwrap_or("").chars().filter(|c| !c.is_control()).take(120).collect();
+            let Some(i) = g.chars.iter().position(|c| c.map == g.map && c.name.eq_ignore_ascii_case(name)) else { return Some(json!({"error": "nobody by that name on this map"})) };
+            if g.chars[i].pos.distance(g.pos) > 3.0 * T { return Some(json!({"error": "walk closer first (within 3 tiles)"})); }
+            if text.is_empty() { return Some(json!({"error": "say something"})); }
+            g.say(i, Some(text), "Hmm?");
+            json!({"ok": true, "note": "they're thinking: read their answer in state (characters[].saying) in a few seconds"})
+        }
+        "panic" => { g.panic(); g.ai = None; json!({"ok": true, "note": "everything stopped"}) }
+        "back" => { if matches!(g.screen, Screen::Safe | Screen::Over) { g.screen = Screen::Title; } json!({"ok": true}) }
+        "screenshot" => { g.shots.push(reply.clone()); return None; }
+        _ => json!({"error": "unknown command", "commands": ["state", "start", "move", "go_to", "stop", "hide", "talk", "panic", "back", "screenshot"]}),
+    })
 }
 
 fn guest(g: &Game) -> bool {
@@ -1343,7 +1443,7 @@ fn bubble(text: &str, via: &str, x: f32, y: f32) {
     let lines = wrap(text, 260.0, 18.0);
     let h = lines.len() as f32 * 18.0 + if via.is_empty() { 10.0 } else { 24.0 };
     let w = 280.0;
-    let bx = (x - w / 2.0).clamp(4.0, screen_width() - w - 4.0);
+    let bx = (x - w / 2.0).clamp(4.0, VW - w - 4.0);
     let by = (y - h - 26.0).max(4.0);
     draw_rectangle(bx, by, w, h, Color::new(0.06, 0.06, 0.09, 0.92));
     draw_rectangle_lines(bx, by, w, h, 2.0, Color::new(1.0, 1.0, 1.0, 0.35));
@@ -1376,8 +1476,26 @@ fn light_texture() -> Texture2D {
     Texture2D::from_image(&img)
 }
 
+/// The game is drawn on a fixed 960x660 canvas, then scaled to fill the window (full screen too), keeping its shape
+/// with black bars at the sides or top. VW x VH is that canvas.
+const VW: f32 = MW as f32 * T;
+const VH: f32 = MH as f32 * T + HUD;
+
 fn window_conf() -> Conf {
-    Conf { window_title: "Hollow Hours".into(), window_width: (MW as f32 * T) as i32, window_height: (MH as f32 * T + HUD) as i32, ..Default::default() }
+    Conf { window_title: "Hollow Hours".into(), window_width: VW as i32, window_height: VH as i32, window_resizable: true, high_dpi: true, ..Default::default() }
+}
+
+/// Where the canvas sits in the window: (scale, x offset, y offset).
+fn canvas_fit() -> (f32, f32, f32) {
+    let s = (screen_width() / VW).min(screen_height() / VH);
+    (s, (screen_width() - VW * s) / 2.0, (screen_height() - VH * s) / 2.0)
+}
+
+/// The mouse in canvas coordinates.
+fn virtual_mouse() -> (f32, f32) {
+    let (mx, my) = mouse_position();
+    let (s, ox, oy) = canvas_fit();
+    ((mx - ox) / s, (my - oy) / s)
 }
 
 #[macroquad::main(window_conf)]
@@ -1431,6 +1549,10 @@ async fn main() {
         login_field: 0,
         show_pw: false,
         browser_login: None,
+        bridge: bridge::start(random_hex(24)),
+        ai: None,
+        ai_t: 99.0,
+        shots: vec![],
         status: String::new(),
         server_list: vec![],
         rules: Rules::default(),
@@ -1467,13 +1589,25 @@ async fn main() {
     }
 
     let mut pending_t = 0.0f32;
+    // Drawn on its own canvas at 2x for sharp text when scaled up, then fitted to the window each frame.
+    let canvas = render_target((VW * 2.0) as u32, (VH * 2.0) as u32);
+    canvas.texture.set_filter(FilterMode::Linear);
+    let mut cam = Camera2D::from_display_rect(Rect::new(0.0, 0.0, VW, VH));
+    cam.render_target = Some(canvas.clone());
     loop {
+        set_camera(&cam);
         let dt = get_frame_time().min(0.05);
         // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
         pending_t -= dt;
         if pending_t <= 0.0 && g.browser_login.is_none() {
             pending_t = 1.0;
             if let Some(rx) = take_pending_login() { g.browser_login = Some(rx); }
+        }
+        let reqs: Vec<bridge::Request> = g.bridge.as_ref().map(|rx| rx.try_iter().collect()).unwrap_or_default();
+        for r in reqs {
+            g.ai_t = 0.0;
+            let answer = mcp_command(&mut g, &r.cmd, &r.args, &r.reply);
+            if let Some(a) = answer { let _ = r.reply.send(a); }
         }
         if let Some(rx) = &g.browser_login {
             if let Ok(res) = rx.try_recv() {
@@ -1549,7 +1683,7 @@ async fn main() {
                 let (bx, by, bw, bh) = (60.0 + pw_w + 16.0, 222.0, 64.0, 26.0);
                 draw_rectangle(bx, by, bw, bh, Color::new(0.2, 0.2, 0.26, 1.0));
                 draw_text(if g.show_pw { "Hide" } else { "Show" }, bx + 12.0, by + 19.0, 20.0, WHITE);
-                let (mx, my) = mouse_position();
+                let (mx, my) = virtual_mouse();
                 if (is_mouse_button_pressed(MouseButton::Left) && mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) || is_key_pressed(KeyCode::F1) {
                     g.show_pw = !g.show_pw;
                 }
@@ -1747,6 +1881,16 @@ async fn main() {
                 }
             }
         }
+        // Show the canvas, scaled to fit the window (black bars around it).
+        set_default_camera();
+        clear_background(BLACK);
+        let (s, ox, oy) = canvas_fit();
+        draw_texture_ex(&canvas.texture, ox, oy, WHITE, DrawTextureParams { dest_size: Some(vec2(VW * s, VH * s)), flip_y: true, ..Default::default() });
+        if !g.shots.is_empty() {
+            let path = std::env::temp_dir().join("hollow-hours-shot.png");
+            get_screen_data().export_png(&path.to_string_lossy());
+            for tx in g.shots.drain(..) { let _ = tx.send(json!({"ok": true, "path": path.to_string_lossy()})); }
+        }
         next_frame().await;
     }
     g.vest.play(haptics::Effect::StopAll);
@@ -1783,7 +1927,7 @@ fn typing(g: &mut Game, i: usize) {
         g.input.extend(t.chars().take(room));
     }
     if is_key_pressed(KeyCode::Backspace) { g.input.pop(); }
-    let w = screen_width();
+    let w = VW;
     draw_rectangle(0.0, MH as f32 * T - 46.0, w, 46.0, Color::new(0.0, 0.0, 0.0, 0.85));
     draw_text(&format!("To {}: {}_", g.chars[i].name, g.input), 14.0, MH as f32 * T - 16.0, 22.0, WHITE);
     if is_key_pressed(KeyCode::Enter) {
@@ -1822,12 +1966,29 @@ fn update(g: &mut Game, dt: f32) {
     // Player movement (not while typing, hiding, or once you've lost control). Shift = sneak: slow and silent.
     g.sneaking = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
     g.noise = (g.noise - dt * 1.5).max(0.0);
+    g.ai_t += dt;
     if g.screen == Screen::Play && !g.hidden && !g.lost_control {
         let mut d = Vec2::ZERO;
         if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) { d.y -= 1.0; }
         if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) { d.y += 1.0; }
         if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) { d.x -= 1.0; }
         if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) { d.x += 1.0; }
+        // Claude's move (MCP), only when you aren't pressing anything: your keys always win.
+        if d == Vec2::ZERO {
+            if let Some(a) = &mut g.ai {
+                a.t -= dt;
+                if let Some(t) = a.goto {
+                    let to = t * T - g.pos;
+                    if to.length() < 0.35 * T { a.t = 0.0; } else { d = to.normalize(); }
+                } else {
+                    d = a.dir;
+                }
+                if a.sneak { g.sneaking = true; }
+                if a.t <= 0.0 { g.ai = None; d = Vec2::ZERO; }
+            }
+        } else {
+            g.ai = None;
+        }
         if d != Vec2::ZERO {
             let speed = if g.sneaking { g.rules.sneak } else { g.rules.player_speed };
             if !g.sneaking { g.noise = 1.0; }
@@ -2094,6 +2255,11 @@ fn draw_world(g: &Game, light: &Texture2D) {
         }
     }
 
+    if g.ai_t < 6.0 {
+        let t = "Claude is playing  (your keys always win  ·  P = panic)";
+        draw_rectangle(sw - measure_text(t, None, 16, 1.0).width - 24.0, 6.0, measure_text(t, None, 16, 1.0).width + 16.0, 24.0, Color::new(0.85, 0.47, 0.32, 0.9));
+        draw_text(t, sw - measure_text(t, None, 16, 1.0).width - 16.0, 23.0, 16.0, WHITE);
+    }
     // Jumpscare: a face fills the screen for a moment (no flashing lights: one quick fade).
     if g.scare_t > 0.0 {
         let k = (g.scare_t / 0.7).min(1.0);
@@ -2131,8 +2297,17 @@ fn draw_world(g: &Game, light: &Texture2D) {
     }
     let courage = match g.courage { Courage::Brave => "Brave", Courage::Normal => "Normal", Courage::Phobias => "Phobias" };
     draw_text(&format!("{}  ·  {}  ·  {}", m_name, g.time_text(), courage), 320.0, y0 + 24.0, 18.0, Color::new(0.85, 0.85, 0.9, 1.0));
+    // Recent events, cut to fit so they never run into the status text on the right.
+    let max_w = if g.infection { sw - 480.0 - 320.0 } else { sw - 400.0 - 320.0 };
     for (i, l) in g.log.iter().rev().take(2).enumerate() {
-        draw_text(l, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
+        let mut t = l.clone();
+        while t.len() > 3 && measure_text(&t, None, 16, 1.0).width > max_w {
+            t.pop();
+            while !t.is_char_boundary(t.len()) { t.pop(); }
+            if !t.ends_with("...") { t.truncate(t.trim_end_matches('.').len()); }
+        }
+        if &t != l { t = format!("{}...", t.trim_end_matches('.')); }
+        draw_text(&t, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
     draw_text(if g.infection { "WASD move · Shift sneak · H hide · E talk · P PANIC · Esc" } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));

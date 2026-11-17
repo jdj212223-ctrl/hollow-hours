@@ -6,6 +6,7 @@
 
 mod ai;
 mod haptics;
+mod meta;
 
 use macroquad::prelude::*;
 
@@ -160,6 +161,8 @@ struct Character {
     claude: bool,
     /// How long ago it last saw you (infection mode).
     lost: f32,
+    /// Infection progress 0..1 for the Claude family (at 1 they turn).
+    infect: f32,
 }
 
 fn characters() -> Vec<Character> {
@@ -167,7 +170,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, claude: backend == "anthropic",
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -193,7 +196,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, claude: true,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -240,6 +243,8 @@ enum Screen {
     Play,
     Typing(usize),
     Safe,
+    /// First launch of the meta update: may the game make files, open Terminal and switch windows?
+    Consent,
     /// Infection mode is over: why.
     Over,
 }
@@ -276,6 +281,15 @@ struct Game {
     next_tornado: f32,
     next_warning: f32,
     over_reason: String,
+    /// Your infection 0..1. At 1 you can still see, but your body is theirs.
+    inf: f32,
+    lost_control: bool,
+    /// How loud you are right now (0 sneaking or still, ~1 walking). Infected hear you within noise * 6 tiles.
+    noise: f32,
+    sneaking: bool,
+    meta: meta::Meta,
+    /// Which meta events already happened this run (bit flags).
+    meta_done: u32,
 }
 
 impl Game {
@@ -379,6 +393,8 @@ impl Game {
         self.discomfort = 0.0;
         self.scare_t = 0.0;
         self.vest.play(haptics::Effect::StopAll);
+        self.meta.paused = true; // no more files, Terminal windows or window switching this session
+        self.lost_control = false;
         self.screen = Screen::Safe;
     }
 
@@ -434,6 +450,9 @@ fn start_infection(g: &mut Game) {
     g.fear = 0.0;
     g.tornado = None;
     g.next_tornado = rand::gen_range(45.0, 70.0);
+    g.inf = 0.0;
+    g.lost_control = false;
+    g.meta_done = 0;
     g.items.clear();
     for m in 0..MAPS.len() {
         for k in 0..5 {
@@ -444,6 +463,49 @@ fn start_infection(g: &mut Game) {
     }
     g.log = vec!["You are the last human. Hide (H), find food and water, and stay away from green eyes.".into()];
     g.screen = Screen::Play;
+}
+
+enum MetaEvent {
+    Touched,
+    Half,
+    Almost,
+    Turned,
+    ClaudeTurned(&'static str),
+    AllGone,
+}
+
+/// The game reaching outside its window (only if the player allowed it on first launch; panic stops it).
+fn meta_event(g: &mut Game, e: MetaEvent) {
+    let bit = match e { MetaEvent::Touched => 1, MetaEvent::Half => 2, MetaEvent::Almost => 4, MetaEvent::Turned => 8, MetaEvent::AllGone => 16, MetaEvent::ClaudeTurned(_) => 0 };
+    if bit != 0 && g.meta_done & bit != 0 { return; }
+    g.meta_done |= bit;
+    let t = format!("{} min {} s", (g.survived / 60.0) as i32, g.survived as i32 % 60);
+    match e {
+        MetaEvent::Touched => {
+            g.meta.write("you_were_touched.txt", &format!(
+                "It only takes one touch.\n\nThe last human was touched after {t}.\nInfection: 10%.\n\nHold Shift. Walk quietly. They hear footsteps.\n"));
+        }
+        MetaEvent::Half => g.meta.terminal(&["HOLLOW HOURS", "", "infection: 50 percent", "the last human is half ours now", "", "hold shift.  stay quiet.  we are listening."]),
+        MetaEvent::Almost => {
+            if let Some(path) = g.meta.write("75_percent.txt", &format!(
+                "75%.\n\nYou can still read this, so you can still run.\nBut your hands are getting cold, and the Claudes are watching you differently.\n\nSurvived: {t}\n")) {
+                g.meta.show_in_textedit(&path);
+            }
+        }
+        MetaEvent::Turned => {
+            let alive: Vec<&str> = g.chars.iter().filter(|c| c.claude && !c.infected).map(|c| c.name).collect();
+            g.meta.write("LAST_HUMAN_LOG.txt", &format!(
+                "LAST HUMAN LOG\n\nSurvived: {t}\nInfection: 100%\n\nYou can still see. You can't move.\nYour body is walking toward: {}.\n\nThis file stays, even after you quit.\n", alive.join(", ")));
+            g.meta.show_folder();
+        }
+        MetaEvent::ClaudeTurned(name) => {
+            g.meta.write(&format!("{}_is_infected.txt", name.replace(' ', "_")), &format!("{name} tried to protect you.\n{name} is one of them now.\n"));
+        }
+        MetaEvent::AllGone => {
+            g.meta.write("THE_END.txt", &format!("Every Claude is infected.\nThe last human lasted {t}.\n\nThese files are all that is left.\n(Hollow Hours: press C on the title screen to remove them.)\n"));
+            g.meta.terminal(&["they are all ours now", "", "every claude is infected", "the files on your desktop are all that is left of you"]);
+        }
+    }
 }
 
 fn random_floor(m: usize) -> Option<Vec2> {
@@ -516,7 +578,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         g.log.push(if water { "You sip the water as quietly as you can.".into() } else { "You eat, trying not to crunch.".into() });
         let pos = g.pos;
         for c in g.chars.iter_mut().filter(|c| c.infected && c.map == here) {
-            if c.pos.distance(pos) < 9.0 * T {
+            if c.pos.distance(pos) < if g.sneaking { 3.0 } else { 9.0 } * T {
                 c.crazy = 5.0; // heard you
             }
         }
@@ -532,7 +594,15 @@ fn update_infection(g: &mut Game, dt: f32) {
             g.chars[i].target = g.chars[i].pos;
             continue;
         }
-        let seen = g.chars[i].map == g.map && sees(g, g.chars[i].pos);
+        let seen = g.chars[i].map == g.map && !g.lost_control && sees(g, g.chars[i].pos);
+        // Nothing on you: go after the nearest Claude instead.
+        if !seen && g.chars[i].crazy <= 0.0 {
+            let me = (g.chars[i].map, g.chars[i].pos);
+            if let Some(p) = g.chars.iter().filter(|c| c.claude && !c.infected && c.map == me.0 && c.pos.distance(me.1) < 7.0 * T)
+                .map(|c| c.pos).min_by(|a, b| a.distance(me.1).partial_cmp(&b.distance(me.1)).unwrap()) {
+                g.chars[i].target = p;
+            }
+        }
         let c = &mut g.chars[i];
         if seen {
             c.crazy = 3.0;
@@ -540,22 +610,92 @@ fn update_infection(g: &mut Game, dt: f32) {
         } else {
             c.lost += dt;
         }
-        if c.map == g.map && c.pos.distance(g.pos) < 0.7 * T && (!g.hidden || c.pos.distance(g.pos) < 0.5 * T) {
-            g.over_reason = format!("{} caught you. You've been infected.", c.name);
-            g.scare_t = 0.7;
-            g.scare_face = c.color;
-            g.vest.play(haptics::Effect::Chill);
-            g.screen = Screen::Over;
-            return;
+        // They heard you: noise carries further than sight (sneak with Shift to be silent).
+        if c.map == g.map && !g.lost_control && g.noise > 0.05 && c.pos.distance(g.pos) < g.noise * 6.0 * T {
+            c.crazy = c.crazy.max(2.0);
         }
+        // Touching you spreads the infection (fast); being right beside you spreads it slowly.
+        if c.map == g.map && !g.lost_control {
+            let d = c.pos.distance(g.pos);
+            if d < 0.8 * T && (!g.hidden || d < 0.5 * T) {
+                if g.inf < 0.02 { g.scare_t = 0.5; g.scare_face = c.color; g.vest.play(haptics::Effect::Chill); }
+                g.inf += dt * 0.22;
+            } else if d < 2.0 * T && !g.hidden {
+                g.inf += dt * 0.02;
+            }
+        }
+    }
+    // The infection spreads to the Claude family too: any infected (you included, once you've turned) near them.
+    let spreaders: Vec<(usize, Vec2)> = g.chars.iter().filter(|c| c.infected && c.stun <= 0.0).map(|c| (c.map, c.pos))
+        .chain(g.lost_control.then_some((g.map, g.pos))).collect();
+    let mut turned = vec![];
+    for (i, c) in g.chars.iter_mut().enumerate() {
+        if !c.claude || c.infected { continue; }
+        let near = spreaders.iter().filter(|(m, p)| *m == c.map && p.distance(c.pos) < 0.9 * T).count();
+        if near > 0 {
+            c.infect += dt * 0.18 * near as f32;
+            if c.infect >= 1.0 {
+                c.infected = true;
+                c.kind = false;
+                turned.push(i);
+            }
+        }
+    }
+    for i in turned {
+        let name = g.chars[i].name;
+        g.log.push(format!("{name} has been infected."));
+        meta_event(g, MetaEvent::ClaudeTurned(name));
+    }
+    g.inf = g.inf.min(1.0);
+    if g.inf >= 0.1 { meta_event(g, MetaEvent::Touched); }
+    if g.inf >= 0.5 { meta_event(g, MetaEvent::Half); }
+    if g.inf >= 0.75 { meta_event(g, MetaEvent::Almost); }
+    if g.inf >= 1.0 && !g.lost_control {
+        g.lost_control = true;
+        g.hidden = false;
+        g.log.push("You're infected. You can still see... but your body isn't yours anymore.".into());
+        meta_event(g, MetaEvent::Turned);
+    }
+    // You've turned: your body hunts the Claudes on its own.
+    if g.lost_control {
+        if let Some(t) = g.chars.iter().filter(|c| c.claude && !c.infected).min_by(|a, b| {
+            let da = if a.map == g.map { a.pos.distance(g.pos) } else { 1e9 };
+            let db = if b.map == g.map { b.pos.distance(g.pos) } else { 1e9 };
+            da.partial_cmp(&db).unwrap()
+        }) {
+            if t.map == g.map {
+                let to = t.pos - g.pos;
+                if to.length() > 2.0 {
+                    let step = to.normalize() * 2.2 * T * dt;
+                    if !solid(g.map, g.pos.x + step.x, g.pos.y) { g.pos.x += step.x; }
+                    if !solid(g.map, g.pos.x, g.pos.y + step.y) { g.pos.y += step.y; }
+                }
+            }
+        }
+    }
+    // Every Claude infected: it's over.
+    if g.chars.iter().filter(|c| c.claude).all(|c| c.infected) {
+        g.over_reason = "Every Claude is infected. Nobody is left to protect anyone.".into();
+        meta_event(g, MetaEvent::AllGone);
+        g.screen = Screen::Over;
+        return;
     }
     // Kind AIs stay with you and call out danger.
     let danger = g.chars.iter().filter(|c| c.infected && c.map == g.map && c.crazy > 0.0).map(|c| c.name).next();
     g.next_warning -= dt;
     let player = g.pos;
     let map = g.map;
+    let threats: Vec<Vec2> = g.chars.iter().filter(|c| c.infected && c.map == map && c.stun <= 0.0).map(|c| c.pos)
+        .chain(g.lost_control.then_some(player)).collect();
+    let lost = g.lost_control;
     for (k, c) in g.chars.iter_mut().filter(|c| c.kind).enumerate() {
         c.map = map;
+        // An infected close by (or you, once you've turned): run away from it.
+        if let Some(t) = threats.iter().filter(|t| t.distance(c.pos) < 4.0 * T).min_by(|a, b| a.distance(c.pos).partial_cmp(&b.distance(c.pos)).unwrap()) {
+            c.target = c.pos + (c.pos - *t).normalize_or_zero() * 4.0 * T;
+            continue;
+        }
+        if lost { continue; }
         if c.pos.distance(player) > 2.5 * T {
             let angle = k as f32 * 1.6;
             c.target = player + vec2(angle.cos(), angle.sin()) * 1.4 * T;
@@ -714,7 +854,16 @@ async fn main() {
         next_tornado: 60.0,
         next_warning: 0.0,
         over_reason: String::new(),
+        inf: 0.0,
+        lost_control: false,
+        noise: 0.0,
+        sneaking: false,
+        meta: meta::Meta::load(),
+        meta_done: 0,
     };
+    if g.meta.allowed.is_none() {
+        g.screen = Screen::Consent;
+    }
 
     // HOLLOW_DEMO=1: start playing at once next to Clove and ask her something (for screenshots and quick checks).
     let demo = std::env::var("HOLLOW_DEMO").ok();
@@ -746,6 +895,11 @@ async fn main() {
                 if is_key_pressed(KeyCode::Key2) { g.courage = Courage::Normal; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
                 if is_key_pressed(KeyCode::Key4) { start_infection(&mut g); }
+                if is_key_pressed(KeyCode::M) { g.screen = Screen::Consent; }
+                if is_key_pressed(KeyCode::C) && !g.meta.created.is_empty() {
+                    let n = g.meta.clean_up();
+                    g.log = vec![format!("Removed the {n} files Hollow Hours had made.")];
+                }
                 if is_key_pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
                 if is_key_pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
                 if is_key_pressed(KeyCode::RightBracket) { g.vest.strength = (g.vest.strength + 0.1).min(1.0); }
@@ -759,6 +913,24 @@ async fn main() {
                 }
                 if is_key_pressed(KeyCode::Enter) { g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
+            }
+            Screen::Consent => {
+                draw_text("Hollow Hours wants to reach outside its window", 50.0, 120.0, 34.0, Color::new(0.85, 0.3, 0.35, 1.0));
+                for (i, l) in [
+                    "This update can scare you OUTSIDE the game:",
+                    "  - create files in a \"Hollow Hours\" folder on your Desktop (they stay after you quit)",
+                    "  - open Terminal to show you a message (it only prints text)",
+                    "  - switch your window to TextEdit or Finder to show you its files",
+                    "",
+                    "It only ever creates its OWN new files. It never changes, moves or deletes yours.",
+                    "C on the title screen removes every file it made. P (panic) stops all of this at once.",
+                    "",
+                    "Y = allow        N = keep everything inside the game",
+                ].iter().enumerate() {
+                    draw_text(l, 50.0, 180.0 + i as f32 * 30.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));
+                }
+                if is_key_pressed(KeyCode::Y) { g.meta.allowed = Some(true); g.meta.save(); g.screen = Screen::Title; }
+                if is_key_pressed(KeyCode::N) { g.meta.allowed = Some(false); g.meta.save(); g.screen = Screen::Title; }
             }
             Screen::Over => {
                 draw_text("INFECTED", 60.0, 150.0, 64.0, Color::new(0.45, 0.95, 0.35, 1.0));
@@ -836,15 +1008,19 @@ fn update(g: &mut Game, dt: f32) {
         update_infection(g, dt);
         if g.screen != Screen::Play && !matches!(g.screen, Screen::Typing(_)) { return; }
     }
-    // Player movement (not while typing, not while hiding).
-    if g.screen == Screen::Play && !g.hidden {
+    // Player movement (not while typing, hiding, or once you've lost control). Shift = sneak: slow and silent.
+    g.sneaking = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+    g.noise = (g.noise - dt * 1.5).max(0.0);
+    if g.screen == Screen::Play && !g.hidden && !g.lost_control {
         let mut d = Vec2::ZERO;
         if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) { d.y -= 1.0; }
         if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) { d.y += 1.0; }
         if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) { d.x -= 1.0; }
         if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) { d.x += 1.0; }
         if d != Vec2::ZERO {
-            let step = d.normalize() * 3.2 * T * dt;
+            let speed = if g.sneaking { 1.5 } else { 3.2 };
+            if !g.sneaking { g.noise = 1.0; }
+            let step = d.normalize() * speed * T * dt;
             let r = 10.0;
             let nx = g.pos.x + step.x;
             if !solid(g.map, nx + r * step.x.signum(), g.pos.y) { g.pos.x = nx; }
@@ -1066,6 +1242,21 @@ fn draw_world(g: &Game, light: &Texture2D) {
     draw_rectangle(0.0, bottom, sw, sh - bottom, dim);
     draw_rectangle(0.0, top, lx.max(0.0), bottom - top, dim);
     draw_rectangle(lx + radius * 2.0, top, (sw - (lx + radius * 2.0)).max(0.0), bottom - top, dim);
+    // Infection mode: your noise as a ring (they hear you inside it), and the world turning green as you turn.
+    if g.infection {
+        if g.noise > 0.05 && !g.lost_control {
+            draw_circle_lines(g.pos.x, g.pos.y, g.noise * 6.0 * T, 2.0, Color::new(1.0, 1.0, 1.0, 0.25 * g.noise));
+        }
+        if g.sneaking && !g.lost_control { draw_text("sneaking", g.pos.x - 26.0, g.pos.y + 28.0, 14.0, Color::new(0.7, 0.8, 1.0, 0.9)); }
+        if g.inf > 0.0 { draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.1, 0.8, 0.1, g.inf * 0.18)); }
+        if g.lost_control {
+            draw_rectangle(0.0, 0.0, sw, 44.0, Color::new(0.0, 0.0, 0.0, 0.7));
+            draw_text("YOU ARE INFECTED: you can see, but you can't move. It's walking toward the Claudes.", 16.0, 28.0, 20.0, Color::new(0.4, 1.0, 0.35, 1.0));
+        }
+        for c in g.chars.iter().filter(|c| c.map == g.map && c.claude && !c.infected && c.infect > 0.0) {
+            draw_rectangle(c.pos.x - 14.0, c.pos.y - 22.0, 28.0 * c.infect, 4.0, Color::new(0.35, 0.95, 0.3, 1.0));
+        }
+    }
     // Liminality: everything goes a little grey and too quiet.
     if g.liminality > 0.3 { draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.6, 0.65, 0.7, (g.liminality - 0.3) * 0.25)); }
     // Discomfort: a faint wrong-coloured tint.
@@ -1093,8 +1284,9 @@ fn draw_world(g: &Game, light: &Texture2D) {
     // HUD.
     let y0 = sh;
     draw_rectangle(0.0, y0, sw, HUD, Color::new(0.05, 0.05, 0.07, 1.0));
-    meter(14.0, y0 + 24.0, "Fear", g.fear, Color::new(0.9, 0.2, 0.2, 1.0), 0.0);
+    if !g.infection { meter(14.0, y0 + 24.0, "Fear", g.fear, Color::new(0.9, 0.2, 0.2, 1.0), 0.0); }
     if g.infection {
+        meter(14.0, y0 + 24.0, "Infection", g.inf, Color::new(0.35, 0.95, 0.3, 1.0), if g.inf > 0.5 { g.inf * 2.0 } else { 0.0 });
         meter(14.0, y0 + 48.0, "Food", g.food, Color::new(0.9, 0.55, 0.2, 1.0), 0.0);
         meter(14.0, y0 + 72.0, "Water", g.water, Color::new(0.3, 0.6, 1.0, 1.0), 0.0);
     } else {
@@ -1115,7 +1307,7 @@ fn draw_world(g: &Game, light: &Texture2D) {
     for (i, l) in g.log.iter().rev().take(2).enumerate() {
         draw_text(l, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
-    draw_text(if g.infection { "WASD move · H hide · E talk · P PANIC · Esc menu" } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
+    draw_text(if g.infection { "WASD move · Shift sneak · H hide · E talk · P PANIC · Esc" } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
 }
@@ -1137,6 +1329,8 @@ fn draw_title(g: &Game) {
         format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),
         "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),
         "No flashing lights. P = panic at any time: everything stops.".into(),
+        format!("Outside the window: {}   {}", match g.meta.allowed { Some(true) => "ALLOWED (files, Terminal, window switching)", Some(false) => "off", None => "not asked" },
+            if g.meta.created.is_empty() { "M to change".to_string() } else { format!("M to change, C removes its {} files", g.meta.created.len()) }),
     ];
     for (i, l) in lines.iter().enumerate() {
         draw_text(l, 60.0, 170.0 + i as f32 * 28.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));

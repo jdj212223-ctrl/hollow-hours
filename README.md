@@ -39,9 +39,22 @@ The cozy house · the beach at 3 AM · the empty pool (very liminal).
    chased, crowds, empty places
 
 ## Infection mode (4 on the title screen)
-Every non-Claude AI is infected (green eyes) and hunts you by sight: walls and darkness block it. You're the last human:
-**H** hides you next to furniture, food 🍎 and water 💧 run down and grabbing them makes noise, and **tornadoes** sweep
-across the map (a warning first). The kind Claude AIs follow you and shout warnings. Caught = infected, game over.
+Every non-Claude AI is infected (green eyes). You're the last human.
+- **Sneak** with **Shift**: slow and silent. Walking makes **noise** (the ring around you): infected inside it hear you
+  even without seeing you. Grabbing food or water while sneaking is quieter too.
+- **H** hides you next to furniture. Food 🍎 and water 💧 run down. **Tornadoes** sweep across the map after a warning.
+- Being touched raises your **Infection %**. At **100%** you can still see, but you **can't move**: your body walks off
+  to infect the Claudes.
+- The **Claudes can be infected too** (a little green bar over them). When **every Claude is infected, it's game over.**
+
+## Outside the window (asked once, on first launch)
+If you allow it, Infection mode reaches outside the game:
+- **Files** in a `Hollow Hours` folder on your Desktop (at 10%, 75% and 100% infection, when a Claude turns, and at the
+  end). They **stay after you quit**. It only creates its own new files, never touches yours, and **C** on the title
+  screen removes exactly the files it made.
+- **Terminal** opens to show a message (it only prints text).
+- **Your window switches** to TextEdit (75%) or Finder (100%).
+- **M** on the title screen changes your answer. **P** (panic) stops all of it for the rest of the session.
 
 ## Crazy mode
 At night a character on your map can snap: red eyes, too-calm voice, and it walks toward you. If it catches you: a

@@ -302,6 +302,7 @@ impl Game {
                  in character, no emojis, no lists, no gore.",
                 c.name, c.personality
             );
+            s += &format!("\n\nTHE SITUATION RIGHT NOW (use it, refer to real directions and names):\n{}", self.situation(c));
             return s;
         }
         if self.infection && c.infected {
@@ -317,7 +318,50 @@ impl Game {
         if self.courage == Courage::Brave {
             s += " The player chose Brave mode: be friendly and not scary at all.";
         }
+        s += &format!("\n\nTHE SITUATION RIGHT NOW:\n{}", self.situation(c));
         s
+    }
+
+    /// Everything a character should know about right now, sent at the start of every AI session (each reply is a
+    /// fresh session, so it gets the whole picture every time).
+    fn situation(&self, me: &Character) -> String {
+        let dir = |from: Vec2, to: Vec2| {
+            let d = to - from;
+            let ns = if d.y < -T { "north" } else if d.y > T { "south" } else { "" };
+            let ew = if d.x < -T { "west" } else if d.x > T { "east" } else { "" };
+            let way = format!("{ns}{}{ew}", if !ns.is_empty() && !ew.is_empty() { "-" } else { "" });
+            let n = (d.length() / T).round() as i32;
+            if way.is_empty() || n <= 1 { "right here".to_string() } else { format!("{n} tiles {way}") }
+        };
+        let mut out = vec![format!(
+            "Mode: {}. Place: {} (the player is here too: {}). Time: {}.",
+            if self.infection { "Infection (everyone outside the Claude family is infected; the player is the last human)" } else { "normal night" },
+            MAPS[self.map].name, if me.map == self.map { "yes" } else { "no" }, self.time_text()
+        )];
+        let mut player = format!("The player: fear {}%", (self.fear * 100.0) as i32);
+        if self.infection {
+            player += &format!(", food {}%, water {}%, {}, survived {} min", (self.food * 100.0) as i32, (self.water * 100.0) as i32,
+                if self.hidden { "HIDING under furniture" } else { "out in the open" }, (self.survived / 60.0) as i32);
+        }
+        out.push(player + &format!(", {} from you.", dir(me.pos, self.pos)));
+        let others: Vec<String> = self.chars.iter().filter(|c| c.map == self.map && c.name != me.name).map(|c| {
+            let state = if c.infected { if c.stun > 0.0 { "infected, stunned" } else if c.crazy > 0.0 { "INFECTED and CHASING the player" } else { "infected, wandering" } }
+                else if c.crazy > 0.0 { "in crazy mode" } else if c.kind || c.claude { "friendly (Claude family)" } else { "calm" };
+            format!("{} ({}, {} from the player)", c.name, state, dir(self.pos, c.pos))
+        }).collect();
+        if !others.is_empty() { out.push(format!("Around here: {}.", others.join("; "))); }
+        if self.infection {
+            let mut items: Vec<(f32, bool, Vec2)> = self.items.iter().filter(|(m, _, _)| *m == self.map).map(|(_, p, w)| (p.distance(self.pos), *w, *p)).collect();
+            items.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            let near: Vec<String> = items.into_iter().take(3).map(|(_, w, p)| format!("{} {}", if w { "water" } else { "food" }, dir(self.pos, p))).collect();
+            out.push(if near.is_empty() { "No food or water on this map.".into() } else { format!("Supplies here: {}.", near.join(", ")) });
+            if let Some(t) = &self.tornado {
+                out.push(if t.warn > 0.0 { "A TORNADO is about to touch down here!".into() } else { format!("A TORNADO is on this map, {} from the player.", dir(self.pos, t.pos)) });
+            }
+            out.push("Hiding spots: furniture (the player presses H next to it).".into());
+        }
+        if !self.log.is_empty() { out.push(format!("What just happened: {}", self.log.join(" "))); }
+        out.join("\n")
     }
 
     fn time_text(&self) -> String {
@@ -352,6 +396,9 @@ impl Game {
         c.thinking = true;
         c.bubble = "…".into();
         c.bubble_t = 30.0;
+        if std::env::var("HOLLOW_SHOW_CONTEXT").is_ok() {
+            eprintln!("---- prompt for {} ----\n{system}\n", c.name);
+        }
         let model = self.brains.local_model(c.model).unwrap_or_default();
         self.brains.ask(i, c.backend, c.cloud, model, system, history, fallback.into());
     }

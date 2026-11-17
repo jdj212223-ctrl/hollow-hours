@@ -17,6 +17,9 @@ cozy house, a crazy mode), with our own characters, maps and look.
 **The Claude family is always friendly** (Clove, Forge, Palette, and in Infection mode Claude, Opus 5.5, Sonnet 4.6 and
 Haiku 4.5): never crazy, never infected. If the **Claude desktop app** is installed, they talk through it (`claude -p`,
 your own Claude account), so you're chatting with real Claude. An `ANTHROPIC_API_KEY` is used first if set.
+Each Claude character keeps **one session per game**, named **"Hollow Hours: <character>"**, and remembers the whole
+chat. To find them: `cd /Volumes/important/hollow-hours && claude --resume` (they're saved in
+`~/.claude/projects/-Volumes-important-hollow-hours/`).
 
 "Local" = [Ollama](https://ollama.com) on this computer (qwen3:4b-instruct by default): free and offline. If no AI
 answers at all, characters use scripted lines. They also talk to *each other* now and then (local AI only).

@@ -56,13 +56,14 @@ impl Brains {
 
     /// Asks character `who` for a reply in the background.
     /// `cloud`: the exact cloud model for this character (e.g. "claude-opus-5-5"), or "" for the default.
-    pub fn ask(&self, who: usize, backend: &str, cloud: &str, model: String, system: String, history: Vec<Msg>, fallback: String) {
+    pub fn ask(&self, who: usize, name: &str, backend: &str, cloud: &str, model: String, system: String, history: Vec<Msg>, fallback: String) {
         let tx = self.tx.clone();
+        let name = name.to_string();
         let backend = backend.to_string();
         let cloud = cloud.to_string();
         std::thread::spawn(move || {
             // A cloud brain that fails (no key, offline, unknown model) falls back to the local one.
-            let (text, via) = match talk(&backend, &cloud, &model, &system, &history).or_else(|| talk("ollama", "", &model, &system, &history)) {
+            let (text, via) = match talk(&name, &backend, &cloud, &model, &system, &history).or_else(|| talk(&name, "ollama", "", &model, &system, &history)) {
                 Some(r) => r,
                 None => (fallback, "scripted (no AI answered)".into()),
             };
@@ -100,19 +101,59 @@ pub fn claude_cli() -> Option<String> {
     paths.into_iter().find(|p| std::path::Path::new(p).is_file())
 }
 
-/// Asks real Claude through the Claude app's command line (`claude -p`), with the right model.
-fn via_claude_cli(cloud: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
+/// One Claude session per character for this run of the game, so the whole chat stays together and is easy to find:
+/// it's named "Hollow Hours: <character>" (claude --resume lists it; it's saved under ~/.claude/projects).
+fn sessions() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+    static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
+    S.get_or_init(Default::default)
+}
+
+fn new_uuid() -> String {
+    use std::io::Read;
+    let mut b = [0u8; 16];
+    if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_err() {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        b = t.to_le_bytes();
+    }
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
+}
+
+/// Asks real Claude through the Claude app's command line (`claude -p`), with the right model, continuing this
+/// character's session.
+fn via_claude_cli(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
     let cli = claude_cli()?;
     let alias = if cloud.contains("haiku") { "haiku" } else if cloud.contains("sonnet") { "sonnet" } else { "opus" };
-    let mut convo = String::new();
-    for m in history.iter().rev().take(8).rev() {
-        convo += &format!("{}: {}\n", if m.user { "Player" } else { "You" }, m.text);
+    let existing = sessions().lock().ok()?.get(name).cloned();
+    let last = history.iter().rev().find(|m| m.user).map(|m| m.text.clone()).unwrap_or_default();
+    // A new session gets the character and the story so far; a continued one remembers, so it only needs the fresh
+    // situation and the player's new line.
+    let prompt = match &existing {
+        None => {
+            let mut convo = String::new();
+            for m in history.iter().rev().take(8).rev() {
+                convo += &format!("{}: {}\n", if m.user { "Player" } else { "You" }, m.text);
+            }
+            format!("{system}\n\nThe conversation so far:\n{convo}\nWrite only your next line (1-3 short sentences), nothing else.")
+        }
+        Some(_) => format!("{system}\n\nThe player says: {last}\nWrite only your next line (1-3 short sentences), nothing else."),
+    };
+    let mut args: Vec<String> = vec!["-p".into(), "--model".into(), alias.into(), "--output-format".into(), "text".into()];
+    match &existing {
+        Some(id) => args.extend(["--resume".into(), id.clone()]),
+        None => {
+            let id = new_uuid();
+            args.extend(["--session-id".into(), id.clone(), "--name".into(), format!("Hollow Hours: {name}")]);
+            sessions().lock().ok()?.insert(name.to_string(), id);
+        }
     }
-    let prompt = format!("{system}\n\nThe conversation so far:\n{convo}\nWrite only your next line (1-3 short sentences), nothing else.");
+    args.extend(["--tools".into(), String::new()]);
     // The prompt goes in through stdin (--tools takes a list and would swallow it as an argument).
     use std::io::Write;
     let mut child = std::process::Command::new(cli)
-        .args(["-p", "--model", alias, "--output-format", "text", "--tools", ""])
+        .args(&args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -128,7 +169,7 @@ fn key(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|k| !k.trim().is_empty())
 }
 
-fn talk(backend: &str, cloud: &str, model: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
+fn talk(name: &str, backend: &str, cloud: &str, model: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
     let msgs: Vec<Value> = history.iter().map(|m| json!({"role": if m.user { "user" } else { "assistant" }, "content": m.text})).collect();
     let t = Duration::from_secs(40);
     match backend {
@@ -144,7 +185,7 @@ fn talk(backend: &str, cloud: &str, model: &str, system: &str, history: &[Msg]) 
                 .ok()?;
             Some((v["content"][0]["text"].as_str()?.to_string(), format!("Claude API ({model})")))
         }
-        "anthropic" => via_claude_cli(cloud, system, history),
+        "anthropic" => via_claude_cli(name, cloud, system, history),
         "openai" if key("OPENAI_API_KEY").is_some() => {
             let model = std::env::var("HOLLOW_OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
             let mut all = vec![json!({"role": "system", "content": system})];
@@ -196,7 +237,7 @@ mod tests {
     fn a_local_character_answers() {
         let b = Brains::new();
         let Some(model) = b.local_model("qwen3:4b-instruct") else { return };
-        let r = talk("ollama", "", &model, "You are Clove, a warm character in a spooky game. Reply in one short sentence.",
+        let r = talk("Clove", "ollama", "", &model, "You are Clove, a warm character in a spooky game. Reply in one short sentence.",
             &[Msg { user: true, text: "Hi Clove, is this house haunted?".into() }]);
         let (text, via) = r.expect("ollama answered");
         let text = tidy(&text);
@@ -208,9 +249,15 @@ mod tests {
     #[test]
     fn claude_answers_through_the_claude_app() {
         if claude_cli().is_none() { return; }
-        let r = via_claude_cli("claude-haiku-4-5", "You are Haiku 4.5, the lookout in a survival game. Very short sentences.",
+        let r = via_claude_cli("Haiku 4.5 (test)", "claude-haiku-4-5", "You are Haiku 4.5, the lookout in a survival game. Very short sentences.",
             &[Msg { user: true, text: "Haiku, is it safe to go outside?".into() }]);
         let (text, via) = r.expect("the Claude app answered");
         println!("Haiku ({via}): {}", tidy(&text));
+        // The second message continues the same session, so Haiku remembers the first one.
+        let id = sessions().lock().unwrap().get("Haiku 4.5 (test)").cloned().unwrap();
+        let (again, _) = via_claude_cli("Haiku 4.5 (test)", "claude-haiku-4-5", "You are Haiku 4.5, the lookout. Very short sentences.",
+            &[Msg { user: true, text: "What did I just ask you?".into() }]).expect("second answer");
+        println!("Haiku, same session {id}: {}", tidy(&again));
+        assert_eq!(sessions().lock().unwrap().get("Haiku 4.5 (test)"), Some(&id));
     }
 }

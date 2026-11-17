@@ -400,7 +400,7 @@ impl Game {
             eprintln!("---- prompt for {} ----\n{system}\n", c.name);
         }
         let model = self.brains.local_model(c.model).unwrap_or_default();
-        self.brains.ask(i, c.backend, c.cloud, model, system, history, fallback.into());
+        self.brains.ask(i, c.name, c.backend, c.cloud, model, system, history, fallback.into());
     }
 }
 

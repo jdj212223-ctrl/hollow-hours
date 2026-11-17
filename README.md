@@ -47,6 +47,14 @@ Every non-Claude AI is infected (green eyes). You're the last human.
   to infect the Claudes.
 - The **Claudes can be infected too** (a little green bar over them). When **every Claude is infected, it's game over.**
 
+## Online (J on the title screen)
+Infection with friends: type the same **room code** (4-8 letters or numbers). Up to 8 players. The first one in is the
+**host**: their game runs the AIs, supplies and tornadoes and sends them to everyone. Each player sees the others (with
+their infection %), the infected hunt **any** human they see or hear, and turned players spread it to the Claudes.
+Your name is a random `Human-NN` (set `HOLLOW_NAME` to pick one). The relay is a Cloudflare Worker with one Durable
+Object per room (`server/`, deployed at `hollow-hours-mp.<account>.workers.dev`): it keeps no game data and only
+the host may send the world.
+
 ## Outside the window (asked once, on first launch)
 If you allow it, Infection mode reaches outside the game:
 - **Files** in a `Hollow Hours` folder on your Desktop (at 10%, 75% and 100% infection, when a Claude turns, and at the

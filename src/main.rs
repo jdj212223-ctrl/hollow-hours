@@ -7,6 +7,9 @@
 mod ai;
 mod haptics;
 mod meta;
+mod net;
+
+use serde_json::json;
 
 use macroquad::prelude::*;
 
@@ -163,6 +166,8 @@ struct Character {
     lost: f32,
     /// Infection progress 0..1 for the Claude family (at 1 they turn).
     infect: f32,
+    /// Where an infected is chasing (the human it saw or heard).
+    chase: Vec2,
 }
 
 fn characters() -> Vec<Character> {
@@ -170,7 +175,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, claude: backend == "anthropic",
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -196,7 +201,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, claude: true,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -245,6 +250,8 @@ enum Screen {
     Safe,
     /// First launch of the meta update: may the game make files, open Terminal and switch windows?
     Consent,
+    /// Typing a multiplayer room code.
+    JoinRoom,
     /// Infection mode is over: why.
     Over,
 }
@@ -290,6 +297,26 @@ struct Game {
     meta: meta::Meta,
     /// Which meta events already happened this run (bit flags).
     meta_done: u32,
+    // ---- Multiplayer ----
+    net: Option<net::Net>,
+    remotes: Vec<Remote>,
+    net_t: f32,
+    world_t: f32,
+    room_input: String,
+    my_name: String,
+}
+
+/// Another human in the room.
+struct Remote {
+    id: String,
+    name: String,
+    map: usize,
+    pos: Vec2,
+    inf: f32,
+    lc: bool,
+    hid: bool,
+    noise: f32,
+    seen: f64,
 }
 
 impl Game {
@@ -420,6 +447,89 @@ impl Game {
     }
 }
 
+fn guest(g: &Game) -> bool {
+    g.net.as_ref().is_some_and(|n| n.connected && !n.is_host())
+}
+
+/// Multiplayer: read what others sent, send our own state (10 a second) and, as host, the world (5 a second).
+fn network(g: &mut Game, dt: f32) {
+    let msgs = g.net.as_mut().map(|n| n.poll()).unwrap_or_default();
+    let now = get_time();
+    for m in msgs {
+        let from = m["from"].as_str().unwrap_or("").to_string();
+        match m["t"].as_str() {
+            Some("state") => {
+                let r = Remote {
+                    id: from.clone(), name: m["name"].as_str().unwrap_or("?").chars().take(12).collect(),
+                    map: (m["map"].as_u64().unwrap_or(0) as usize).min(MAPS.len() - 1),
+                    pos: vec2(m["x"].as_f64().unwrap_or(0.0) as f32, m["y"].as_f64().unwrap_or(0.0) as f32) * T,
+                    inf: m["inf"].as_f64().unwrap_or(0.0) as f32, lc: m["lc"].as_bool().unwrap_or(false),
+                    hid: m["hid"].as_bool().unwrap_or(false), noise: m["noise"].as_f64().unwrap_or(0.0) as f32, seen: now,
+                };
+                if let Some(old) = g.remotes.iter_mut().find(|x| x.id == from) { *old = r; } else {
+                    g.log.push(format!("{} joined the room.", r.name));
+                    g.remotes.push(r);
+                }
+            }
+            Some("left") => g.remotes.retain(|x| x.id != from),
+            Some("error") => g.log.push(format!("Multiplayer: {}", m["msg"].as_str().unwrap_or("error"))),
+            Some("pick") if !guest(g) => {
+                // A guest grabbed supplies: remove them from the world.
+                let (map, p) = (m["map"].as_u64().unwrap_or(9) as usize, vec2(m["x"].as_f64().unwrap_or(0.0) as f32, m["y"].as_f64().unwrap_or(0.0) as f32) * T);
+                if let Some(i) = g.items.iter().position(|(im, ip, _)| *im == map && ip.distance(p) < 4.0) { g.items.remove(i); }
+            }
+            Some("world") if guest(g) => apply_world(g, &m),
+            _ => {}
+        }
+    }
+    g.remotes.retain(|r| now - r.seen < 6.0);
+    g.net_t -= dt;
+    g.world_t -= dt;
+    let Some(n) = &g.net else { return };
+    if !n.connected { return; }
+    if g.net_t <= 0.0 {
+        g.net_t = 0.1;
+        n.send(json!({"t": "state", "name": g.my_name, "map": g.map, "x": g.pos.x / T, "y": g.pos.y / T, "inf": g.inf,
+            "lc": g.lost_control, "hid": g.hidden, "noise": g.noise}));
+    }
+    if n.is_host() && g.world_t <= 0.0 {
+        g.world_t = 0.2;
+        let npcs: Vec<_> = g.chars.iter().map(|c| json!({"n": c.name, "m": c.map, "x": c.pos.x / T, "y": c.pos.y / T,
+            "inf": c.infected, "c": c.crazy, "k": c.kind, "i": c.infect, "s": c.stun})).collect();
+        let items: Vec<_> = g.items.iter().map(|(m, p, w)| json!([m, p.x / T, p.y / T, w])).collect();
+        let tornado = g.tornado.as_ref().map(|t| json!({"x": t.pos.x / T, "y": t.pos.y / T, "w": t.warn, "m": g.map}));
+        n.send(json!({"t": "world", "npcs": npcs, "items": items, "tornado": tornado}));
+    }
+}
+
+/// A guest takes the host's world as it is: the AIs, the supplies and the tornado.
+fn apply_world(g: &mut Game, m: &serde_json::Value) {
+    if let Some(list) = m["npcs"].as_array() {
+        for v in list {
+            let Some(name) = v["n"].as_str() else { continue };
+            if let Some(c) = g.chars.iter_mut().find(|c| c.name == name) {
+                c.map = (v["m"].as_u64().unwrap_or(0) as usize).min(MAPS.len() - 1);
+                let p = vec2(v["x"].as_f64().unwrap_or(0.0) as f32, v["y"].as_f64().unwrap_or(0.0) as f32) * T;
+                c.pos = if c.pos.distance(p) > 3.0 * T { p } else { c.pos.lerp(p, 0.5) };
+                c.target = p;
+                c.infected = v["inf"].as_bool().unwrap_or(false);
+                c.crazy = v["c"].as_f64().unwrap_or(0.0) as f32;
+                c.kind = v["k"].as_bool().unwrap_or(false);
+                c.infect = v["i"].as_f64().unwrap_or(0.0) as f32;
+                c.stun = v["s"].as_f64().unwrap_or(0.0) as f32;
+            }
+        }
+    }
+    if let Some(list) = m["items"].as_array() {
+        g.items = list.iter().filter_map(|v| Some(((v[0].as_u64()? as usize).min(MAPS.len() - 1),
+            vec2(v[1].as_f64()? as f32, v[2].as_f64()? as f32) * T, v[3].as_bool()?))).collect();
+    }
+    g.tornado = m["tornado"].as_object().filter(|t| t.get("m").and_then(|x| x.as_u64()) == Some(g.map as u64)).map(|t| Tornado {
+        pos: vec2(t["x"].as_f64().unwrap_or(0.0) as f32, t["y"].as_f64().unwrap_or(0.0) as f32) * T,
+        vel: Vec2::ZERO, warn: t["w"].as_f64().unwrap_or(0.0) as f32, life: 1.0,
+    });
+}
+
 fn start_infection(g: &mut Game) {
     g.infection = true;
     g.courage = Courage::Normal;
@@ -525,20 +635,19 @@ fn can_hide(g: &Game) -> bool {
     [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| tile(g.map, px + dx, py + dy) == 'b')
 }
 
-/// Can an infected at `from` see you? Range shrinks in the dark; walls block it; hiding works unless it's right next to you.
-fn sees(g: &Game, from: Vec2) -> bool {
-    let d = from.distance(g.pos);
-    if g.hidden {
+/// Can an infected at `from` on map `m` see someone at `to`?
+fn sees_at(m: usize, from: Vec2, to: Vec2, hidden: bool) -> bool {
+    let d = from.distance(to);
+    if hidden {
         return d < 0.9 * T;
     }
-    let range = (8.0 - MAPS[g.map].dark * 4.0) * T;
-    if d > range {
+    if d > (8.0 - MAPS[m].dark * 4.0) * T {
         return false;
     }
     let steps = (d / (T / 3.0)) as i32;
     (1..steps).all(|i| {
-        let p = from + (g.pos - from) * (i as f32 / steps as f32);
-        tile(g.map, (p.x / T) as i32, (p.y / T) as i32) != '#'
+        let p = from + (to - from) * (i as f32 / steps as f32);
+        tile(m, (p.x / T) as i32, (p.y / T) as i32) != '#'
     })
 }
 
@@ -573,7 +682,10 @@ fn update_infection(g: &mut Game, dt: f32) {
         }
     }
     if let Some(i) = picked {
-        let (_, _, water) = g.items.remove(i);
+        let (im, ip, water) = g.items.remove(i);
+        if let Some(n) = &g.net {
+            n.send(json!({"t": "pick", "map": im, "x": ip.x / T, "y": ip.y / T}));
+        }
         if water { g.water = (g.water + 0.4).min(1.0); } else { g.food = (g.food + 0.4).min(1.0); }
         g.log.push(if water { "You sip the water as quietly as you can.".into() } else { "You eat, trying not to crunch.".into() });
         let pos = g.pos;
@@ -594,7 +706,16 @@ fn update_infection(g: &mut Game, dt: f32) {
             g.chars[i].target = g.chars[i].pos;
             continue;
         }
-        let seen = g.chars[i].map == g.map && !g.lost_control && sees(g, g.chars[i].pos);
+        if guest(g) { break; } // the host's game runs the infected
+        // Every human in the room: you (until you've turned) and the others on this AI's map.
+        let me = (g.chars[i].map, g.chars[i].pos);
+        let mut humans: Vec<(Vec2, bool, f32)> = vec![];
+        if g.map == me.0 && !g.lost_control { humans.push((g.pos, g.hidden, g.noise)); }
+        humans.extend(g.remotes.iter().filter(|r| r.map == me.0 && !r.lc).map(|r| (r.pos, r.hid, r.noise)));
+        let target = humans.iter().filter(|(p, hid, noise)| sees_at(me.0, me.1, *p, *hid) || (*noise > 0.05 && me.1.distance(*p) < noise * 6.0 * T))
+            .min_by(|a, b| a.0.distance(me.1).partial_cmp(&b.0.distance(me.1)).unwrap()).map(|h| h.0);
+        if let Some(t) = target { g.chars[i].chase = t; }
+        let seen = target.is_some();
         // Nothing on you: go after the nearest Claude instead.
         if !seen && g.chars[i].crazy <= 0.0 {
             let me = (g.chars[i].map, g.chars[i].pos);
@@ -610,27 +731,28 @@ fn update_infection(g: &mut Game, dt: f32) {
         } else {
             c.lost += dt;
         }
-        // They heard you: noise carries further than sight (sneak with Shift to be silent).
-        if c.map == g.map && !g.lost_control && g.noise > 0.05 && c.pos.distance(g.pos) < g.noise * 6.0 * T {
-            c.crazy = c.crazy.max(2.0);
-        }
-        // Touching you spreads the infection (fast); being right beside you spreads it slowly.
-        if c.map == g.map && !g.lost_control {
-            let d = c.pos.distance(g.pos);
-            if d < 0.8 * T && (!g.hidden || d < 0.5 * T) {
-                if g.inf < 0.02 { g.scare_t = 0.5; g.scare_face = c.color; g.vest.play(haptics::Effect::Chill); }
-                g.inf += dt * 0.22;
-            } else if d < 2.0 * T && !g.hidden {
-                g.inf += dt * 0.02;
-            }
+
+    }
+    // Touching you spreads the infection (fast); being right beside you spreads it slowly. Every player's own game
+    // works this out for them (online too), from where the infected are.
+    for c in g.chars.iter().filter(|c| c.infected && c.map == g.map && c.stun <= 0.0) {
+        if g.lost_control { break; }
+        let d = c.pos.distance(g.pos);
+        if d < 0.8 * T && (!g.hidden || d < 0.5 * T) {
+            if g.inf < 0.02 { g.scare_t = 0.5; g.scare_face = c.color; g.vest.play(haptics::Effect::Chill); }
+            g.inf += dt * 0.22;
+        } else if d < 2.0 * T && !g.hidden {
+            g.inf += dt * 0.02;
         }
     }
     // The infection spreads to the Claude family too: any infected (you included, once you've turned) near them.
     let spreaders: Vec<(usize, Vec2)> = g.chars.iter().filter(|c| c.infected && c.stun <= 0.0).map(|c| (c.map, c.pos))
-        .chain(g.lost_control.then_some((g.map, g.pos))).collect();
+        .chain(g.lost_control.then_some((g.map, g.pos)))
+        .chain(g.remotes.iter().filter(|r| r.lc).map(|r| (r.map, r.pos))).collect();
     let mut turned = vec![];
+    let is_guest = guest(g);
     for (i, c) in g.chars.iter_mut().enumerate() {
-        if !c.claude || c.infected { continue; }
+        if !c.claude || c.infected || is_guest { continue; }
         let near = spreaders.iter().filter(|(m, p)| *m == c.map && p.distance(c.pos) < 0.9 * T).count();
         if near > 0 {
             c.infect += dt * 0.18 * near as f32;
@@ -718,7 +840,7 @@ fn update_infection(g: &mut Game, dt: f32) {
     }
     // Tornadoes: a warning, then one sweeps across the map you're on.
     g.next_tornado -= dt;
-    if g.tornado.is_none() && g.next_tornado <= 0.0 {
+    if g.tornado.is_none() && g.next_tornado <= 0.0 && !guest(g) {
         let from_left = rand::gen_range(0, 2) == 0;
         let y = rand::gen_range(2.0, MH as f32 - 2.0) * T;
         let (x, vx) = if from_left { (-1.0 * T, 2.6 * T) } else { ((MW as f32 + 1.0) * T, -2.6 * T) };
@@ -860,7 +982,20 @@ async fn main() {
         sneaking: false,
         meta: meta::Meta::load(),
         meta_done: 0,
+        net: None,
+        remotes: vec![],
+        net_t: 0.0,
+        world_t: 0.0,
+        room_input: String::new(),
+        // Never the Mac's user name (it can be someone's real name): a random "Human-NN", or HOLLOW_NAME if set.
+        my_name: std::env::var("HOLLOW_NAME").map(|n| n.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(12).collect())
+            .unwrap_or_else(|_| format!("Human-{}", rand::gen_range(10, 99))),
     };
+    // HOLLOW_ROOM=CODE: join a multiplayer room straight away (Infection mode).
+    if let Ok(code) = std::env::var("HOLLOW_ROOM") {
+        g.net = Some(net::Net::join(&code));
+        start_infection(&mut g);
+    }
     if g.meta.allowed.is_none() {
         g.screen = Screen::Consent;
     }
@@ -896,6 +1031,7 @@ async fn main() {
                 if is_key_pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
                 if is_key_pressed(KeyCode::Key4) { start_infection(&mut g); }
                 if is_key_pressed(KeyCode::M) { g.screen = Screen::Consent; }
+                if is_key_pressed(KeyCode::J) { g.room_input.clear(); while get_char_pressed().is_some() {} g.screen = Screen::JoinRoom; }
 
                 if is_key_pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
                 if is_key_pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
@@ -909,6 +1045,22 @@ async fn main() {
                     if is_key_pressed(*k) { g.phobia[i] = !g.phobia[i]; }
                 }
                 if is_key_pressed(KeyCode::Enter) { g.screen = Screen::Play; }
+                if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
+            }
+            Screen::JoinRoom => {
+                draw_text("Multiplayer: Infection with friends", 60.0, 120.0, 40.0, Color::new(0.45, 0.95, 0.4, 1.0));
+                for (i, l) in ["Type a room code (4-8 letters or numbers) and press Enter.", "Everyone who types the same code plays together. The first one in is the host.",
+                    "", &format!("Room: {}_", g.room_input), "", "Esc = back"].iter().enumerate() {
+                    draw_text(l, 60.0, 190.0 + i as f32 * 32.0, if i == 3 { 34.0 } else { 22.0 }, Color::new(0.82, 0.84, 0.9, 1.0));
+                }
+                while let Some(ch) = get_char_pressed() {
+                    if ch.is_ascii_alphanumeric() && g.room_input.len() < 8 { g.room_input.push(ch.to_ascii_uppercase()); }
+                }
+                if is_key_pressed(KeyCode::Backspace) { g.room_input.pop(); }
+                if is_key_pressed(KeyCode::Enter) && g.room_input.len() >= 4 {
+                    g.net = Some(net::Net::join(&g.room_input));
+                    start_infection(&mut g);
+                }
                 if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }
             Screen::Consent => {
@@ -955,6 +1107,8 @@ async fn main() {
                     typing(&mut g, i);
                 }
                 if is_key_pressed(KeyCode::Escape) && g.screen == Screen::Play {
+                    g.net = None;
+                    g.remotes.clear();
                     g.vest.play(haptics::Effect::StopAll);
                     g.screen = Screen::Title;
                 }
@@ -1001,6 +1155,9 @@ fn update(g: &mut Game, dt: f32) {
         c.bubble_t = 9.0 + c.bubble.len() as f32 / 25.0;
     }
 
+    if g.net.is_some() {
+        network(g, dt);
+    }
     if g.infection {
         update_infection(g, dt);
         if g.screen != Screen::Play && !matches!(g.screen, Screen::Typing(_)) { return; }
@@ -1043,11 +1200,14 @@ fn update(g: &mut Game, dt: f32) {
     // Characters wander; a crazy one walks toward you.
     let chase_on = g.on(3);
     let crowds_on = g.on(4);
+    let is_guest = guest(g);
+    let infection_on = g.infection;
     for c in &mut g.chars {
         if c.bubble_t > 0.0 { c.bubble_t -= dt; }
+        if is_guest { continue; } // the host moves everyone
         let speed = if c.crazy > 0.0 { if c.infected { 2.4 } else { 1.9 } } else if c.kind { 2.8 } else { 1.0 } * T;
-        if c.crazy > 0.0 && c.map == g.map {
-            c.target = g.pos;
+        if c.crazy > 0.0 && (c.map == g.map || infection_on) {
+            c.target = if infection_on { c.chase } else { g.pos };
             c.crazy -= dt;
         } else if c.pos.distance(c.target) < 4.0 || rand::gen_range(0.0, 1.0) < 0.002 {
             for _ in 0..10 {
@@ -1204,6 +1364,14 @@ fn draw_world(g: &Game, light: &Texture2D) {
         draw_circle(c.pos.x + 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
         draw_text(c.name, c.pos.x - measure_text(c.name, None, 16, 1.0).width / 2.0, c.pos.y + 26.0, 16.0, WHITE);
     }
+    // The other humans in the room.
+    for r in g.remotes.iter().filter(|r| r.map == g.map) {
+        let col = if r.lc { Color::new(0.4, 0.95, 0.35, 1.0) } else { Color::new(0.85, 0.9, 1.0, if r.hid { 0.35 } else { 1.0 }) };
+        draw_circle(r.pos.x, r.pos.y, 11.0, col);
+        draw_circle_lines(r.pos.x, r.pos.y, 11.0, 2.0, Color::new(0.3, 0.5, 1.0, 1.0));
+        let label = format!("{} {}%", r.name, (r.inf * 100.0) as i32);
+        draw_text(&label, r.pos.x - measure_text(&label, None, 15, 1.0).width / 2.0, r.pos.y - 16.0, 15.0, Color::new(0.75, 0.85, 1.0, 1.0));
+    }
     // You (see-through while hiding).
     let you = if g.hidden { Color::new(0.95, 0.95, 0.98, 0.35) } else { Color::new(0.95, 0.95, 0.98, 1.0) };
     draw_circle(g.pos.x, g.pos.y, 11.0, you);
@@ -1295,6 +1463,11 @@ fn draw_world(g: &Game, light: &Texture2D) {
         draw_text(&format!("INFECTION · last human · {} min {} s · {} infected", (g.survived / 60.0) as i32, g.survived as i32 % 60, infected),
             sw - 470.0, y0 + 48.0, 16.0, Color::new(0.5, 0.95, 0.4, 1.0));
         if g.hidden { draw_text("HIDDEN (H to come out)", sw - 470.0, y0 + 24.0, 18.0, Color::new(0.8, 0.85, 1.0, 1.0)); }
+        if let Some(n) = &g.net {
+            let status = if !n.connected { format!("room {}: connecting...", n.room) } else {
+                format!("room {} · {} players · {}", n.room, n.players, if n.is_host() { "you're the host" } else { "guest" }) };
+            draw_text(&status, sw - 250.0, y0 + 24.0, 16.0, Color::new(0.55, 0.75, 1.0, 1.0));
+        }
         if g.tornado.as_ref().is_some_and(|t| t.warn > 0.0) && (get_time() * 2.0) as i32 % 2 == 0 {
             draw_text("TORNADO WARNING", sw / 2.0 - 120.0, 40.0, 32.0, Color::new(1.0, 0.85, 0.2, 1.0));
         }
@@ -1322,6 +1495,7 @@ fn draw_title(g: &Game) {
         "  2  Normal".into(),
         "  3  Many phobias: pick what scares you (and switch off what you can't handle)".into(),
         "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
+        "  J  INFECTION ONLINE: play with friends (type the same room code)".into(),
         String::new(),
         format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),
         "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),

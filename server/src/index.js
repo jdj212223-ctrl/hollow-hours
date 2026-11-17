@@ -9,7 +9,7 @@
 //           the world. Registered servers also give their name, mods and player limit.
 
 import { unzipSync } from "fflate";
-import { register, login, currentUser, logout, sessionCookie, clearCookie } from "./auth.js";
+import { register, login, currentUser, logout, sessionCookie, clearCookie, newSession } from "./auth.js";
 import { validate } from "./mods.js";
 
 const now = () => Math.floor(Date.now() / 1000);
@@ -189,6 +189,47 @@ async function uploadMod(env, user, file) {
   return { id, name: hh.name };
 }
 
+// ---------------- Logging the game in through the browser ----------------
+// The game opens /link?port=P&state=S&challenge=C (C = SHA-256 hex of a secret only the game knows). You click Allow,
+// the browser goes to http://127.0.0.1:P/callback?code=X&state=S, and the game swaps X + its secret for a login at
+// POST /api/link/exchange. The code works once, for 2 minutes, only with that secret, and only goes to this computer.
+
+function linkParams(url) {
+  const port = parseInt(url.searchParams.get("port") || "0");
+  const state = url.searchParams.get("state") || "";
+  const challenge = url.searchParams.get("challenge") || "";
+  if (!(port >= 1024 && port <= 65535) || !/^[0-9a-f]{32,64}$/.test(state) || !/^[0-9a-f]{64}$/.test(challenge)) return null;
+  return { port, state, challenge };
+}
+
+function linkPage(user, q, url) {
+  if (!q) return page("Log in the game", user, `<div class="card"><p class="err">This link is broken. Start again from the game (L, then B).</p></div>`);
+  if (!user) return redirect("/login?next=" + encodeURIComponent(url.pathname + url.search));
+  return page("Log in the game", user, `<div class="card" style="max-width:480px;margin:0 auto;text-align:center">
+<h2 style="margin-top:0">👻 Log in Hollow Hours?</h2><p>The Hollow Hours game on <b>this computer</b> wants to log in as <b>${esc(user.name)}</b>.</p>
+<form method="post" action="/link${esc(url.search)}"><p><button class="btn" type="submit" name="allow" value="1">Allow</button>
+<a class="btn ghost" href="/">Cancel</a></p></form>
+<p class="dim small">Only allow this if you just pressed "log in with browser" in the game yourself.</p></div>`);
+}
+
+async function linkAllow(env, user, q) {
+  const code = hex(crypto.getRandomValues(new Uint8Array(24)));
+  await env.DB.prepare("INSERT INTO link_codes (code_hash, user_id, challenge, expires) VALUES (?, ?, ?, ?)").bind(await sha256(code), user.id, q.challenge, now() + 120).run();
+  await env.DB.prepare("DELETE FROM link_codes WHERE expires < ?").bind(now() - 3600).run();
+  return redirect(`http://127.0.0.1:${q.port}/callback?code=${code}&state=${q.state}`);
+}
+
+async function linkExchange(env, body) {
+  const code = String(body.code || ""), verifier = String(body.verifier || "");
+  if (!/^[0-9a-f]{48}$/.test(code) || verifier.length < 32 || verifier.length > 128) return { error: "bad request" };
+  const row = await env.DB.prepare("SELECT * FROM link_codes WHERE code_hash = ?").bind(await sha256(code)).first();
+  if (!row || row.used || row.expires < now()) return { error: "that login link expired: try again" };
+  await env.DB.prepare("UPDATE link_codes SET used = 1 WHERE code_hash = ?").bind(row.code_hash).run(); // works once, even if the secret is wrong
+  if ((await sha256(verifier)) !== row.challenge) return { error: "that login link isn't yours" };
+  const u = await env.DB.prepare("SELECT id, name FROM users WHERE id = ?").bind(row.user_id).first();
+  return { token: await newSession(env, u.id), name: u.name };
+}
+
 // ---------------- Pages ----------------
 
 const STYLE = `<style>
@@ -234,11 +275,11 @@ async function home(env, user) {
 <a href="/mods">All mods and how to make one</a></div>`);
 }
 
-function authForm(kind, user, error = "", email = "", name = "") {
+function authForm(kind, user, error = "", email = "", name = "", search = "") {
   const reg = kind === "register";
   return page(reg ? "Register" : "Log in", user, `<div class="card" style="max-width:440px;margin:0 auto"><h2 style="margin-top:0">${reg ? "Make an account" : "Log in"}</h2>
 ${error ? `<p class="err">${esc(error)}</p>` : ""}
-<form method="post" action="/${kind}"><label>Email</label><input name="email" type="email" required autocomplete="email" value="${esc(email)}">
+<form method="post" action="/${kind}${esc(search)}"><label>Email</label><input name="email" type="email" required autocomplete="email" value="${esc(email)}">
 ${reg ? `<label>Display name <span class="dim small">(shown in game)</span></label><input name="name" required minlength="3" maxlength="16" pattern="[A-Za-z0-9_-]{3,16}" value="${esc(name)}">` : ""}
 <label>Password${reg ? ' <span class="dim small">(at least 8 characters)</span>' : ""}</label><input id="pw" name="password" type="password" required minlength="${reg ? 8 : 1}" autocomplete="${reg ? "new-password" : "current-password"}">
 <label class="small" style="font-weight:400"><input type="checkbox" style="width:auto" onchange="document.getElementById('pw').type=this.checked?'text':'password'"> Show password</label>
@@ -328,6 +369,12 @@ export default {
       if (p === "/api/me") return user ? json({ name: user.name }) : json({ error: "not logged in" }, 401);
       if (p === "/api/servers" && req.method === "GET") return json(await servers(env));
       if (p === "/api/servers" && req.method === "POST") { if (!user) return json({ error: "log in first" }, 401); const r = await makeServer(env, user, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
+      if (p === "/api/link/exchange" && req.method === "POST") { const r = await linkExchange(env, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
+      if (p === "/link") {
+        const q = linkParams(url);
+        if (req.method === "POST" && user && q) return await linkAllow(env, user, q);
+        return linkPage(user, q, url);
+      }
       if (p === "/api/ticket-key") return json({ alg: "Ed25519", public_key: (await ticketKeys(env)).pubHex });
       if (p === "/api/ticket" && req.method === "POST") {
         if (!user) return json({ error: "log in first" }, 401);
@@ -353,11 +400,13 @@ export default {
       // --- website ---
       if (p === "/") return await home(env, user);
       if (p === "/register" || p === "/login") {
-        if (req.method === "GET") return authForm(p.slice(1), user);
+        if (req.method === "GET") return authForm(p.slice(1), user, "", "", "", url.search);
         const f = await req.formData();
         const r = p === "/register" ? await register(env, f.get("email"), f.get("password"), f.get("name")) : await login(env, f.get("email"), f.get("password"));
-        if (r.error) return authForm(p.slice(1), user, r.error, String(f.get("email") || ""), String(f.get("name") || ""));
-        return redirect("/", { "Set-Cookie": sessionCookie(r.token) });
+        if (r.error) return authForm(p.slice(1), user, r.error, String(f.get("email") || ""), String(f.get("name") || ""), url.search);
+        // Back to where you were going, but only to the game-login page on this site.
+        const next = url.searchParams.get("next") || "";
+        return redirect(next.startsWith("/link?") ? next : "/", { "Set-Cookie": sessionCookie(r.token) });
       }
       if (p === "/logout") { await logout(env, req); return redirect("/", { "Set-Cookie": clearCookie }); }
       if (p === "/servers/new") {

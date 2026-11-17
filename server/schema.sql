@@ -36,3 +36,6 @@ CREATE TABLE IF NOT EXISTS mods (
 -- v3: outside servers (hosted somewhere else). address = wss://..., secret_hash = SHA-256 of the server's heartbeat secret.
 -- ALTER TABLE servers ADD COLUMN address TEXT;
 -- ALTER TABLE servers ADD COLUMN secret_hash TEXT;
+
+-- v4: logging the game in through the browser (one-time codes with PKCE)
+CREATE TABLE IF NOT EXISTS link_codes (code_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL, challenge TEXT NOT NULL, expires INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);

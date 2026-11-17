@@ -360,6 +360,8 @@ struct Game {
     login_field: usize,
     /// Show the password while typing it (F1 or the Show button).
     show_pw: bool,
+    /// A browser login in progress (B on the login screen): the answer arrives here.
+    browser_login: Option<std::sync::mpsc::Receiver<Result<Account, String>>>,
     status: String,
     server_list: Vec<serde_json::Value>,
     rules: Rules,
@@ -502,6 +504,74 @@ fn save_account(a: &Account) {
     } else {
         let _ = std::fs::write(account_file(), serde_json::to_string(a).unwrap_or_default()); // no Keychain: fall back to the file
     }
+}
+
+fn random_hex(n: usize) -> String {
+    use std::io::Read;
+    let mut b = vec![0u8; n];
+    if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_err() {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        for (i, x) in b.iter_mut().enumerate() { *x = (t >> ((i % 16) * 8)) as u8 ^ i as u8; }
+    }
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Log in through the browser (like "Sign in with ..." in other apps): the website asks you to Allow, then sends a
+/// one-time code to a tiny listener on THIS computer (127.0.0.1 only), and we swap it, plus a secret that never left
+/// this game (PKCE), for a login. The password is never typed into the game. Gives up after 5 minutes.
+fn start_browser_login() -> std::sync::mpsc::Receiver<Result<Account, String>> {
+    use sha2::Digest;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let verifier = random_hex(32);
+    let challenge: String = sha2::Sha256::digest(verifier.as_bytes()).iter().map(|x| format!("{x:02x}")).collect();
+    let state = random_hex(16);
+    let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+        Ok(l) => l,
+        Err(e) => { let _ = tx.send(Err(format!("couldn't start the login listener: {e}"))); return rx; }
+    };
+    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
+    let _ = std::process::Command::new("open").arg(format!("{}/link?port={port}&state={state}&challenge={challenge}", site())).spawn();
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let _ = listener.set_nonblocking(true);
+        let start = std::time::Instant::now();
+        while start.elapsed().as_secs() < 300 {
+            let Ok((mut conn, _)) = listener.accept() else { std::thread::sleep(std::time::Duration::from_millis(100)); continue };
+            let _ = conn.set_nonblocking(false);
+            let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            let mut buf = [0u8; 4096];
+            let n = conn.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let path = req.split_whitespace().nth(1).unwrap_or("").to_string();
+            if !path.starts_with("/callback?") {
+                let _ = conn.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                continue;
+            }
+            let param = |k: &str| path.split(['?', '&']).find_map(|p| p.strip_prefix(&format!("{k}="))).unwrap_or("").to_string();
+            let result = if param("state") != state {
+                Err("that login didn't come from this game".to_string())
+            } else {
+                ureq::post(&format!("{}/api/link/exchange", site())).timeout(std::time::Duration::from_secs(10))
+                    .send_json(json!({"code": param("code"), "verifier": verifier}))
+                    .map_err(|e| match e { ureq::Error::Status(_, r) => r.into_json::<serde_json::Value>().ok().and_then(|v| v["error"].as_str().map(String::from)).unwrap_or("refused".into()), _ => "the website can't be reached".into() })
+                    .and_then(|r| r.into_json::<serde_json::Value>().map_err(|e| e.to_string()))
+                    .and_then(|v| match (v["token"].as_str(), v["name"].as_str()) {
+                        (Some(t), Some(n)) => Ok(Account { token: t.into(), name: n.into() }),
+                        _ => Err("the website gave no login".into()),
+                    })
+            };
+            let page = match &result {
+                Ok(a) => format!("<h2>You're logged in as {} 👻</h2><p>Go back to Hollow Hours. You can close this tab.</p>", a.name.replace('<', "")),
+                Err(e) => format!("<h2>That didn't work</h2><p>{}. Try again from the game.</p>", e.replace('<', "")),
+            };
+            let html = format!("<!doctype html><meta charset=utf-8><title>Hollow Hours</title><body style=\"font-family:system-ui;background:#0d0b10;color:#eee;text-align:center;padding-top:15vh\">{page}</body>");
+            let _ = conn.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{html}", html.len()).as_bytes());
+            let _ = tx.send(result);
+            return;
+        }
+        let _ = tx.send(Err("timed out: no answer from the browser in 5 minutes".into()));
+    });
+    rx
 }
 
 fn forget_account() {
@@ -1334,6 +1404,7 @@ async fn main() {
         login_pw: String::new(),
         login_field: 0,
         show_pw: false,
+        browser_login: None,
         status: String::new(),
         server_list: vec![],
         rules: Rules::default(),
@@ -1433,6 +1504,7 @@ async fn main() {
                 if (is_mouse_button_pressed(MouseButton::Left) && mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) || is_key_pressed(KeyCode::F1) {
                     g.show_pw = !g.show_pw;
                 }
+                draw_text("Or press B: log in with your browser (no password typed here)", 60.0, 290.0, 22.0, Color::new(0.55, 0.85, 1.0, 1.0));
                 for (i, l) in ["Tab = next field · Cmd+V paste · F1 show password · Enter = log in · Esc = back", &format!("No account? Make one at {}/register", site()), &g.status.clone()].iter().enumerate() {
                     draw_text(l, 60.0, 310.0 + i as f32 * 30.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
                 }
@@ -1447,6 +1519,21 @@ async fn main() {
                 }
                 if is_key_pressed(KeyCode::Backspace) { if g.login_field == 0 { g.login_email.pop(); } else { g.login_pw.pop(); } }
                 if is_key_pressed(KeyCode::Tab) { g.login_field = 1 - g.login_field; }
+                // Browser login: B is a letter, so only when the boxes are empty (or with Cmd/Ctrl held).
+                if is_key_pressed(KeyCode::B) && g.browser_login.is_none() && (cmd_held() || (g.login_email.is_empty() && g.login_pw.is_empty())) {
+                    g.login_email.clear();
+                    g.browser_login = Some(start_browser_login());
+                    g.status = "Waiting for your browser... click Allow there.".into();
+                }
+                if let Some(rx) = &g.browser_login {
+                    if let Ok(res) = rx.try_recv() {
+                        g.browser_login = None;
+                        match res {
+                            Ok(a) => { save_account(&a); g.my_name = a.name.clone(); g.account = Some(a); g.status.clear(); g.screen = Screen::Title; }
+                            Err(e) => g.status = format!("Browser login: {e}"),
+                        }
+                    }
+                }
                 if is_key_pressed(KeyCode::Escape) { g.login_pw.clear(); g.screen = Screen::Title; }
                 if is_key_pressed(KeyCode::Enter) {
                     let body = json!({"email": g.login_email.trim(), "password": g.login_pw});

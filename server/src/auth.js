@@ -28,7 +28,7 @@ function same(a, b) {
   return d === 0;
 }
 
-async function newSession(env, userId) {
+export async function newSession(env, userId) {
   const token = hex(crypto.getRandomValues(new Uint8Array(32)));
   await env.DB.prepare("INSERT INTO sessions (token_hash, user_id, expires) VALUES (?, ?, ?)").bind(await sha256(token), userId, now() + 30 * 86400).run();
   return token;

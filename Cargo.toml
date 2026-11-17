@@ -13,6 +13,7 @@ ureq = { version = "2", features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 keyring = { version = "3", features = ["apple-native"] }
+sha2 = "0.10"
 
 [profile.release]
 opt-level = 3

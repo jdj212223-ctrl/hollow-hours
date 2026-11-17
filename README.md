@@ -60,6 +60,9 @@ the host may send the world.
 servers, make your own, and upload mods.
 - **Accounts**: passwords are stored only as salted PBKDF2 hashes; logins get a random session token (only its hash is
   stored); 10 wrong passwords lock the account for 15 minutes. No emails are sent yet (so no confirmation or reset email).
+- **Online play needs a login**: the game sends its login token when joining a room (in a header, never the
+  address), the server checks it, and everyone sees your **verified account name** (the game can't fake it). One
+  connection per account per room: joining again from somewhere else replaces the old one.
 - **In the game**: **L** logs in (your display name becomes your player name; the game keeps the token, never the
   password), **S** opens the server list (1-8 joins, **N** makes a server), **J** joins by code.
 - **.hh mods** (*H*ollow *H*ours) customise **the whole game**: a zip with `hh.json` (name, version, description) and

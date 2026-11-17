@@ -18,16 +18,33 @@ pub struct Net {
 }
 
 impl Net {
-    /// Joins room `code` (4-8 letters/digits). Connecting happens in the background.
-    pub fn join(code: &str) -> Self {
+    /// Joins room `code` (4-8 letters/digits) with your login token (the server checks it and uses your account name).
+    /// Connecting happens in the background.
+    pub fn join(code: &str, token: &str) -> Self {
+        let token = token.to_string();
         let room: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect::<String>().to_uppercase();
         let (to_server, outbox) = channel::<String>();
         let (inbox, from_server) = channel::<Value>();
         let url = std::env::var("HOLLOW_SERVER").unwrap_or_else(|_| SERVER.into()) + "/room/" + &room;
         std::thread::spawn(move || {
-            let Ok((mut ws, _)) = tungstenite::connect(&url) else {
-                let _ = inbox.send(serde_json::json!({"t": "error", "msg": "couldn't reach the multiplayer server"}));
-                return;
+            // The token goes in a header, not the address (addresses end up in logs).
+            use tungstenite::client::IntoClientRequest;
+            let Ok(mut req) = url.as_str().into_client_request() else { return };
+            if let Ok(v) = format!("Bearer {token}").parse() { req.headers_mut().insert("Authorization", v); }
+            let (mut ws, _) = match tungstenite::connect(req) {
+                Ok(c) => c,
+                Err(tungstenite::Error::Http(r)) if r.status() == 401 => {
+                    let _ = inbox.send(serde_json::json!({"t": "error", "msg": "your login expired: log in again (L)"}));
+                    return;
+                }
+                Err(tungstenite::Error::Http(r)) if r.status() == 429 => {
+                    let _ = inbox.send(serde_json::json!({"t": "error", "msg": "that server is full"}));
+                    return;
+                }
+                Err(_) => {
+                    let _ = inbox.send(serde_json::json!({"t": "error", "msg": "couldn't reach the multiplayer server"}));
+                    return;
+                }
             };
             // Short read timeouts so the same thread can also send.
             if let tungstenite::stream::MaybeTlsStream::Rustls(s) = ws.get_mut() {

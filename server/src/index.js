@@ -3,7 +3,7 @@
 // Website:  /  /register  /login  /logout  /servers/new  /mods  /mods/upload  /mods/:id  /mods/:id/download
 // Game API: POST /api/register  POST /api/login  GET /api/me  GET /api/servers  POST /api/servers
 //           GET /api/mods  GET /api/mods/:id
-// Rooms:    GET /room/<CODE> (WebSocket). A room keeps no game data: it hands out ids, says who the host is (the
+// Rooms:    GET /room/<CODE> (WebSocket, needs a login: Authorization: Bearer <token>). A room keeps no game data: it hands out ids, says who the host is (the
 //           player there longest; the host's game runs the AIs), passes messages on, and only lets the host send
 //           the world. Registered servers also give their name, mods and player limit.
 
@@ -42,10 +42,22 @@ export class Room {
     const server = await this.env.DB.prepare("SELECT name, max, mods FROM servers WHERE code = ?").bind(code).first().catch(() => null);
     const max = Math.min(server?.max ?? 8, 8);
     if (this.sockets().length >= max) return new Response("room is full", { status: 429 });
+    // The Worker checked the login before sending the player here (see the router); these headers come only from it.
+    const uid = parseInt(req.headers.get("X-HH-User-Id") || "0");
+    const uname = req.headers.get("X-HH-User-Name") || "";
+    if (!uid || !uname) return new Response("log in first", { status: 401 });
+    // One connection per account: a second one from the same account replaces the first.
+    for (const old of this.sockets()) {
+      if (old.deserializeAttachment()?.uid === uid) {
+        try { old.send(JSON.stringify({ t: "error", msg: "you joined from somewhere else" })); old.close(4000, "replaced"); } catch {}
+        old.serializeAttachment(null);
+      }
+    }
+    if (this.sockets().length >= max) return new Response("room is full", { status: 429 });
     const [client, ws] = Object.values(new WebSocketPair());
     const id = crypto.randomUUID().slice(0, 8);
     this.ctx.acceptWebSocket(ws);
-    ws.serializeAttachment({ id, joined: Date.now() + Math.random(), code });
+    ws.serializeAttachment({ id, uid, name: uname, joined: Date.now() + Math.random(), code });
     let mods = [];
     try { mods = JSON.parse(server?.mods || "[]"); } catch {}
     ws.send(JSON.stringify({ t: "hello", you: id, host: this.host(), players: this.sockets().length, name: server?.name ?? null, mods }));
@@ -60,6 +72,8 @@ export class Room {
     const me = ws.deserializeAttachment();
     if (!me) return;
     msg.from = me.id;
+    // Nobody can pretend to be someone else: the name is always the verified account's.
+    if (msg.t === "state") msg.name = me.name;
     if (msg.t === "world" && me.id !== this.host()) return;
     this.broadcast(msg, ws);
     if (msg.t === "world" && Math.random() < 0.05) await this.seen(me.code); // keep the server "alive" in the list
@@ -250,9 +264,18 @@ export default {
     const origin = req.headers.get("Origin");
     if (req.method === "POST" && origin && origin !== url.origin) return new Response("forbidden", { status: 403 });
     try {
-      const room = p.match(/^\/room\/([A-Za-z0-9]{4,8})$/);
-      if (room) return env.ROOMS.get(env.ROOMS.idFromName(room[1].toUpperCase())).fetch(req);
       const user = await currentUser(env, req);
+      const room = p.match(/^\/room\/([A-Za-z0-9]{4,8})$/);
+      if (room) {
+        // Online play needs an account: the game sends its login token (Authorization: Bearer), checked here.
+        if (!user) return new Response("log in first", { status: 401 });
+        const headers = new Headers(req.headers);
+        headers.delete("X-HH-User-Id");
+        headers.delete("X-HH-User-Name");
+        headers.set("X-HH-User-Id", String(user.id));
+        headers.set("X-HH-User-Name", user.name);
+        return env.ROOMS.get(env.ROOMS.idFromName(room[1].toUpperCase())).fetch(new Request(req, { headers }));
+      }
 
       // --- game API ---
       if (p === "/api/register" && req.method === "POST") { const b = await req.json().catch(() => ({})); const r = await register(env, b.email, b.password, b.name); return json(r, r.error ? 400 : 200); }

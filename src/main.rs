@@ -767,7 +767,11 @@ fn network(g: &mut Game, dt: f32) {
                 }
             }
             Some("left") => g.remotes.retain(|x| x.id != from),
-            Some("error") => g.log.push(format!("Multiplayer: {}", m["msg"].as_str().unwrap_or("error"))),
+            Some("error") => {
+                let msg = m["msg"].as_str().unwrap_or("error").to_string();
+                if msg.contains("log in") { g.account = None; let _ = std::fs::remove_file(account_file()); }
+                g.log.push(format!("Multiplayer: {msg}"));
+            }
             Some("pick") if !guest(g) => {
                 // A guest grabbed supplies: remove them from the world.
                 let (map, p) = (m["map"].as_u64().unwrap_or(9) as usize, vec2(m["x"].as_f64().unwrap_or(0.0) as f32, m["y"].as_f64().unwrap_or(0.0) as f32) * T);
@@ -1308,8 +1312,12 @@ async fn main() {
     if let Some(a) = &g.account { g.my_name = a.name.clone(); }
     // HOLLOW_ROOM=CODE: join a multiplayer room straight away (Infection mode).
     if let Ok(code) = std::env::var("HOLLOW_ROOM") {
-        g.net = Some(net::Net::join(&code));
-        start_infection(&mut g);
+        if let Some(a) = g.account.clone() {
+            g.net = Some(net::Net::join(&code, &a.token));
+            start_infection(&mut g);
+        } else {
+            eprintln!("HOLLOW_ROOM needs a login: press L in the game first.");
+        }
     }
     if g.meta.allowed.is_none() {
         g.screen = Screen::Consent;
@@ -1358,7 +1366,10 @@ async fn main() {
                         g.screen = Screen::Login;
                     }
                 }
-                if is_key_pressed(KeyCode::J) { g.room_input.clear(); while get_char_pressed().is_some() {} g.screen = Screen::JoinRoom; }
+                if is_key_pressed(KeyCode::J) {
+                    if g.account.is_some() { g.room_input.clear(); while get_char_pressed().is_some() {} g.screen = Screen::JoinRoom; }
+                    else { g.login_email.clear(); g.login_pw.clear(); g.login_field = 0; g.status = "Online play needs an account: log in first.".into(); while get_char_pressed().is_some() {} g.screen = Screen::Login; }
+                }
 
                 if is_key_pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
                 if is_key_pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
@@ -1421,10 +1432,12 @@ async fn main() {
                 let keys = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8];
                 for (i, k) in keys.iter().enumerate() {
                     if is_key_pressed(*k) {
+                        if g.account.is_none() { g.status = "Log in first (Esc, then L): servers check who you are.".into(); continue; }
                         if let Some(sv) = g.server_list.get(i).cloned() {
                             let mods: Vec<String> = sv["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
                             apply_mods(&mut g, &mods);
-                            g.net = Some(net::Net::join(sv["code"].as_str().unwrap_or("")));
+                            let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
+                            g.net = Some(net::Net::join(sv["code"].as_str().unwrap_or(""), &token));
                             start_infection(&mut g);
                         }
                     }
@@ -1453,7 +1466,7 @@ async fn main() {
                             let v: serde_json::Value = r.into_json().unwrap_or_default();
                             if let Some(code) = v["code"].as_str() {
                                 apply_mods(&mut g, &[]);
-                                g.net = Some(net::Net::join(code));
+                                g.net = Some(net::Net::join(code, &token));
                                 start_infection(&mut g);
                                 g.log.push(format!("Your server is up. Room code: {code}"));
                             }
@@ -1480,7 +1493,8 @@ async fn main() {
                         .map(|s| s["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect())
                         .unwrap_or_default();
                     apply_mods(&mut g, &mods);
-                    g.net = Some(net::Net::join(&g.room_input));
+                    let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
+                    g.net = Some(net::Net::join(&g.room_input, &token));
                     start_infection(&mut g);
                 }
                 if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
@@ -1917,7 +1931,7 @@ fn draw_title(g: &Game) {
         "  2  Normal".into(),
         "  3  Many phobias: pick what scares you (and switch off what you can't handle)".into(),
         "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
-        "  J  INFECTION ONLINE: play with friends (type the same room code)   S  server list".into(),
+        "  J  INFECTION ONLINE: play with friends (type the same room code)   S  server list   (needs a login)".into(),
         match &g.account { Some(a) => format!("  Logged in as {} (L to log out)", a.name), None => "  L  log in (make an account on the website)".into() },
         String::new(),
         format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),

@@ -55,12 +55,14 @@ impl Brains {
     }
 
     /// Asks character `who` for a reply in the background.
-    pub fn ask(&self, who: usize, backend: &str, model: String, system: String, history: Vec<Msg>, fallback: String) {
+    /// `cloud`: the exact cloud model for this character (e.g. "claude-opus-5-5"), or "" for the default.
+    pub fn ask(&self, who: usize, backend: &str, cloud: &str, model: String, system: String, history: Vec<Msg>, fallback: String) {
         let tx = self.tx.clone();
         let backend = backend.to_string();
+        let cloud = cloud.to_string();
         std::thread::spawn(move || {
             // A cloud brain that fails (no key, offline, unknown model) falls back to the local one.
-            let (text, via) = match talk(&backend, &model, &system, &history).or_else(|| talk("ollama", &model, &system, &history)) {
+            let (text, via) = match talk(&backend, &cloud, &model, &system, &history).or_else(|| talk("ollama", "", &model, &system, &history)) {
                 Some(r) => r,
                 None => (fallback, "scripted (no AI answered)".into()),
             };
@@ -89,12 +91,12 @@ fn key(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|k| !k.trim().is_empty())
 }
 
-fn talk(backend: &str, model: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
+fn talk(backend: &str, cloud: &str, model: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
     let msgs: Vec<Value> = history.iter().map(|m| json!({"role": if m.user { "user" } else { "assistant" }, "content": m.text})).collect();
     let t = Duration::from_secs(40);
     match backend {
         "anthropic" if key("ANTHROPIC_API_KEY").is_some() => {
-            let model = std::env::var("HOLLOW_CLAUDE_MODEL").unwrap_or_else(|_| "claude-haiku-5-5".into());
+            let model = if cloud.is_empty() { std::env::var("HOLLOW_CLAUDE_MODEL").unwrap_or_else(|_| "claude-haiku-5-5".into()) } else { cloud.to_string() };
             let v: Value = ureq::post("https://api.anthropic.com/v1/messages")
                 .timeout(t)
                 .set("x-api-key", &key("ANTHROPIC_API_KEY")?)
@@ -103,7 +105,7 @@ fn talk(backend: &str, model: &str, system: &str, history: &[Msg]) -> Option<(St
                 .ok()?
                 .into_json()
                 .ok()?;
-            Some((v["content"][0]["text"].as_str()?.to_string(), "Claude API".into()))
+            Some((v["content"][0]["text"].as_str()?.to_string(), format!("Claude API ({model})")))
         }
         "openai" if key("OPENAI_API_KEY").is_some() => {
             let model = std::env::var("HOLLOW_OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
@@ -156,7 +158,7 @@ mod tests {
     fn a_local_character_answers() {
         let b = Brains::new();
         let Some(model) = b.local_model("qwen3:4b-instruct") else { return };
-        let r = talk("ollama", &model, "You are Clove, a warm character in a spooky game. Reply in one short sentence.",
+        let r = talk("ollama", "", &model, "You are Clove, a warm character in a spooky game. Reply in one short sentence.",
             &[Msg { user: true, text: "Hi Clove, is this house haunted?".into() }]);
         let (text, via) = r.expect("ollama answered");
         let text = tidy(&text);

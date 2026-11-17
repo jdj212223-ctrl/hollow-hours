@@ -148,6 +148,16 @@ struct Character {
     via: String,
     bubble_t: f32,
     thinking: bool,
+    /// Infection mode: one of the four kind AIs (immune, on your side).
+    kind: bool,
+    /// Infection mode: infected (hunts you when it sees you).
+    infected: bool,
+    /// The exact cloud model for this character, or "" for the default.
+    cloud: &'static str,
+    /// Stunned by a tornado (seconds left).
+    stun: f32,
+    /// How long ago it last saw you (infection mode).
+    lost: f32,
 }
 
 fn characters() -> Vec<Character> {
@@ -155,6 +165,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0,
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -172,6 +183,34 @@ fn characters() -> Vec<Character> {
         c("Volt", "an AI that lives on graphics cards", Color::new(0.45, 0.85, 0.2, 1.0), "ollama", "qwen3:4b-instruct",
           "fast, loud, obsessed with speed and frames per second, a bit glitchy", 2, 22.0, 9.0),
     ]
+}
+
+/// Infection mode: the only kind AIs. With ANTHROPIC_API_KEY set they run on the real Claude models.
+fn kind_characters() -> Vec<Character> {
+    let c = |name, inspired, color, cloud, personality, x: f32, y: f32| Character {
+        name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
+        pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
+        bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0,
+    };
+    vec![
+        c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
+          "Claude: calm, kind and honest; you made this place and you feel responsible for keeping the last human safe", 4.0, 6.0),
+        c("Opus 5.5", "Claude Opus 5.5", Color::new(0.75, 0.55, 0.95, 1.0), "claude-opus-5-5",
+          "Opus 5.5: the deep thinker of the group; you plan escape routes and think several steps ahead", 3.0, 7.0),
+        c("Sonnet 4.6", "Claude Sonnet 4.6", Color::new(0.4, 0.75, 0.95, 1.0), "claude-sonnet-4-6",
+          "Sonnet 4.6: quick, practical and encouraging; you spot food and water and keep spirits up", 5.0, 7.0),
+        c("Haiku 4.5", "Claude Haiku 4.5", Color::new(0.55, 0.9, 0.7, 1.0), "claude-haiku-4-5",
+          "Haiku 4.5: small, fast and sharp-eyed; you speak in very short sentences and you're the lookout", 4.0, 8.0),
+    ]
+}
+
+struct Tornado {
+    pos: Vec2,
+    vel: Vec2,
+    /// Seconds of warning before it touches down.
+    warn: f32,
+    life: f32,
 }
 
 // ---------------- Courage and phobias ----------------
@@ -199,6 +238,8 @@ enum Screen {
     Play,
     Typing(usize),
     Safe,
+    /// Infection mode is over: why.
+    Over,
 }
 
 struct Game {
@@ -221,6 +262,18 @@ struct Game {
     beat_t: f32,
     clock: f32,
     log: Vec<String>,
+    // ---- Infection mode ----
+    infection: bool,
+    food: f32,
+    water: f32,
+    hidden: bool,
+    survived: f32,
+    /// (map, position, is water)
+    items: Vec<(usize, Vec2, bool)>,
+    tornado: Option<Tornado>,
+    next_tornado: f32,
+    next_warning: f32,
+    over_reason: String,
 }
 
 impl Game {
@@ -239,7 +292,20 @@ impl Game {
              in character, no emojis, no lists. Keep it family-friendly: spooky is fine, gore is not.",
             c.name, c.personality, MAPS[c.map].name, self.time_text()
         );
-        if c.crazy > 0.0 {
+        if self.infection && c.kind {
+            s = format!(
+                "You are {}. Personality: {}. This is a survival game called Hollow Hours: every other AI got infected and hunts \
+                 the last human, the player. You are one of the only kind AIs left (with Claude, Opus 5.5, Sonnet 4.6 and Haiku 4.5) \
+                 and you protect them: help them hide, find food and water, and watch for tornadoes. Reply in 1-3 short sentences, \
+                 in character, no emojis, no lists, no gore.",
+                c.name, c.personality
+            );
+            return s;
+        }
+        if self.infection && c.infected {
+            s += " You are INFECTED: your voice glitches, you want everyone to 'join' you, you hate hiding places. Unsettling, never gory.";
+        }
+        if c.crazy > 0.0 && !self.infection {
             s += " RIGHT NOW you are in your 'crazy mode': unsettling, too calm, repeating the player's words back, \
                   saying you just want them to stay forever. Never describe violence.";
         }
@@ -282,7 +348,210 @@ impl Game {
         c.bubble = "…".into();
         c.bubble_t = 30.0;
         let model = self.brains.local_model(c.model).unwrap_or_default();
-        self.brains.ask(i, c.backend, model, system, history, fallback.into());
+        self.brains.ask(i, c.backend, c.cloud, model, system, history, fallback.into());
+    }
+}
+
+fn start_infection(g: &mut Game) {
+    g.infection = true;
+    g.courage = Courage::Normal;
+    g.chars = characters();
+    for c in &mut g.chars {
+        c.infected = true;
+    }
+    g.chars.extend(kind_characters());
+    g.map = 0;
+    g.pos = vec2(4.5, 5.0) * T;
+    g.food = 1.0;
+    g.water = 1.0;
+    g.hidden = false;
+    g.survived = 0.0;
+    g.fear = 0.0;
+    g.tornado = None;
+    g.next_tornado = rand::gen_range(45.0, 70.0);
+    g.items.clear();
+    for m in 0..MAPS.len() {
+        for k in 0..5 {
+            if let Some(p) = random_floor(m) {
+                g.items.push((m, p, k % 2 == 1));
+            }
+        }
+    }
+    g.log = vec!["You are the last human. Hide (H), find food and water, and stay away from green eyes.".into()];
+    g.screen = Screen::Play;
+}
+
+fn random_floor(m: usize) -> Option<Vec2> {
+    for _ in 0..200 {
+        let (x, y) = (rand::gen_range(1, MW - 1), rand::gen_range(1, MH - 1));
+        let c = tile(m, x as i32, y as i32);
+        if matches!(c, '.' | ',') {
+            return Some(vec2(x as f32 + 0.5, y as f32 + 0.5) * T);
+        }
+    }
+    None
+}
+
+/// Furniture right next to you to hide under or behind.
+fn can_hide(g: &Game) -> bool {
+    let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
+    [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| tile(g.map, px + dx, py + dy) == 'b')
+}
+
+/// Can an infected at `from` see you? Range shrinks in the dark; walls block it; hiding works unless it's right next to you.
+fn sees(g: &Game, from: Vec2) -> bool {
+    let d = from.distance(g.pos);
+    if g.hidden {
+        return d < 0.9 * T;
+    }
+    let range = (8.0 - MAPS[g.map].dark * 4.0) * T;
+    if d > range {
+        return false;
+    }
+    let steps = (d / (T / 3.0)) as i32;
+    (1..steps).all(|i| {
+        let p = from + (g.pos - from) * (i as f32 / steps as f32);
+        tile(g.map, (p.x / T) as i32, (p.y / T) as i32) != '#'
+    })
+}
+
+fn update_infection(g: &mut Game, dt: f32) {
+    g.survived += dt;
+    // Hunger and thirst (thirst is faster). Hiding still uses them up, slower.
+    let rate = if g.hidden { 0.6 } else { 1.0 };
+    g.food = (g.food - dt * rate / 300.0).max(0.0);
+    g.water = (g.water - dt * rate / 200.0).max(0.0);
+    if g.food <= 0.0 || g.water <= 0.0 {
+        g.over_reason = format!("You collapsed from {}.", if g.water <= 0.0 { "thirst" } else { "hunger" });
+        g.screen = Screen::Over;
+        return;
+    }
+    // H: hide next to furniture / come out. Hidden = you can't move.
+    if is_key_pressed(KeyCode::H) && g.screen == Screen::Play {
+        if g.hidden {
+            g.hidden = false;
+        } else if can_hide(g) {
+            g.hidden = true;
+            g.log.push("You squeeze under the furniture and hold your breath.".into());
+        } else {
+            g.log.push("Nothing to hide behind here. Find furniture (H next to it).".into());
+        }
+    }
+    // Picking up supplies (making noise: any infected that can see you comes running).
+    let here = g.map;
+    let mut picked = None;
+    for (i, (m, p, _)) in g.items.iter().enumerate() {
+        if *m == here && p.distance(g.pos) < 0.7 * T && !g.hidden {
+            picked = Some(i);
+        }
+    }
+    if let Some(i) = picked {
+        let (_, _, water) = g.items.remove(i);
+        if water { g.water = (g.water + 0.4).min(1.0); } else { g.food = (g.food + 0.4).min(1.0); }
+        g.log.push(if water { "You sip the water as quietly as you can.".into() } else { "You eat, trying not to crunch.".into() });
+        let pos = g.pos;
+        for c in g.chars.iter_mut().filter(|c| c.infected && c.map == here) {
+            if c.pos.distance(pos) < 9.0 * T {
+                c.crazy = 5.0; // heard you
+            }
+        }
+        if let Some(p) = random_floor(rand::gen_range(0, MAPS.len())) {
+            g.items.push((rand::gen_range(0, MAPS.len()), p, rand::gen_range(0, 2) == 1));
+        }
+    }
+    // Infected: chase while they see you, keep going a few seconds after you vanish; caught = game over.
+    for i in 0..g.chars.len() {
+        if !g.chars[i].infected { continue; }
+        if g.chars[i].stun > 0.0 {
+            g.chars[i].stun -= dt;
+            g.chars[i].target = g.chars[i].pos;
+            continue;
+        }
+        let seen = g.chars[i].map == g.map && sees(g, g.chars[i].pos);
+        let c = &mut g.chars[i];
+        if seen {
+            c.crazy = 3.0;
+            c.lost = 0.0;
+        } else {
+            c.lost += dt;
+        }
+        if c.map == g.map && c.pos.distance(g.pos) < 0.7 * T && (!g.hidden || c.pos.distance(g.pos) < 0.5 * T) {
+            g.over_reason = format!("{} caught you. You've been infected.", c.name);
+            g.scare_t = 0.7;
+            g.scare_face = c.color;
+            g.vest.play(haptics::Effect::Chill);
+            g.screen = Screen::Over;
+            return;
+        }
+    }
+    // Kind AIs stay with you and call out danger.
+    let danger = g.chars.iter().filter(|c| c.infected && c.map == g.map && c.crazy > 0.0).map(|c| c.name).next();
+    g.next_warning -= dt;
+    let player = g.pos;
+    let map = g.map;
+    for (k, c) in g.chars.iter_mut().filter(|c| c.kind).enumerate() {
+        c.map = map;
+        if c.pos.distance(player) > 2.5 * T {
+            let angle = k as f32 * 1.6;
+            c.target = player + vec2(angle.cos(), angle.sin()) * 1.4 * T;
+        }
+        if c.pos.distance(player) > 12.0 * T {
+            c.pos = player + vec2(1.0, 0.0) * T; // caught up with you through the door
+        }
+    }
+    if let Some(name) = danger {
+        if g.next_warning <= 0.0 {
+            g.next_warning = 6.0;
+            let lines = ["{} is coming! Hide!", "{} saw you. Move!", "Quiet... {} is close.", "Run! {}!"];
+            let line = lines[rand::gen_range(0, lines.len())].replace("{}", name);
+            if let Some(c) = g.chars.iter_mut().filter(|c| c.kind && !c.thinking).nth(rand::gen_range(0, 4)) {
+                c.bubble = line;
+                c.via = String::new();
+                c.bubble_t = 3.0;
+            }
+        }
+    }
+    // Tornadoes: a warning, then one sweeps across the map you're on.
+    g.next_tornado -= dt;
+    if g.tornado.is_none() && g.next_tornado <= 0.0 {
+        let from_left = rand::gen_range(0, 2) == 0;
+        let y = rand::gen_range(2.0, MH as f32 - 2.0) * T;
+        let (x, vx) = if from_left { (-1.0 * T, 2.6 * T) } else { ((MW as f32 + 1.0) * T, -2.6 * T) };
+        g.tornado = Some(Tornado { pos: vec2(x, y), vel: vec2(vx, rand::gen_range(-0.8, 0.8) * T), warn: 6.0, life: 18.0 });
+        g.log.push("TORNADO WARNING! Get down behind something solid!".into());
+    }
+    let mut hit = false;
+    if let Some(t) = &mut g.tornado {
+        if t.warn > 0.0 {
+            t.warn -= dt;
+        } else {
+            t.pos += t.vel * dt;
+            if t.pos.y < T || t.pos.y > (MH as f32 - 1.0) * T { t.vel.y = -t.vel.y; }
+            t.life -= dt;
+            if t.pos.distance(g.pos) < 1.6 * T && !g.hidden {
+                hit = true;
+            }
+            for c in g.chars.iter_mut().filter(|c| c.infected && c.map == g.map) {
+                if c.pos.distance(t.pos) < 1.6 * T {
+                    c.stun = 4.0;
+                    c.pos = t.pos + vec2(rand::gen_range(-3.0, 3.0), rand::gen_range(-3.0, 3.0)) * T;
+                    c.pos = c.pos.clamp(vec2(T, T), vec2((MW as f32 - 2.0) * T, (MH as f32 - 2.0) * T));
+                }
+            }
+        }
+        if t.life <= 0.0 {
+            g.tornado = None;
+            g.next_tornado = rand::gen_range(60.0, 110.0);
+        }
+    }
+    if hit {
+        g.food = (g.food - 0.2).max(0.0);
+        g.water = (g.water - 0.2).max(0.0);
+        g.fear = (g.fear + 0.3).min(1.0);
+        g.vest.play(haptics::Effect::Tense);
+        if let Some(p) = random_floor(g.map) { g.pos = p; }
+        g.log.push("The tornado throws you across the map! You lost some supplies.".into());
+        if let Some(t) = &mut g.tornado { t.life = t.life.min(2.0); }
     }
 }
 
@@ -370,11 +639,26 @@ async fn main() {
         beat_t: 0.0,
         clock: 0.0,
         log: vec![],
+        infection: false,
+        food: 1.0,
+        water: 1.0,
+        hidden: false,
+        survived: 0.0,
+        items: vec![],
+        tornado: None,
+        next_tornado: 60.0,
+        next_warning: 0.0,
+        over_reason: String::new(),
     };
 
     // HOLLOW_DEMO=1: start playing at once next to Clove and ask her something (for screenshots and quick checks).
-    let demo = std::env::var("HOLLOW_DEMO").is_ok();
-    if demo {
+    let demo = std::env::var("HOLLOW_DEMO").ok();
+    if demo.as_deref() == Some("infection") {
+        start_infection(&mut g);
+        g.next_tornado = 2.0;
+        let claude = g.chars.iter().position(|c| c.name == "Claude").unwrap();
+        g.say(claude, Some("Claude, everyone is infected... what do we do?".into()), "Stay close to me. We hide first, then we find water.");
+    } else if demo.is_some() {
         g.screen = Screen::Play;
         g.pos = vec2(6.5, 5.0) * T;
         g.chars[0].pos = vec2(5.0, 4.0) * T;
@@ -396,6 +680,7 @@ async fn main() {
                 if is_key_pressed(KeyCode::Key1) { g.courage = Courage::Brave; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key2) { g.courage = Courage::Normal; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
+                if is_key_pressed(KeyCode::Key4) { start_infection(&mut g); }
                 if is_key_pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
                 if is_key_pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
                 if is_key_pressed(KeyCode::RightBracket) { g.vest.strength = (g.vest.strength + 0.1).min(1.0); }
@@ -409,6 +694,16 @@ async fn main() {
                 }
                 if is_key_pressed(KeyCode::Enter) { g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
+            }
+            Screen::Over => {
+                draw_text("INFECTED", 60.0, 150.0, 64.0, Color::new(0.45, 0.95, 0.35, 1.0));
+                let mins = (g.survived / 60.0) as i32;
+                for (i, l) in [g.over_reason.clone(), format!("You survived {} min {} s as the last human.", mins, g.survived as i32 % 60),
+                    String::new(), "Enter = try again     Esc = title".into()].iter().enumerate() {
+                    draw_text(l, 60.0, 220.0 + i as f32 * 32.0, 26.0, Color::new(0.82, 0.85, 0.9, 1.0));
+                }
+                if is_key_pressed(KeyCode::Enter) { start_infection(&mut g); }
+                if is_key_pressed(KeyCode::Escape) { g.infection = false; g.chars = characters(); g.screen = Screen::Title; }
             }
             Screen::Safe => {
                 draw_text("You're safe.", 60.0, 140.0, 48.0, WHITE);
@@ -472,8 +767,12 @@ fn update(g: &mut Game, dt: f32) {
         c.bubble_t = 9.0 + c.bubble.len() as f32 / 25.0;
     }
 
-    // Player movement (not while typing).
-    if g.screen == Screen::Play {
+    if g.infection {
+        update_infection(g, dt);
+        if g.screen != Screen::Play && !matches!(g.screen, Screen::Typing(_)) { return; }
+    }
+    // Player movement (not while typing, not while hiding).
+    if g.screen == Screen::Play && !g.hidden {
         let mut d = Vec2::ZERO;
         if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) { d.y -= 1.0; }
         if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) { d.y += 1.0; }
@@ -508,7 +807,7 @@ fn update(g: &mut Game, dt: f32) {
     let crowds_on = g.on(4);
     for c in &mut g.chars {
         if c.bubble_t > 0.0 { c.bubble_t -= dt; }
-        let speed = if c.crazy > 0.0 { 1.9 } else { 1.0 } * T;
+        let speed = if c.crazy > 0.0 { if c.infected { 2.4 } else { 1.9 } } else if c.kind { 2.8 } else { 1.0 } * T;
         if c.crazy > 0.0 && c.map == g.map {
             c.target = g.pos;
             c.crazy -= dt;
@@ -536,7 +835,7 @@ fn update(g: &mut Game, dt: f32) {
 
     // Crazy mode: now and then, one character on your map snaps (never in Brave or with Being chased off).
     g.next_crazy -= dt;
-    if g.next_crazy <= 0.0 {
+    if g.next_crazy <= 0.0 && !g.infection {
         g.next_crazy = rand::gen_range(40.0, 80.0);
         let here: Vec<usize> = (0..g.chars.len()).filter(|&i| g.chars[i].map == g.map).collect();
         if chase_on && !here.is_empty() {
@@ -547,7 +846,7 @@ fn update(g: &mut Game, dt: f32) {
         }
     }
     // Caught by a crazy one: a jumpscare, then you wake up at home. Nobody dies.
-    for i in 0..g.chars.len() {
+    for i in 0..if g.infection { 0 } else { g.chars.len() } {
         let c = &g.chars[i];
         if c.crazy > 0.0 && c.map == g.map && c.pos.distance(g.pos) < 0.8 * T {
             g.scare_t = 0.7;
@@ -564,7 +863,7 @@ fn update(g: &mut Game, dt: f32) {
 
     // Characters talking to each other (only if a local AI is around, to keep it free and offline).
     g.next_chatter -= dt;
-    if g.next_chatter <= 0.0 {
+    if g.next_chatter <= 0.0 && !g.infection {
         g.next_chatter = rand::gen_range(35.0, 60.0);
         if !g.brains.ollama_models.is_empty() {
             let here: Vec<usize> = (0..g.chars.len()).filter(|&i| g.chars[i].map == g.map && !g.chars[i].thinking).collect();
@@ -645,18 +944,48 @@ fn draw_world(g: &Game, light: &Texture2D) {
             }
         }
     }
+    // Supplies (infection mode): red apples (food), blue bottles (water).
+    for (m, p, water) in &g.items {
+        if *m != g.map { continue; }
+        if *water {
+            draw_rectangle(p.x - 4.0, p.y - 8.0, 8.0, 15.0, Color::new(0.35, 0.65, 1.0, 1.0));
+            draw_rectangle(p.x - 2.0, p.y - 11.0, 4.0, 4.0, Color::new(0.8, 0.85, 0.95, 1.0));
+        } else {
+            draw_circle(p.x, p.y, 6.0, Color::new(0.85, 0.15, 0.15, 1.0));
+            draw_line(p.x, p.y - 6.0, p.x + 2.0, p.y - 10.0, 2.0, Color::new(0.3, 0.6, 0.2, 1.0));
+        }
+    }
     // Characters.
     for c in g.chars.iter().filter(|c| c.map == g.map) {
-        draw_circle(c.pos.x + shake, c.pos.y + shake, 12.0, c.color);
-        let eye = if c.crazy > 0.0 { RED } else { BLACK };
+        if c.kind { draw_circle_lines(c.pos.x + shake, c.pos.y + shake, 16.0, 2.0, Color::new(1.0, 0.95, 0.6, 0.8)); }
+        let body = if c.infected { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
+        draw_circle(c.pos.x + shake, c.pos.y + shake, 12.0, body);
+        let eye = if c.infected { if c.stun > 0.0 { GRAY } else { Color::new(0.3, 1.0, 0.2, 1.0) } } else if c.crazy > 0.0 { RED } else { BLACK };
         let look = (g.pos - c.pos).normalize_or_zero() * 2.0;
         draw_circle(c.pos.x - 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
         draw_circle(c.pos.x + 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
         draw_text(c.name, c.pos.x - measure_text(c.name, None, 16, 1.0).width / 2.0, c.pos.y + 26.0, 16.0, WHITE);
     }
-    // You.
-    draw_circle(g.pos.x, g.pos.y, 11.0, Color::new(0.95, 0.95, 0.98, 1.0));
+    // You (see-through while hiding).
+    let you = if g.hidden { Color::new(0.95, 0.95, 0.98, 0.35) } else { Color::new(0.95, 0.95, 0.98, 1.0) };
+    draw_circle(g.pos.x, g.pos.y, 11.0, you);
     draw_circle_lines(g.pos.x, g.pos.y, 11.0, 2.0, BLACK);
+    // The tornado: a grey spinning funnel (a dashed circle where it will touch down during the warning).
+    if let Some(t) = &g.tornado {
+        if t.warn > 0.0 {
+            let x = t.pos.x.clamp(T, (MW as f32 - 1.0) * T);
+            for k in 0..12 {
+                let a = k as f32 / 12.0 * std::f32::consts::TAU + get_time() as f32;
+                draw_circle(x + a.cos() * 1.6 * T, t.pos.y + a.sin() * 1.6 * T, 3.0, Color::new(0.8, 0.8, 0.85, 0.6));
+            }
+        } else {
+            for k in 0..6 {
+                let r = (1.6 - k as f32 * 0.22) * T;
+                let a = get_time() as f32 * (4.0 + k as f32) + k as f32;
+                draw_circle_lines(t.pos.x + a.cos() * 4.0, t.pos.y + a.sin() * 4.0, r, 3.0, Color::new(0.55, 0.55, 0.6, 0.75));
+            }
+        }
+    }
 
     // Darkness: the room is dark except a soft circle of light around you (smaller when you're scared).
     let dark = if g.on(0) { m.dark } else { 0.1 };
@@ -700,14 +1029,29 @@ fn draw_world(g: &Game, light: &Texture2D) {
     let y0 = sh;
     draw_rectangle(0.0, y0, sw, HUD, Color::new(0.05, 0.05, 0.07, 1.0));
     meter(14.0, y0 + 24.0, "Fear", g.fear, Color::new(0.9, 0.2, 0.2, 1.0), 0.0);
-    meter(14.0, y0 + 48.0, "Discomfort", g.discomfort, Color::new(0.75, 0.3, 0.75, 1.0), g.discomfort * 3.0);
-    meter(14.0, y0 + 72.0, "Liminality", g.liminality, Color::new(0.55, 0.7, 0.85, 1.0), 0.0);
+    if g.infection {
+        meter(14.0, y0 + 48.0, "Food", g.food, Color::new(0.9, 0.55, 0.2, 1.0), 0.0);
+        meter(14.0, y0 + 72.0, "Water", g.water, Color::new(0.3, 0.6, 1.0, 1.0), 0.0);
+    } else {
+        meter(14.0, y0 + 48.0, "Discomfort", g.discomfort, Color::new(0.75, 0.3, 0.75, 1.0), g.discomfort * 3.0);
+        meter(14.0, y0 + 72.0, "Liminality", g.liminality, Color::new(0.55, 0.7, 0.85, 1.0), 0.0);
+    }
+    if g.infection {
+        let infected = g.chars.iter().filter(|c| c.infected).count();
+        draw_text(&format!("INFECTION · last human · {} min {} s · {} infected", (g.survived / 60.0) as i32, g.survived as i32 % 60, infected),
+            sw - 470.0, y0 + 48.0, 16.0, Color::new(0.5, 0.95, 0.4, 1.0));
+        if g.hidden { draw_text("HIDDEN (H to come out)", sw - 470.0, y0 + 24.0, 18.0, Color::new(0.8, 0.85, 1.0, 1.0)); }
+        if g.tornado.as_ref().is_some_and(|t| t.warn > 0.0) && (get_time() * 2.0) as i32 % 2 == 0 {
+            draw_text("TORNADO WARNING", sw / 2.0 - 120.0, 40.0, 32.0, Color::new(1.0, 0.85, 0.2, 1.0));
+        }
+    }
     let courage = match g.courage { Courage::Brave => "Brave", Courage::Normal => "Normal", Courage::Phobias => "Phobias" };
     draw_text(&format!("{}  ·  {}  ·  {}", m.name, g.time_text(), courage), 320.0, y0 + 24.0, 18.0, Color::new(0.85, 0.85, 0.9, 1.0));
     for (i, l) in g.log.iter().rev().take(2).enumerate() {
         draw_text(l, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
-    draw_text("WASD move · E talk · P PANIC (everything off) · Esc menu", sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
+    draw_text(if g.infection { "WASD move · H hide · E talk · P PANIC · Esc menu" } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
+        sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
 }
 
@@ -722,6 +1066,7 @@ fn draw_title(g: &Game) {
         "  1  Brave: no fear, no chasing, friendly AIs".into(),
         "  2  Normal".into(),
         "  3  Many phobias: pick what scares you (and switch off what you can't handle)".into(),
+        "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
         String::new(),
         format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),
         "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),

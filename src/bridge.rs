@@ -17,9 +17,7 @@ pub struct Request {
 }
 
 pub fn bridge_file() -> std::path::PathBuf {
-    let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/Hollow Hours");
-    let _ = std::fs::create_dir_all(&dir);
-    dir.join("bridge.json")
+    crate::platform::data_dir().join("bridge.json")
 }
 
 /// Starts the bridge (if the port is free). Returns where requests arrive.
@@ -27,11 +25,7 @@ pub fn start(token: String) -> Option<Receiver<Request>> {
     let listener = TcpListener::bind(("127.0.0.1", PORT)).ok()?;
     let file = bridge_file();
     std::fs::write(&file, json!({"port": PORT, "token": token}).to_string()).ok()?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
-    }
+    crate::platform::private(&file);
     let (tx, rx) = channel::<Request>();
     std::thread::spawn(move || {
         for conn in listener.incoming() {

@@ -1,3 +1,5 @@
+// No black console window behind the game on Windows.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 //! Hollow Hours: a small horror game where the characters are real AIs.
 //! Each character talks through a real model (offline through Ollama, or a cloud API if you set its key), has its
 //! own personality, and can slip into a "crazy mode" at night (like The Mita's Crazy Mita), unless you joined Brave.
@@ -14,6 +16,8 @@ mod view3d;
 mod mac;
 mod roam;
 mod voice;
+mod platform;
+mod pad;
 
 use serde_json::json;
 
@@ -574,9 +578,22 @@ fn site() -> String {
 
 /// The login lives in the macOS Keychain (service "Hollow Hours"): encrypted, remembered across restarts and updates,
 /// and only the session token + display name (never the password). An old account.json is moved in and deleted.
+#[cfg(any(target_os = "macos", windows))]
 fn keychain() -> Option<keyring::Entry> {
     keyring::Entry::new("Hollow Hours", "account").ok()
 }
+
+/// Linux / SteamOS: often no password store is running, so the login stays in a file only you can read.
+#[cfg(not(any(target_os = "macos", windows)))]
+struct NoKeychain;
+#[cfg(not(any(target_os = "macos", windows)))]
+impl NoKeychain {
+    fn get_password(&self) -> Result<String, ()> { Err(()) }
+    fn set_password(&self, _: &str) -> Result<(), ()> { Err(()) }
+    fn delete_credential(&self) -> Result<(), ()> { Ok(()) }
+}
+#[cfg(not(any(target_os = "macos", windows)))]
+fn keychain() -> Option<NoKeychain> { None }
 
 fn load_account() -> Option<Account> {
     if let Some(a) = keychain().and_then(|e| e.get_password().ok()).and_then(|t| serde_json::from_str::<Account>(&t).ok()) {
@@ -593,18 +610,11 @@ fn save_account(a: &Account) {
         let _ = std::fs::remove_file(account_file()); // no plain-text copy left behind
     } else {
         let _ = std::fs::write(account_file(), serde_json::to_string(a).unwrap_or_default()); // no Keychain: fall back to the file
+        platform::private(&account_file());
     }
 }
 
-fn random_hex(n: usize) -> String {
-    use std::io::Read;
-    let mut b = vec![0u8; n];
-    if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_err() {
-        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        for (i, x) in b.iter_mut().enumerate() { *x = (t >> ((i % 16) * 8)) as u8 ^ i as u8; }
-    }
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
+fn random_hex(n: usize) -> String { platform::random_hex(n) }
 
 /// Log in through the browser (like "Sign in with ..." in other apps): the website asks you to Allow, then sends a
 /// one-time code to a tiny listener on THIS computer (127.0.0.1 only), and we swap it, plus a secret that never left
@@ -620,7 +630,7 @@ fn start_browser_login() -> std::sync::mpsc::Receiver<Result<Account, String>> {
         Err(e) => { let _ = tx.send(Err(format!("couldn't start the login listener: {e}"))); return rx; }
     };
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    let _ = std::process::Command::new("open").arg(format!("{}/link?port={port}&state={state}&challenge={challenge}", site())).spawn();
+    platform::open_url(&format!("{}/link?port={port}&state={state}&challenge={challenge}", site()));
     std::thread::spawn(move || {
         use std::io::{Read, Write};
         let _ = listener.set_nonblocking(true);
@@ -696,9 +706,7 @@ fn forget_account() {
 }
 
 fn account_file() -> std::path::PathBuf {
-    let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/Hollow Hours");
-    let _ = std::fs::create_dir_all(&dir);
-    dir.join("account.json")
+    platform::data_dir().join("account.json")
 }
 
 /// Downloads a .hh mod's content from the website (cached on disk) and checks it again here.
@@ -1301,7 +1309,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         return;
     }
     // H: hide next to furniture / come out. Hidden = you can't move.
-    if is_key_pressed(KeyCode::H) && g.screen == Screen::Play {
+    if pressed(KeyCode::H) && g.screen == Screen::Play {
         if g.hidden {
             g.hidden = false;
         } else if can_hide(g) {
@@ -1989,11 +1997,19 @@ async fn main() {
             (canvas, cam, view) = make(w);
         }
         // F11 or ⌘Ctrl+F: real full screen (the menu bar and title bar go away too).
-        let ctrl_cmd = (is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper)) && (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl));
-        if is_key_pressed(KeyCode::F11) || (ctrl_cmd && is_key_pressed(KeyCode::F)) {
+        let ctrl_cmd = (down(KeyCode::LeftSuper) || down(KeyCode::RightSuper)) && (down(KeyCode::LeftControl) || down(KeyCode::RightControl));
+        if pressed(KeyCode::F11) || (ctrl_cmd && pressed(KeyCode::F)) {
             g.fullscreen = !g.fullscreen;
             set_fullscreen(g.fullscreen);
         }
+        pad::update(match g.screen {
+            Screen::Title => pad::Mode::Title,
+            Screen::Play => pad::Mode::Play,
+            Screen::Typing(_) | Screen::Login | Screen::JoinRoom | Screen::MakeServer => pad::Mode::Typing,
+            Screen::Mac => pad::Mode::Mac,
+            Screen::Consent => pad::Mode::Consent,
+            _ => pad::Mode::Menu,
+        });
         set_camera(&cam);
         let dt = get_frame_time().min(0.05);
         // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
@@ -2032,21 +2048,21 @@ async fn main() {
         }
 
         // P = panic, from anywhere in the game (not while typing a message: there it's a letter).
-        if is_key_pressed(KeyCode::P) && matches!(g.screen, Screen::Play) {
+        if pressed(KeyCode::P) && matches!(g.screen, Screen::Play) {
             g.panic();
         }
 
         match g.screen {
             Screen::Title => {
                 draw_title(&g);
-                if is_key_pressed(KeyCode::Key1) { g.courage = Courage::Brave; g.screen = Screen::Play; }
-                if is_key_pressed(KeyCode::Key2) { g.courage = Courage::Normal; g.screen = Screen::Play; }
-                if is_key_pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
-                if is_key_pressed(KeyCode::Key4) { let local = local_mods(); apply_contents(&mut g, &local); begin_intro(&mut g, None); }
-                if is_key_pressed(KeyCode::I) { begin_intro(&mut g, None); }
-                if is_key_pressed(KeyCode::M) { g.screen = Screen::Consent; }
-                if is_key_pressed(KeyCode::S) { refresh_servers(&mut g); g.screen = Screen::Servers; }
-                if is_key_pressed(KeyCode::L) {
+                if pressed(KeyCode::Key1) { g.courage = Courage::Brave; g.screen = Screen::Play; }
+                if pressed(KeyCode::Key2) { g.courage = Courage::Normal; g.screen = Screen::Play; }
+                if pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
+                if pressed(KeyCode::Key4) { let local = local_mods(); apply_contents(&mut g, &local); begin_intro(&mut g, None); }
+                if pressed(KeyCode::I) { begin_intro(&mut g, None); }
+                if pressed(KeyCode::M) { g.screen = Screen::Consent; }
+                if pressed(KeyCode::S) { refresh_servers(&mut g); g.screen = Screen::Servers; }
+                if pressed(KeyCode::L) {
                     if g.account.is_some() {
                         g.account = None;
                         forget_account();
@@ -2057,24 +2073,24 @@ async fn main() {
                         g.screen = Screen::Login;
                     }
                 }
-                if is_key_pressed(KeyCode::J) {
+                if pressed(KeyCode::J) {
                     if g.account.is_some() { g.room_input.clear(); while get_char_pressed().is_some() {} g.screen = Screen::JoinRoom; }
                     else { g.login_email.clear(); g.login_pw.clear(); g.login_field = 0; g.status = "Online play needs an account: log in first.".into(); while get_char_pressed().is_some() {} g.screen = Screen::Login; }
                 }
 
-                if is_key_pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
-                if is_key_pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
-                if is_key_pressed(KeyCode::RightBracket) { g.vest.strength = (g.vest.strength + 0.1).min(1.0); }
-                if is_key_pressed(KeyCode::Escape) { break; }
+                if pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
+                if pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
+                if pressed(KeyCode::RightBracket) { g.vest.strength = (g.vest.strength + 0.1).min(1.0); }
+                if pressed(KeyCode::Escape) { break; }
             }
             Screen::PickPhobias => {
                 draw_phobias(&g);
                 let keys = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6];
                 for (i, k) in keys.iter().enumerate() {
-                    if is_key_pressed(*k) { g.phobia[i] = !g.phobia[i]; }
+                    if pressed(*k) { g.phobia[i] = !g.phobia[i]; }
                 }
-                if is_key_pressed(KeyCode::Enter) { g.screen = Screen::Play; }
-                if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
+                if pressed(KeyCode::Enter) { g.screen = Screen::Play; }
+                if pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }
             Screen::Login => {
                 draw_text("Log in to Hollow Hours", 60.0, 120.0, 40.0, WHITE);
@@ -2089,7 +2105,7 @@ async fn main() {
                 draw_rectangle(bx, by, bw, bh, Color::new(0.2, 0.2, 0.26, 1.0));
                 draw_text(if g.show_pw { "Hide" } else { "Show" }, bx + 12.0, by + 19.0, 20.0, WHITE);
                 let (mx, my) = virtual_mouse();
-                if (is_mouse_button_pressed(MouseButton::Left) && mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) || is_key_pressed(KeyCode::F1) {
+                if (is_mouse_button_pressed(MouseButton::Left) && mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) || pressed(KeyCode::F1) {
                     g.show_pw = !g.show_pw;
                 }
                 draw_text("Or press B: log in with your browser, or paste a code from the website (Cmd+V)", 60.0, 290.0, 22.0, Color::new(0.55, 0.85, 1.0, 1.0));
@@ -2111,17 +2127,17 @@ async fn main() {
                         f.extend(t.chars().take(128usize.saturating_sub(f.chars().count())));
                     }
                 }
-                if is_key_pressed(KeyCode::Backspace) { if g.login_field == 0 { g.login_email.pop(); } else { g.login_pw.pop(); } }
-                if is_key_pressed(KeyCode::Tab) { g.login_field = 1 - g.login_field; }
+                if pressed(KeyCode::Backspace) { if g.login_field == 0 { g.login_email.pop(); } else { g.login_pw.pop(); } }
+                if pressed(KeyCode::Tab) { g.login_field = 1 - g.login_field; }
                 // Browser login: B is a letter, so only when the boxes are empty (or with Cmd/Ctrl held).
-                if is_key_pressed(KeyCode::B) && g.browser_login.is_none() && (cmd_held() || (g.login_email.is_empty() && g.login_pw.is_empty())) {
+                if pressed(KeyCode::B) && g.browser_login.is_none() && (cmd_held() || (g.login_email.is_empty() && g.login_pw.is_empty())) {
                     g.login_email.clear();
                     g.browser_login = Some(start_browser_login());
                     g.status = "Waiting for your browser... click Allow there.".into();
                 }
 
-                if is_key_pressed(KeyCode::Escape) { g.login_pw.clear(); g.screen = Screen::Title; }
-                if is_key_pressed(KeyCode::Enter) {
+                if pressed(KeyCode::Escape) { g.login_pw.clear(); g.screen = Screen::Title; }
+                if pressed(KeyCode::Enter) {
                     let body = json!({"email": g.login_email.trim(), "password": g.login_pw});
                     let res = ureq::post(&format!("{}/api/login", site())).timeout(std::time::Duration::from_secs(10)).send_json(body);
                     g.login_pw.clear(); // never kept
@@ -2151,7 +2167,7 @@ async fn main() {
                 draw_text(&g.status.clone(), 60.0, 495.0, 20.0, Color::new(1.0, 0.75, 0.4, 1.0));
                 let keys = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8];
                 for (i, k) in keys.iter().enumerate() {
-                    if is_key_pressed(*k) {
+                    if pressed(*k) {
                         if g.account.is_none() { g.status = "Log in first (Esc, then L): servers check who you are.".into(); continue; }
                         if let Some(sv) = g.server_list.get(i).cloned() {
                             let mods: Vec<String> = sv["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
@@ -2174,12 +2190,12 @@ async fn main() {
                         }
                     }
                 }
-                if is_key_pressed(KeyCode::R) { refresh_servers(&mut g); }
-                if is_key_pressed(KeyCode::N) {
+                if pressed(KeyCode::R) { refresh_servers(&mut g); }
+                if pressed(KeyCode::N) {
                     if g.account.is_some() { g.room_input = format!("{}'s server", g.my_name); while get_char_pressed().is_some() {} g.screen = Screen::MakeServer; }
                     else { g.status = "Log in first (L on the title screen).".into(); }
                 }
-                if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
+                if pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }
             Screen::MakeServer => {
                 draw_text("Make a server", 60.0, 110.0, 40.0, WHITE);
@@ -2189,9 +2205,9 @@ async fn main() {
                 let mut chars = typed();
                 if let Some(t) = pasted() { chars.extend(t.chars()); }
                 for ch in chars { if !ch.is_control() && g.room_input.chars().count() < 32 { g.room_input.push(ch); } }
-                if is_key_pressed(KeyCode::Backspace) { g.room_input.pop(); }
-                if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Servers; }
-                if is_key_pressed(KeyCode::Enter) {
+                if pressed(KeyCode::Backspace) { g.room_input.pop(); }
+                if pressed(KeyCode::Escape) { g.screen = Screen::Servers; }
+                if pressed(KeyCode::Enter) {
                     let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
                     let res = ureq::post(&format!("{}/api/servers", site())).set("Authorization", &format!("Bearer {token}"))
                         .timeout(std::time::Duration::from_secs(10)).send_json(json!({"name": g.room_input.trim(), "max": 8, "public": true}));
@@ -2221,8 +2237,8 @@ async fn main() {
                 for ch in chars {
                     if ch.is_ascii_alphanumeric() && g.room_input.len() < 8 { g.room_input.push(ch.to_ascii_uppercase()); }
                 }
-                if is_key_pressed(KeyCode::Backspace) { g.room_input.pop(); }
-                if is_key_pressed(KeyCode::Enter) && g.room_input.len() >= 4 {
+                if pressed(KeyCode::Backspace) { g.room_input.pop(); }
+                if pressed(KeyCode::Enter) && g.room_input.len() >= 4 {
                     // The room tells us its mods; look them up on the website first so everyone plays the same game.
                     let code = g.room_input.clone();
                     let mods: Vec<String> = refresh_servers_quiet(&mut g).into_iter().find(|s| s["code"] == code.as_str())
@@ -2232,15 +2248,15 @@ async fn main() {
                     let code = g.room_input.clone();
                     begin_intro(&mut g, Some(code));
                 }
-                if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
+                if pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }
             Screen::Consent => {
                 draw_text("Hollow Hours wants to reach outside its window", 50.0, 120.0, 34.0, Color::new(0.85, 0.3, 0.35, 1.0));
                 for (i, l) in [
                     "This update can scare you OUTSIDE the game:",
                     "  - create files in a \"Hollow Hours\" folder on your Desktop. They STAY, even after you quit.",
-                    "  - open Terminal to show you a message (it only prints text)",
-                    "  - switch your window to TextEdit or Finder to show you its files",
+                    "  - open a terminal window to show you a message (it only prints text)",
+                    "  - switch your window to a text editor or your file browser to show you its files",
                     "",
                     "It only ever creates its OWN new files. It never changes, moves or deletes yours.",
                     "P (panic) stops all of this at once.",
@@ -2249,14 +2265,14 @@ async fn main() {
                 ].iter().enumerate() {
                     draw_text(l, 50.0, 180.0 + i as f32 * 30.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));
                 }
-                if is_key_pressed(KeyCode::Y) { g.meta.allowed = Some(true); g.meta.save(); g.screen = Screen::Title; }
-                if is_key_pressed(KeyCode::N) { g.meta.allowed = Some(false); g.meta.save(); g.screen = Screen::Title; }
+                if pressed(KeyCode::Y) { g.meta.allowed = Some(true); g.meta.save(); g.screen = Screen::Title; }
+                if pressed(KeyCode::N) { g.meta.allowed = Some(false); g.meta.save(); g.screen = Screen::Title; }
             }
             Screen::Intro => {
                 g.intro_t += dt;
                 let done = draw_intro(&mut g);
-                if done || is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::Enter) { finish_intro(&mut g); }
-                if is_key_pressed(KeyCode::Escape) { g.intro_join = None; g.screen = Screen::Title; }
+                if done || pressed(KeyCode::Space) || pressed(KeyCode::Enter) { finish_intro(&mut g); }
+                if pressed(KeyCode::Escape) { g.intro_join = None; g.screen = Screen::Title; }
             }
             Screen::Over => {
                 draw_text("INFECTED", 60.0, 150.0, 64.0, Color::new(0.45, 0.95, 0.35, 1.0));
@@ -2265,8 +2281,8 @@ async fn main() {
                     String::new(), "Enter = try again     Esc = title".into()].iter().enumerate() {
                     draw_text(l, 60.0, 220.0 + i as f32 * 32.0, 26.0, Color::new(0.82, 0.85, 0.9, 1.0));
                 }
-                if is_key_pressed(KeyCode::Enter) { start_infection(&mut g); }
-                if is_key_pressed(KeyCode::Escape) { g.infection = false; g.chars = characters(); g.screen = Screen::Title; }
+                if pressed(KeyCode::Enter) { start_infection(&mut g); }
+                if pressed(KeyCode::Escape) { g.infection = false; g.chars = characters(); g.screen = Screen::Title; }
             }
             Screen::Safe => {
                 draw_text("You're safe.", 60.0, 140.0, 48.0, WHITE);
@@ -2274,15 +2290,15 @@ async fn main() {
                     "", "Enter = back to the game (calm)     Esc = quit"].iter().enumerate() {
                     draw_text(l, 60.0, 200.0 + i as f32 * 30.0, 24.0, Color::new(0.8, 0.85, 0.9, 1.0));
                 }
-                if is_key_pressed(KeyCode::Enter) { g.next_crazy = 90.0; g.screen = Screen::Play; g.sfx.start_hum(); }
-                if is_key_pressed(KeyCode::Escape) { break; }
+                if pressed(KeyCode::Enter) { g.next_crazy = 90.0; g.screen = Screen::Play; g.sfx.start_hum(); }
+                if pressed(KeyCode::Escape) { break; }
             }
             Screen::Mac => {
                 mac::screen(&mut g);
             }
             Screen::Play | Screen::Typing(_) => {
                 update(&mut g, dt);
-                if g.screen == Screen::Play && is_key_pressed(KeyCode::Tab) { g.view3d = !g.view3d; }
+                if g.screen == Screen::Play && pressed(KeyCode::Tab) { g.view3d = !g.view3d; }
                 // Looking around with the mouse: click to capture it, Esc lets go.
                 if g.view3d && g.screen == Screen::Play && !g.grabbed && is_mouse_button_pressed(MouseButton::Left) {
                     g.grabbed = true;
@@ -2305,11 +2321,11 @@ async fn main() {
                 if let Screen::Typing(i) = g.screen {
                     typing(&mut g, i);
                 }
-                if is_key_pressed(KeyCode::Escape) && g.screen == Screen::Play && g.grabbed {
+                if pressed(KeyCode::Escape) && g.screen == Screen::Play && g.grabbed {
                     g.grabbed = false;
                     set_cursor_grab(false);
                     show_mouse(true);
-                } else if is_key_pressed(KeyCode::Escape) && g.screen == Screen::Play {
+                } else if pressed(KeyCode::Escape) && g.screen == Screen::Play {
                     g.net = None;
                     g.voice.stop();
                     g.remotes.clear();
@@ -2333,13 +2349,18 @@ async fn main() {
     g.vest.play(haptics::Effect::StopAll);
 }
 
+/// A key pressed this frame, on the keyboard or by a controller button standing for it (see pad.rs).
+fn pressed(k: KeyCode) -> bool { macroquad::input::is_key_pressed(k) || pad::pressed(k) }
+/// A key held down, on the keyboard or the controller.
+fn down(k: KeyCode) -> bool { macroquad::input::is_key_down(k) || pad::down(k) }
+
 fn cmd_held() -> bool {
-    is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper) || is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl)
+    down(KeyCode::LeftSuper) || down(KeyCode::RightSuper) || down(KeyCode::LeftControl) || down(KeyCode::RightControl)
 }
 
 /// ⌘V (Ctrl+V elsewhere): the clipboard as one line of text, without control characters.
 fn pasted() -> Option<String> {
-    if !(cmd_held() && is_key_pressed(KeyCode::V)) { return None; }
+    if !(cmd_held() && pressed(KeyCode::V)) { return None; }
     let t = macroquad::miniquad::window::clipboard_get()?;
     let t: String = t.chars().map(|c| if c == '\n' || c == '\t' { ' ' } else { c }).filter(|c| !c.is_control()).collect();
     Some(t.trim().to_string())
@@ -2363,11 +2384,11 @@ fn typing(g: &mut Game, i: usize) {
         let room = 120usize.saturating_sub(g.input.chars().count());
         g.input.extend(t.chars().take(room));
     }
-    if is_key_pressed(KeyCode::Backspace) { g.input.pop(); }
+    if pressed(KeyCode::Backspace) { g.input.pop(); }
     let w = VW;
     draw_rectangle(0.0, MH as f32 * T - 46.0, w, 46.0, Color::new(0.0, 0.0, 0.0, 0.85));
     draw_text(&format!("To {}: {}_", g.chars[i].name, g.input), 14.0, MH as f32 * T - 16.0, 22.0, WHITE);
-    if is_key_pressed(KeyCode::Enter) {
+    if pressed(KeyCode::Enter) {
         let text = std::mem::take(&mut g.input);
         g.screen = Screen::Play;
         if !text.trim().is_empty() {
@@ -2375,7 +2396,7 @@ fn typing(g: &mut Game, i: usize) {
             g.say(i, Some(text), fallback);
         }
     }
-    if is_key_pressed(KeyCode::Escape) {
+    if pressed(KeyCode::Escape) {
         g.input.clear();
         g.screen = Screen::Play;
     }
@@ -2402,12 +2423,12 @@ fn update(g: &mut Game, dt: f32) {
         if g.screen != Screen::Play && !matches!(g.screen, Screen::Typing(_)) { return; }
     }
     // Player movement (not while typing, hiding, or once you've lost control). Shift = sneak: slow and silent.
-    g.sneaking = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+    g.sneaking = down(KeyCode::LeftShift) || down(KeyCode::RightShift);
     g.noise = (g.noise - dt * 1.5).max(0.0);
     g.ai_t += dt;
     // Voice: hold V to talk out loud (nearby players hear you), hold R for the radio (everyone hears you).
     if g.screen == Screen::Play {
-        let want = if is_key_down(KeyCode::R) { Some(true) } else if is_key_down(KeyCode::V) { Some(false) } else { None };
+        let want = if down(KeyCode::R) { Some(true) } else if down(KeyCode::V) { Some(false) } else { None };
         if g.net.is_none() {
             if want.is_some() && !g.voice_hint {
                 g.voice_hint = true;
@@ -2427,17 +2448,24 @@ fn update(g: &mut Game, dt: f32) {
             // First person: W/S forward and back, A/D step sideways, arrows or the mouse turn.
             let fwd = vec2(g.yaw.cos(), g.yaw.sin());
             let right = vec2(-fwd.y, fwd.x);
-            if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) { d += fwd; }
-            if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) { d -= fwd; }
-            if is_key_down(KeyCode::A) { d -= right; }
-            if is_key_down(KeyCode::D) { d += right; }
-            if is_key_down(KeyCode::Left) { g.yaw -= 2.4 * dt; }
-            if is_key_down(KeyCode::Right) { g.yaw += 2.4 * dt; }
+            if down(KeyCode::W) || down(KeyCode::Up) { d += fwd; }
+            if down(KeyCode::S) || down(KeyCode::Down) { d -= fwd; }
+            if down(KeyCode::A) { d -= right; }
+            if down(KeyCode::D) { d += right; }
+            if down(KeyCode::Left) { g.yaw -= 2.4 * dt; }
+            if down(KeyCode::Right) { g.yaw += 2.4 * dt; }
+            // Controller: left stick walks, right stick looks around.
+            let (ls, rs) = pad::sticks();
+            d += fwd * ls.y + right * ls.x;
+            g.yaw += rs.x * 2.8 * dt;
+            g.pitch = (g.pitch + rs.y * 1.8 * dt).clamp(-1.1, 1.1);
         } else {
-            if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) { d.y -= 1.0; }
-            if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) { d.y += 1.0; }
-            if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) { d.x -= 1.0; }
-            if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) { d.x += 1.0; }
+            if down(KeyCode::W) || down(KeyCode::Up) { d.y -= 1.0; }
+            if down(KeyCode::S) || down(KeyCode::Down) { d.y += 1.0; }
+            if down(KeyCode::A) || down(KeyCode::Left) { d.x -= 1.0; }
+            if down(KeyCode::D) || down(KeyCode::Right) { d.x += 1.0; }
+            let (ls, _) = pad::sticks();
+            d += vec2(ls.x, -ls.y);
         }
         // Claude's move (MCP), only when you aren't pressing anything: your keys always win.
         if d == Vec2::ZERO {
@@ -2484,10 +2512,10 @@ fn update(g: &mut Game, dt: f32) {
             }
         }
         // Talk: E next to someone (or sit down at the Mac Studio).
-        if is_key_pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_mac(g) {
+        if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_mac(g) {
             g.screen = Screen::Mac;
             while get_char_pressed().is_some() {}
-        } else if is_key_pressed(KeyCode::E) {
+        } else if pressed(KeyCode::E) {
             if let Some(i) = nearest(g, 2.2) {
                 g.screen = Screen::Typing(i);
                 g.input.clear();
@@ -2572,7 +2600,7 @@ fn update(g: &mut Game, dt: f32) {
     let tornado_here = g.tornado.as_ref().is_some_and(|t| t.warn <= 0.0);
     g.sfx.wind(tornado_here);
     // M = sound on/off.
-    if is_key_pressed(KeyCode::M) && g.screen == Screen::Play {
+    if pressed(KeyCode::M) && g.screen == Screen::Play {
         g.sfx.on = !g.sfx.on;
         if g.sfx.on { g.sfx.start_hum(); } else { g.sfx.silence(); }
         g.log.push(format!("Sound {}.", if g.sfx.on { "on" } else { "off" }));
@@ -2889,7 +2917,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         if &t != l { t = format!("{}...", t.trim_end_matches('.')); }
         draw_text(&t, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
-    draw_text(if g.infection { if g.net.is_some() { "WASD · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD move · mouse/arrows look · Shift sneak · H hide · E talk · Tab 2D · P PANIC" } else { "WASD move · Shift sneak · H hide · E talk · Tab 3D · P PANIC · Esc" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
+    draw_text(if pad::name().is_some() { "stick move · A talk · X hide · LT sneak · Y 2D/3D · RB voice · RT radio · View PANIC" } else if g.infection { if g.net.is_some() { "WASD · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD move · mouse/arrows look · Shift sneak · H hide · E talk · Tab 2D · P PANIC" } else { "WASD move · Shift sneak · H hide · E talk · Tab 3D · P PANIC · Esc" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
 }
@@ -2914,7 +2942,11 @@ fn draw_title(g: &Game) {
         format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),
         "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),
         "No flashing lights. P = panic at any time: everything stops.   F11 (or Cmd+Ctrl+F) = full screen".into(),
-        format!("Outside the window: {}   {}", match g.meta.allowed { Some(true) => "ALLOWED (files, Terminal, window switching)", Some(false) => "off", None => "not asked" },
+        match pad::name() {
+            Some(n) => format!("Controller: {}   A Infection · X Normal · Y story · RB servers · LB log in", n.chars().take(28).collect::<String>()),
+            None => "Controllers work too (Xbox, PlayStation, Steam Deck / Legion Go): plug one in or turn it on.".into(),
+        },
+        format!("Outside the window: {}   {}", match g.meta.allowed { Some(true) => "ALLOWED (files, terminal, window switching)", Some(false) => "off", None => "not asked" },
             if g.meta.created.is_empty() { "M to change".to_string() } else { format!("M to change · {} files on your Desktop", g.meta.created.len()) }),
     ];
     // Spacing shrinks a little if there's a lot to show, so everything always fits on screen.
@@ -2976,10 +3008,10 @@ mod tests {
     #[test]
     fn night_mall_maps_and_doors() {
         let home = std::env::temp_dir().join(format!("hh-local-{}", std::process::id()));
-        let local = home.join("Library/Application Support/Hollow Hours/mods/local");
+        unsafe { std::env::set_var("HOME", &home); std::env::set_var("XDG_DATA_HOME", home.join(".local/share")); std::env::set_var("APPDATA", &home); }
+        let local = platform::data_dir().join("mods/local");
         std::fs::create_dir_all(&local).unwrap();
         std::fs::copy("mods/NightMall.hh", local.join("NightMall.hh")).unwrap();
-        unsafe { std::env::set_var("HOME", &home); }
         let mods = local_mods();
         assert_eq!(mods.len(), 1, "read the .hh zip");
         let list = mods[0]["content"]["maps"].as_array().unwrap().clone();
@@ -3000,6 +3032,7 @@ mod tests {
     }
 
     /// The Keychain keeps the login (a separate test entry, removed again at the end).
+    #[cfg(any(target_os = "macos", windows))]
     #[test]
     fn keychain_remembers_the_login() {
         let e = keyring::Entry::new("Hollow Hours (test)", "account").unwrap();

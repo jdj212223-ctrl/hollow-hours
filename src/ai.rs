@@ -101,21 +101,22 @@ fn tidy(t: &str) -> String {
 /// The Claude desktop app is installed and its `claude` command works: Claude characters can talk through it (your
 /// own Claude account, no API key needed).
 pub fn claude_cli() -> Option<String> {
-    if !std::path::Path::new("/Applications/Claude.app").exists() && std::env::var("HOLLOW_CLAUDE_CLI").is_err() {
+    // On a Mac: only when the Claude app is installed (as before). On Windows and Linux: whenever Claude Code is.
+    if cfg!(target_os = "macos") && !std::path::Path::new("/Applications/Claude.app").exists() && std::env::var("HOLLOW_CLAUDE_CLI").is_err() {
         return None;
     }
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = crate::platform::home().to_string_lossy().to_string();
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
     let mut paths = vec![std::env::var("HOLLOW_CLAUDE_CLI").unwrap_or_default(), format!("{home}/.local/bin/claude"),
-        "/opt/homebrew/bin/claude".into(), "/usr/local/bin/claude".into(), format!("{home}/.claude/local/claude")];
+        "/opt/homebrew/bin/claude".into(), "/usr/local/bin/claude".into(), format!("{home}/.claude/local/claude"),
+        format!("{home}/.local/bin/claude.exe"), format!("{appdata}/npm/claude.cmd")];
     paths.retain(|p| !p.is_empty());
     paths.into_iter().find(|p| std::path::Path::new(p).is_file())
 }
 
 /// Where Hollow Hours keeps its own things (and where the Claude sessions run, so they can always be resumed).
 fn home_dir() -> std::path::PathBuf {
-    let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/Hollow Hours");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    crate::platform::data_dir()
 }
 
 fn sessions_file() -> std::path::PathBuf {
@@ -137,11 +138,7 @@ fn sessions() -> &'static std::sync::Mutex<std::collections::HashMap<String, Str
 fn save_sessions(map: &std::collections::HashMap<String, String>) {
     let file = sessions_file();
     if std::fs::write(&file, serde_json::to_string_pretty(map).unwrap_or_default()).is_ok() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
-        }
+        crate::platform::private(&file);
     }
 }
 
@@ -153,12 +150,7 @@ fn remember_session(name: &str, id: Option<String>) {
 }
 
 fn new_uuid() -> String {
-    use std::io::Read;
-    let mut b = [0u8; 16];
-    if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut b)).is_err() {
-        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-        b = t.to_le_bytes();
-    }
+    let mut b: [u8; 16] = crate::platform::random_bytes();
     b[6] = (b[6] & 0x0f) | 0x40; // version 4
     b[8] = (b[8] & 0x3f) | 0x80;
     let h: String = b.iter().map(|x| format!("{x:02x}")).collect();

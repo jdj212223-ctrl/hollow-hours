@@ -1,14 +1,17 @@
 //! hh-mcp: the Hollow Hours MCP server (a fork of the idea behind the Minecraft MCP, for Hollow Hours).
 //! Lets an AI agent like Claude Code play Hollow Hours through the game's bridge (127.0.0.1, token in
-//! ~/Library/Application Support/Hollow Hours/bridge.json, readable only by you).
+//! Hollow Hours' data folder, bridge.json, readable only by you).
 //!   claude mcp add --scope user hollow-hours -- /path/to/hh-mcp
 //! The game shows "Claude is playing" while it's being used, your keyboard always wins, and P (panic) stops it.
 
 use serde_json::{json, Value};
+
+#[path = "../platform.rs"]
+mod platform;
 use std::io::{BufRead, Read, Write};
 
 fn bridge() -> Result<(u16, String), String> {
-    let path = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/Hollow Hours/bridge.json");
+    let path = platform::data_dir().join("bridge.json");
     let v: Value = serde_json::from_str(&std::fs::read_to_string(path).map_err(|_| "Hollow Hours isn't running (start the game first)".to_string())?)
         .map_err(|e| e.to_string())?;
     Ok((v["port"].as_u64().unwrap_or(25610) as u16, v["token"].as_str().unwrap_or("").to_string()))

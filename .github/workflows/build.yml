@@ -1,0 +1,80 @@
+# Builds Hollow Hours for macOS (Apple Silicon), Windows and Linux (SteamOS too) on every push.
+# A tag like v2.2 also attaches the three downloads to that GitHub release.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            name: macOS
+          - os: windows-latest
+            name: Windows
+          # An older Ubuntu, so the game also runs on older Linux and SteamOS (glibc 2.35+).
+          - os: ubuntu-22.04
+            name: Linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Linux libraries (sound, controllers, window)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev libudev-dev libx11-dev libxi-dev libgl1-mesa-dev
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Tests that need no accounts or network
+        run: cargo test --release --locked -- voice_round paths_go long_bubbles sessions_carry night_mall
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          sh macos/bundle.sh
+          ditto -c -k --keepParent "Hollow Hours.app" Hollow-Hours-macOS.zip
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "Hollow Hours" | Out-Null
+          Copy-Item target/release/hollow-hours.exe "Hollow Hours/Hollow Hours.exe"
+          Copy-Item target/release/hh-mcp.exe "Hollow Hours/hh-mcp.exe"
+          Copy-Item windows/README.txt "Hollow Hours/README.txt"
+          Compress-Archive -Path "Hollow Hours" -DestinationPath Hollow-Hours-Windows.zip
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p hollow-hours
+          cp target/release/hollow-hours target/release/hh-mcp linux/hollow-hours.desktop linux/hollow-hours.png linux/README.txt hollow-hours/
+          chmod +x hollow-hours/hollow-hours hollow-hours/hh-mcp
+          tar czf Hollow-Hours-Linux-x86_64.tar.gz hollow-hours
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hollow-Hours-${{ matrix.name }}
+          path: Hollow-Hours-*.*
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Hollow Hours $GITHUB_REF_NAME" --notes "Downloads for macOS, Windows and Linux (SteamOS)."
+          gh release upload "$GITHUB_REF_NAME" Hollow-Hours-*.* --clobber

@@ -38,9 +38,7 @@ pub const FILES: [(&str, &str); 5] = [
 
 /// The real Mac this is running on (just for the About screen, never sent anywhere).
 fn this_mac() -> String {
-    let chip = std::process::Command::new("sysctl").args(["-n", "machdep.cpu.brand_string"]).output().ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|s| !s.is_empty());
-    chip.unwrap_or_else(|| std::env::consts::OS.to_string())
+    crate::platform::cpu_name()
 }
 
 fn system_prompt() -> String {
@@ -94,7 +92,7 @@ pub fn screen(g: &mut Game) {
         tx += w + 6.0;
     }
     draw_text("Tab = switch   Esc = walk away", wx + ww - 230.0, wy + 20.0, 15.0, Color::new(0.45, 0.45, 0.5, 1.0));
-    if is_key_pressed(KeyCode::Tab) { g.mac.tab = (g.mac.tab + 1) % TABS.len(); g.mac.open = None; while get_char_pressed().is_some() {} }
+    if pressed(KeyCode::Tab) { g.mac.tab = (g.mac.tab + 1) % TABS.len(); g.mac.open = None; while get_char_pressed().is_some() {} }
     let ink = Color::new(0.12, 0.12, 0.14, 1.0);
     let soft = Color::new(0.45, 0.45, 0.5, 1.0);
     let orange = Color::new(0.8, 0.42, 0.27, 1.0);
@@ -132,8 +130,8 @@ pub fn screen(g: &mut Game) {
                 let room = 300usize.saturating_sub(g.mac.input.chars().count());
                 g.mac.input.extend(t.chars().take(room));
             }
-            if is_key_pressed(KeyCode::Backspace) { g.mac.input.pop(); }
-            if is_key_pressed(KeyCode::Enter) { send(g); }
+            if pressed(KeyCode::Backspace) { g.mac.input.pop(); }
+            if pressed(KeyCode::Enter) { send(g); }
         }
         1 => {
             if let Some(f) = g.mac.open {
@@ -145,7 +143,7 @@ pub fn screen(g: &mut Game) {
                     if para.is_empty() { y += 12.0; }
                 }
                 draw_text("Backspace = back to the list", x0, wy + wh - 20.0, 16.0, soft);
-                if is_key_pressed(KeyCode::Backspace) { g.mac.open = None; }
+                if pressed(KeyCode::Backspace) { g.mac.open = None; }
             } else {
                 draw_text("Documents", x0, y0, 22.0, ink);
                 for (i, (name, _)) in FILES.iter().enumerate() {
@@ -154,9 +152,9 @@ pub fn screen(g: &mut Game) {
                     draw_text(&format!("[txt]  {name}"), x0, y, 20.0, ink);
                 }
                 draw_text("Up/Down = choose   Enter = open", x0, wy + wh - 20.0, 16.0, soft);
-                if is_key_pressed(KeyCode::Down) { g.mac.file = (g.mac.file + 1) % FILES.len(); }
-                if is_key_pressed(KeyCode::Up) { g.mac.file = (g.mac.file + FILES.len() - 1) % FILES.len(); }
-                if is_key_pressed(KeyCode::Enter) { g.mac.open = Some(g.mac.file); }
+                if pressed(KeyCode::Down) { g.mac.file = (g.mac.file + 1) % FILES.len(); }
+                if pressed(KeyCode::Up) { g.mac.file = (g.mac.file + FILES.len() - 1) % FILES.len(); }
+                if pressed(KeyCode::Enter) { g.mac.open = Some(g.mac.file); }
             }
             while get_char_pressed().is_some() {}
         }
@@ -165,7 +163,7 @@ pub fn screen(g: &mut Game) {
             let cli = ai::claude_cli();
             let lines: Vec<(Color, String)> = vec![
                 (ink, "Chip: Apple M5 Ultra   ·   in the cozy house, on Claude's desk".into()),
-                (soft, format!("(The Mac you're really playing on: {})", this_mac())),
+                (soft, format!("(The {} you're really playing on: {})", crate::platform::os_name(), this_mac())),
                 (ink, String::new()),
                 (orange, "Running Claude on a Mac: the recommended ways".into()),
                 (ink, "1. The Claude app for Mac (claude.ai/download). Sign in, and chat with Claude on your desktop.".into()),
@@ -189,5 +187,5 @@ pub fn screen(g: &mut Game) {
             while get_char_pressed().is_some() {}
         }
     }
-    if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Play; }
+    if pressed(KeyCode::Escape) { g.screen = Screen::Play; }
 }

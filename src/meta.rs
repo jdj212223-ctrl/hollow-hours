@@ -8,7 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Meta {
@@ -22,14 +21,11 @@ pub struct Meta {
 }
 
 fn settings_file() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let dir = PathBuf::from(home).join("Library/Application Support/Hollow Hours");
-    let _ = std::fs::create_dir_all(&dir);
-    dir.join("meta.json")
+    crate::platform::data_dir().join("meta.json")
 }
 
 pub fn folder() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Desktop/Hollow Hours")
+    crate::platform::desktop().join("Hollow Hours")
 }
 
 impl Meta {
@@ -70,25 +66,20 @@ impl Meta {
         if !self.on() {
             return;
         }
-        // Only printf, with the text made safe for the shell (no quotes or backslashes get through).
-        let text: String = lines.join("\n").chars().filter(|c| !matches!(c, '\'' | '"' | '\\' | '`' | '$' | '%')).collect();
-        // \\\\n here = \\n for AppleScript = \n for printf (a real newline would press Enter in Terminal).
-        let shell = format!("clear; printf '\\\\n{}\\\\n\\\\n'", text.replace('\n', "\\\\n"));
-        let script = format!("tell application \"Terminal\"\nactivate\ndo script \"{shell}\"\nend tell");
-        let _ = Command::new("osascript").arg("-e").arg(script).spawn();
+        crate::platform::terminal(lines);
     }
 
     /// Switches the window: opens one of OUR files in TextEdit.
     pub fn show_in_textedit(&self, path: &PathBuf) {
         if self.on() && self.created.iter().any(|p| PathBuf::from(p) == *path) {
-            let _ = Command::new("open").arg("-e").arg(path).spawn();
+            crate::platform::open_text(path);
         }
     }
 
     /// Switches the window: shows our folder in Finder.
     pub fn show_folder(&self) {
         if self.on() && folder().exists() {
-            let _ = Command::new("open").arg(folder()).spawn();
+            crate::platform::open_folder(&folder());
         }
     }
 

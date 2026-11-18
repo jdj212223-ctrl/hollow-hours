@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Hollow Hours
+Comment=A small horror game where the characters are real AIs
+Exec=sh -c 'cd "$(dirname "%k")" && ./hollow-hours'
+Icon=hollow-hours
+Terminal=false
+Categories=Game;

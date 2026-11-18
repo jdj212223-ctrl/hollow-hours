@@ -15,7 +15,7 @@ const CODE = String(process.env.HH_CODE || "").toUpperCase();
 const SECRET = process.env.HH_SECRET || "";
 const PUBLIC_URL = String(process.env.HH_PUBLIC_URL || "").replace(/\/+$/, "");
 const PORT = parseInt(process.env.PORT || "8080");
-const MAX = Math.min(40, parseInt(process.env.HH_MAX || "8"));
+const MAX = Math.min(40, parseInt(process.env.HH_MAX || "20"));
 if (!CODE || !SECRET || !PUBLIC_URL) {
   console.error("Set HH_CODE, HH_SECRET and HH_PUBLIC_URL (from the website, when you made the server).");
   process.exit(1);

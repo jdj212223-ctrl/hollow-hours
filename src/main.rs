@@ -1928,7 +1928,7 @@ async fn main() {
         last_mouse: Vec2::ZERO,
         mac: mac::Mac::default(),
         fullscreen: false,
-        server_max: 8,
+        server_max: 20,
         voice: voice::Voice::default(),
         voice_hint: false,
         my_name: std::env::var("HOLLOW_NAME").map(|n| n.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(12).collect())
@@ -2207,7 +2207,7 @@ async fn main() {
                 draw_text(&format!("Name: {}_", g.room_input), 60.0, 190.0, 30.0, YELLOW);
                 // Up/Down (or the D-pad): how many players fit.
                 const SIZES: [u32; 11] = [2, 4, 6, 8, 10, 12, 16, 20, 24, 30, 40];
-                let k = SIZES.iter().position(|&n| n == g.server_max).unwrap_or(3);
+                let k = SIZES.iter().position(|&n| n == g.server_max).unwrap_or(7);
                 if pressed(KeyCode::Up) && k + 1 < SIZES.len() { g.server_max = SIZES[k + 1]; }
                 if pressed(KeyCode::Down) && k > 0 { g.server_max = SIZES[k - 1]; }
                 draw_text(&format!("Max players: {}   (Up/Down to change, up to 40)", g.server_max), 60.0, 228.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));

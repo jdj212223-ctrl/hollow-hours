@@ -12,6 +12,7 @@ mod bridge;
 mod sfx;
 mod view3d;
 mod mac;
+mod roam;
 
 use serde_json::json;
 
@@ -244,6 +245,15 @@ struct Character {
     chase: Vec2,
     /// A kind AI out shopping at the Marketplace (seconds until it comes back), 0 = home.
     shop: f32,
+    /// What a kind AI is doing (guarding you, roaming, foraging) and for how much longer.
+    task: roam::Task,
+    task_t: f32,
+    /// Food (false) or water (true) it's carrying back to you.
+    carry: Option<bool>,
+    /// Where it's walking to: (map, spot).
+    goal: Option<(usize, Vec2)>,
+    /// Seconds since it last radioed about green eyes (so it doesn't repeat itself).
+    spotted: f32,
 }
 
 fn characters() -> Vec<Character> {
@@ -251,7 +261,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, claude: backend == "anthropic",
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -284,7 +294,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, claude: true,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -787,7 +797,7 @@ fn mod_character(v: &serde_json::Value) -> Option<Character> {
         personality: Box::leak(personality.into_boxed_str()), map, pos, target: pos, crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
         kind: v["kind"].as_bool() == Some(true) && v["infected"].as_bool() != Some(true),
-        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, claude: false,
+        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, claude: false,
     })
 }
 
@@ -967,6 +977,10 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
                 "infected": c.infected, "kind": c.kind, "claude_family": c.claude, "chasing": c.crazy > 0.0 && (c.infected || !g.infection),
                 "stunned": c.stun > 0.0, "infection": (c.infect * 100.0) as i32, "thinking": c.thinking,
                 "saying": if c.bubble_t > 0.0 && !c.thinking { c.bubble.clone() } else { String::new() }})).collect();
+            // Where the Claude family is and what each one is doing (they roam, forage and guard on their own).
+            let family: Vec<_> = g.chars.iter().filter(|c| c.kind).map(|c| json!({
+                "name": c.name, "where": map_name(c.map), "doing": if c.shop > 0.0 { "shopping at the Marketplace" } else { c.task.name() },
+                "carrying": c.carry.map(|w| if w { "water" } else { "food" })})).collect();
             let mut items: Vec<_> = g.items.iter().filter(|(m, _, _)| *m == here).map(|(_, p, w)| (p.distance(g.pos), json!({"what": if *w { "water" } else { "food" }, "at": tile(*p)}))).collect();
             items.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
             let doors: Vec<_> = with_map(here, |d| d.doors.iter().map(|(l, to, _)| {
@@ -981,7 +995,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
                     "lost_control": g.lost_control, "infection": (g.inf * 100.0) as i32, "food": (g.food * 100.0) as i32, "water": (g.water * 100.0) as i32,
                     "fear": (g.fear * 100.0) as i32, "noise": (g.noise * 100.0) as i32},
                 "time": g.time_text(), "survived_s": g.survived as i32,
-                "characters": chars, "supplies_nearest_first": items.into_iter().take(6).map(|x| x.1).collect::<Vec<_>>(), "doors": doors,
+                "characters": chars, "claude_family": family, "supplies_nearest_first": items.into_iter().take(6).map(|x| x.1).collect::<Vec<_>>(), "doors": doors,
                 "tornado": g.tornado.as_ref().map(|t| json!({"at": tile(t.pos), "warning": t.warn > 0.0})),
                 "recent": g.log.iter().rev().take(5).cloned().collect::<Vec<_>>(),
                 "game_over": if g.screen == Screen::Over { g.over_reason.clone() } else { String::new() },
@@ -1414,33 +1428,14 @@ fn update_infection(g: &mut Game, dt: f32) {
     // Kind AIs stay with you and call out danger.
     let danger = g.chars.iter().filter(|c| c.infected && c.map == g.map && c.crazy > 0.0).map(|c| c.name).next();
     g.next_warning -= dt;
-    let player = g.pos;
-    let map = g.map;
-    let threats: Vec<Vec2> = g.chars.iter().filter(|c| c.infected && c.map == map && c.stun <= 0.0).map(|c| c.pos)
-        .chain(g.lost_control.then_some(player)).collect();
-    let lost = g.lost_control;
-    for (k, c) in g.chars.iter_mut().filter(|c| c.kind && c.shop <= 0.0).enumerate() {
-        c.map = map;
-        // An infected close by (or you, once you've turned): run away from it.
-        if let Some(t) = threats.iter().filter(|t| t.distance(c.pos) < 4.0 * T).min_by(|a, b| a.distance(c.pos).partial_cmp(&b.distance(c.pos)).unwrap()) {
-            c.target = c.pos + (c.pos - *t).normalize_or_zero() * 4.0 * T;
-            continue;
-        }
-        if lost { continue; }
-        if c.pos.distance(player) > 2.5 * T {
-            let angle = k as f32 * 1.6;
-            c.target = player + vec2(angle.cos(), angle.sin()) * 1.4 * T;
-        }
-        if c.pos.distance(player) > 12.0 * T {
-            c.pos = player + vec2(1.0, 0.0) * T; // caught up with you through the door
-        }
-    }
+    if !guest(g) { roam::update(g, dt); }
     if let Some(name) = danger {
         if g.next_warning <= 0.0 {
             g.next_warning = 6.0;
             let lines = g.rules.warnings.clone();
             let line = lines[rand::gen_range(0, lines.len())].replace("{}", name);
-            if let Some(c) = g.chars.iter_mut().filter(|c| c.kind && !c.thinking).nth(rand::gen_range(0, 4)) {
+            let here = g.map;
+            if let Some(c) = g.chars.iter_mut().filter(|c| c.kind && !c.thinking && c.map == here).nth(rand::gen_range(0, 4)) {
                 c.bubble = line;
                 c.via = String::new();
                 c.bubble_t = 3.0;
@@ -2472,11 +2467,11 @@ fn update(g: &mut Game, dt: f32) {
     for c in &mut g.chars {
         if c.bubble_t > 0.0 { c.bubble_t -= dt; }
         if is_guest { continue; } // the host moves everyone
-        let speed = if c.crazy > 0.0 { if c.infected { infected_speed } else { 1.9 } } else if c.kind { 2.8 } else { 1.0 } * T;
+        let speed = if c.crazy > 0.0 { if c.infected { infected_speed } else { 1.9 } } else if c.kind { if c.task == roam::Task::Roam { 1.7 } else { 2.6 } } else { 1.0 } * T;
         if c.crazy > 0.0 && (c.map == g.map || infection_on) {
             c.target = if infection_on { c.chase } else { g.pos };
             c.crazy -= dt;
-        } else if c.pos.distance(c.target) < 4.0 || rand::gen_range(0.0, 1.0) < 0.002 {
+        } else if !c.kind && (c.pos.distance(c.target) < 4.0 || rand::gen_range(0.0, 1.0) < 0.002) {
             for _ in 0..10 {
                 let t = vec2(rand::gen_range(1.0, MW as f32 - 1.0), rand::gen_range(1.0, MH as f32 - 1.0)) * T;
                 if !solid(c.map, t.x, t.y) && tile(c.map, (t.x / T) as i32, (t.y / T) as i32) == tile(c.map, (c.pos.x / T) as i32, (c.pos.y / T) as i32) {

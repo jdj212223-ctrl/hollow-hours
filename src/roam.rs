@@ -204,6 +204,7 @@ pub fn update(g: &mut Game, dt: f32) {
                     if c.map == player.0 && c.pos.distance(player.1) < 1.6 * T {
                         delivered.push((water, c.name));
                         c.carry = None;
+                        c.want = None;
                         c.task = Task::Follow;
                         c.task_t = rand::gen_range(10.0, 25.0);
                     } else if !walk_toward(c, player.0, player.1) {
@@ -211,7 +212,8 @@ pub fn update(g: &mut Game, dt: f32) {
                     }
                 } else {
                     // The nearest food or water nobody else has picked (same map first).
-                    let pick = items.iter().enumerate().filter(|(j, _)| !taken.contains(j))
+                    let want = c.want;
+                    let pick = items.iter().enumerate().filter(|(j, x)| !taken.contains(j) && want.map_or(true, |w| x.2 == w))
                         .min_by(|a, b| {
                             let d = |x: &(usize, Vec2, bool)| if x.0 == c.map { x.1.distance(c.pos) } else { 1e6 + (x.0 as f32) * 1e3 };
                             d(a.1).partial_cmp(&d(b.1)).unwrap()

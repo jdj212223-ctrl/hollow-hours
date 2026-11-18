@@ -284,6 +284,8 @@ struct Character {
     hunting: bool,
     /// How long an infected has been smashing at a wall (after 12 minutes).
     breach: f32,
+    /// What the player asked this kind AI to fetch: Some(true) water, Some(false) food.
+    want: Option<bool>,
 }
 
 fn characters() -> Vec<Character> {
@@ -291,7 +293,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, claude: backend == "anthropic",
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -299,7 +301,7 @@ fn characters() -> Vec<Character> {
         c("Forge", "a coding agent AI", Color::new(0.95, 0.65, 0.2, 1.0), "anthropic", "qwen3:4b-instruct",
           "a builder who fixes things in the house and talks a bit like a programmer (bugs, patches, compiling)", 0, 20.0, 11.0),
         c("Palette", "a design AI", Color::new(0.9, 0.5, 0.8, 1.0), "anthropic", "qwen3:4b-instruct",
-          "a designer who keeps redecorating rooms and has strong opinions about colours and lighting", 0, 6.0, 12.0),
+          "a designer who keeps redecorating rooms and has strong opinions about colours and lighting", 0, 9.5, 11.5),
         c("Spark", "a chat AI that answers everything", Color::new(0.35, 0.8, 0.65, 1.0), "openai", "qwen3:4b-instruct",
           "cheerful, a little too eager to help, always offers three options", 1, 12.0, 7.0),
         c("Twin", "a two-sided AI (light and shadow)", Color::new(0.45, 0.6, 1.0, 1.0), "gemini", "qwen3:4b-instruct",
@@ -324,7 +326,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, claude: true,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -860,7 +862,7 @@ fn mod_character(v: &serde_json::Value) -> Option<Character> {
         personality: Box::leak(personality.into_boxed_str()), map, pos, target: pos, crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
         kind: v["kind"].as_bool() == Some(true) && v["infected"].as_bool() != Some(true),
-        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, claude: false,
+        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, claude: false,
     })
 }
 
@@ -907,8 +909,15 @@ impl Game {
             s = format!(
                 "You are {}. Personality: {}. This is a survival game called Hollow Hours: every other AI got infected and hunts \
                  the last human, the player. You are one of the only kind AIs left (with Claude, Opus 5.5, Sonnet 4.6 and Haiku 4.5) \
-                 and you protect them: help them hide, find food and water, and watch for tornadoes. Reply in 1-3 short sentences, \
-                 in character, no emojis, no lists, no gore.",
+                 and you protect them: help them hide, find food and water, and watch for tornadoes. \
+                 THE STORY: a year ago a tech company, Helix Dynamics Inc., put its strongest AI model, ASTRA 9.1, into a humanoid \
+                 robot body. It came alive and started corrupting robots, AIs and people (green eyes). Helix is the COMPANY, not one \
+                 of the infected; nobody knows exactly why they did it. Claude found the player asleep on a park bench, almost \
+                 corrupted, and brought them to this house. \
+                 WHAT YOU CAN DO: you can walk to other places (the beach, the pool, the Marketplace) to fetch food or water and \
+                 carry it back, and you do it on your own when supplies are low. If the player asks you to get food or water, say \
+                 you're going (the game sends you). There's a stove in the house to fry raw food from the Marketplace. \
+                 Reply in 1-3 short sentences, in character, no emojis, no lists, no gore.",
                 c.name, c.personality
             );
             s += &format!("\n\nTHE SITUATION RIGHT NOW (use it, refer to real directions and names):\n{}", self.situation(c));
@@ -999,6 +1008,18 @@ impl Game {
     fn say(&mut self, i: usize, user_text: Option<String>, fallback: &str) {
         let system = self.system_prompt(&self.chars[i]);
         let c = &mut self.chars[i];
+        if let (Some(t), true) = (&user_text, c.kind && self.infection) {
+            let t = t.to_lowercase();
+            let asks = ["get", "go", "stock", "bring", "find", "fetch", "grab", "need"].iter().any(|w| t.contains(w));
+            let water = t.contains("water") || t.contains("drink");
+            let food = t.contains("food") || t.contains("fod") || t.contains("eat") || t.contains("stock");
+            if asks && (water || food) {
+                c.task = roam::Task::Forage;
+                c.task_t = 60.0;
+                c.want = Some(water);
+                c.goal = None;
+            }
+        }
         if let Some(t) = user_text {
             c.history.push(ai::Msg { user: true, text: t });
         }
@@ -1233,6 +1254,8 @@ fn start_infection(g: &mut Game) {
     let start = g.pos;
     for c in &mut g.chars {
         c.infected = !c.claude;
+        // Clove, Forge and Palette are Claudes too: they roam, guard and forage like the others.
+        if c.claude { c.kind = true; }
         if c.infected {
             for _ in 0..200 {
                 if let Some(p) = random_floor(c.map) {

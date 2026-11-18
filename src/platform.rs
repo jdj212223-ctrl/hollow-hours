@@ -15,7 +15,10 @@ pub fn home() -> PathBuf {
 ///  - Windows: %APPDATA%\Hollow Hours
 ///  - Linux / SteamOS: ~/.local/share/hollow-hours (or $XDG_DATA_HOME/hollow-hours)
 pub fn data_dir() -> PathBuf {
-    let dir = if cfg!(target_os = "macos") {
+    let dir = if cfg!(target_os = "android") {
+        // The app's own private storage on Android.
+        PathBuf::from("/data/data/io.github.jdj212223_ctrl.hollowhours/files")
+    } else if cfg!(target_os = "macos") {
         home().join("Library/Application Support/Hollow Hours")
     } else if cfg!(windows) {
         std::env::var("APPDATA").map(PathBuf::from).unwrap_or_else(|_| home().join("AppData/Roaming")).join("Hollow Hours")

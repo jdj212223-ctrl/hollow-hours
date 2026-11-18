@@ -15,6 +15,10 @@ mod sfx;
 mod view3d;
 mod mac;
 mod roam;
+#[cfg(not(target_os = "android"))]
+mod voice;
+#[cfg(target_os = "android")]
+#[path = "voice_android.rs"]
 mod voice;
 mod platform;
 mod pad;
@@ -1953,6 +1957,8 @@ async fn main() {
             eprintln!("HOLLOW_ROOM needs a login: press L in the game first.");
         }
     }
+    // Phones: no Desktop, terminal or other windows to reach, so the meta scares stay off there.
+    if cfg!(target_os = "android") { g.meta.allowed = Some(false); }
     if g.meta.allowed.is_none() {
         g.screen = Screen::Consent;
     }
@@ -2014,14 +2020,15 @@ async fn main() {
             g.fullscreen = !g.fullscreen;
             set_fullscreen(g.fullscreen);
         }
-        pad::update(match g.screen {
+        let pad_mode = match g.screen {
             Screen::Title => pad::Mode::Title,
             Screen::Play => pad::Mode::Play,
             Screen::Typing(_) | Screen::Login | Screen::JoinRoom | Screen::MakeServer => pad::Mode::Typing,
             Screen::Mac => pad::Mode::Mac,
             Screen::Consent => pad::Mode::Consent,
             _ => pad::Mode::Menu,
-        });
+        };
+        pad::update(pad_mode, g.net.is_some());
         set_camera(&cam);
         let dt = get_frame_time().min(0.05);
         // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
@@ -2318,7 +2325,7 @@ async fn main() {
                 update(&mut g, dt);
                 if g.screen == Screen::Play && pressed(KeyCode::Tab) { g.view3d = !g.view3d; }
                 // Looking around with the mouse: click to capture it, Esc lets go.
-                if g.view3d && g.screen == Screen::Play && !g.grabbed && is_mouse_button_pressed(MouseButton::Left) {
+                if g.view3d && g.screen == Screen::Play && !g.grabbed && !pad::touch_mode() && is_mouse_button_pressed(MouseButton::Left) {
                     g.grabbed = true;
                     set_cursor_grab(true);
                     show_mouse(false);
@@ -2352,6 +2359,8 @@ async fn main() {
                 }
             }
         }
+        // Touch buttons and the joystick (phones and tablets).
+        pad::draw(pad_mode);
         // Show the canvas, scaled to fit the window (black bars around it).
         set_default_camera();
         clear_background(BLACK);
@@ -2477,6 +2486,10 @@ fn update(g: &mut Game, dt: f32) {
             d += fwd * ls.y + right * ls.x;
             g.yaw += rs.x * 2.8 * dt;
             g.pitch = (g.pitch + rs.y * 1.8 * dt).clamp(-1.1, 1.1);
+            // Touch: dragging on the right half looks around.
+            let drag = pad::look_drag();
+            g.yaw += drag.x * 0.006;
+            g.pitch = (g.pitch - drag.y * 0.004).clamp(-1.1, 1.1);
         } else {
             if down(KeyCode::W) || down(KeyCode::Up) { d.y -= 1.0; }
             if down(KeyCode::S) || down(KeyCode::Down) { d.y += 1.0; }
@@ -2725,7 +2738,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         }
         // A small crosshair.
         draw_circle(sw / 2.0, sh / 2.0, 2.0, Color::new(1.0, 1.0, 1.0, 0.5));
-        if g.screen == Screen::Play && !g.grabbed {
+        if g.screen == Screen::Play && !g.grabbed && !pad::touch_mode() {
             draw_text("click to look around with the mouse  ·  Tab = 2D map", sw / 2.0 - 190.0, sh - 14.0, 16.0, Color::new(0.8, 0.8, 0.85, 0.7));
         }
     } else {

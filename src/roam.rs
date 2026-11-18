@@ -88,7 +88,7 @@ fn door_to(m: usize, to: usize, near: (i32, i32)) -> Option<(i32, i32)> {
             let c = tile(m, x, y);
             if door(c, m).map(|d| d.0) == Some(to) {
                 let d = (x - near.0).abs() + (y - near.1).abs();
-                if best.is_none_or(|b| d < b.1) { best = Some(((x, y), d)); }
+                if best.map_or(true, |b| d < b.1) { best = Some(((x, y), d)); }
             }
         }
     }

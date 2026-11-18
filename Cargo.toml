@@ -13,9 +13,12 @@ ureq = { version = "2", features = ["json"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 sha2 = "0.10"
+getrandom = "0.2"
+
+# Microphone (voice chat) and controllers: not on Android (touch controls there instead).
+[target.'cfg(not(target_os = "android"))'.dependencies]
 cpal = "0.15"
 gilrs = "0.11.2"
-getrandom = "0.2"
 
 # The login is kept in the system's own password store: the macOS Keychain, the Windows Credential Manager.
 # (On Linux / SteamOS it's a file only you can read, since there's often no password store running there.)
@@ -27,3 +30,18 @@ keyring = { version = "3", features = ["windows-native"] }
 
 [profile.release]
 opt-level = 3
+
+# Android (.apk), built with cargo quad-apk.
+[package.metadata.android]
+package_name = "io.github.jdj212223_ctrl.hollowhours"
+label = "Hollow Hours"
+build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
+res = "android/res"
+icon = "@mipmap/ic_launcher"
+fullscreen = true
+
+[package.metadata.android.activity_attributes]
+"android:screenOrientation" = "userLandscape"
+
+[[package.metadata.android.permission]]
+name = "android.permission.INTERNET"

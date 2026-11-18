@@ -465,6 +465,61 @@ async function accountAction(env, user, f, req) {
 
 // ---------------- Router ----------------
 
+// ---------------- Lending Claude to your phone ----------------
+// Your computer (logged in, with "Lend Claude to my phone" on) keeps a WebSocket open here. Your phone (logged in to the
+// SAME account) asks a question; it goes to your computer, which runs `claude` and answers. One of these per account,
+// so nobody else can ever reach your computer's Claude. Nothing is stored: questions only pass through.
+export class PcLink {
+  constructor(ctx, env) { this.ctx = ctx; this.env = env; this.waiting = new Map(); this.recent = []; }
+  pc() { return this.ctx.getWebSockets("pc")[0]; }
+  async fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path.endsWith("/connect")) {
+      if (req.headers.get("Upgrade") !== "websocket") return new Response("websocket only", { status: 426 });
+      for (const old of this.ctx.getWebSockets("pc")) { try { old.close(4000, "replaced by another computer"); } catch {} }
+      const [client, ws] = Object.values(new WebSocketPair());
+      this.ctx.acceptWebSocket(ws, ["pc"]);
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    if (path.endsWith("/status")) return Response.json({ online: !!this.pc() });
+    const pc = this.pc();
+    if (!pc) return Response.json({ error: "your computer isn't lending Claude right now (turn it on with K on its title screen)" }, { status: 503 });
+    // At most 20 questions a minute.
+    const now = Date.now();
+    this.recent = this.recent.filter((t) => now - t < 60000);
+    if (this.recent.length >= 20) return Response.json({ error: "too many questions, wait a minute" }, { status: 429 });
+    this.recent.push(now);
+    const b = await req.json().catch(() => ({}));
+    const id = crypto.randomUUID();
+    const ask = {
+      t: "ask", id,
+      name: String(b.name || "").slice(0, 32),
+      cloud: String(b.cloud || "").slice(0, 40),
+      system: String(b.system || "").slice(0, 8000),
+      history: (Array.isArray(b.history) ? b.history : []).slice(-12).map((m) => ({ user: !!m.user, text: String(m.text || "").slice(0, 1200) })),
+    };
+    const answer = await new Promise((resolve) => {
+      const timer = setTimeout(() => { this.waiting.delete(id); resolve({ error: "your computer didn't answer in time" }); }, 90000);
+      this.waiting.set(id, (a) => { clearTimeout(timer); resolve(a); });
+      try { pc.send(JSON.stringify(ask)); } catch { clearTimeout(timer); this.waiting.delete(id); resolve({ error: "couldn't reach your computer" }); }
+    });
+    return Response.json(answer, { status: answer.error ? 502 : 200 });
+  }
+  async webSocketMessage(ws, data) {
+    if (typeof data !== "string" || data.length > 20000) return;
+    let m;
+    try { m = JSON.parse(data); } catch { return; }
+    if (m.t === "ping") { ws.send('{"t":"pong"}'); return; }
+    const done = m.t === "answer" && this.waiting.get(m.id);
+    if (done) {
+      this.waiting.delete(m.id);
+      done(m.error ? { error: String(m.error).slice(0, 200) } : { text: String(m.text || "").slice(0, 2000), via: String(m.via || "").slice(0, 80) });
+    }
+  }
+  async webSocketClose(ws) { try { ws.close(1000, "bye"); } catch {} }
+  async webSocketError(ws) { await this.webSocketClose(ws); }
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -484,6 +539,14 @@ export default {
         headers.set("X-HH-User-Id", String(user.id));
         headers.set("X-HH-User-Name", user.name);
         return env.ROOMS.get(env.ROOMS.idFromName(room[1].toUpperCase())).fetch(new Request(req, { headers }));
+      }
+
+      // --- lending Claude to your phone (your own account only) ---
+      const pcPath = p.match(/^\/api\/pc\/(connect|ask|status)$/);
+      if (pcPath) {
+        if (!user) return json({ error: "log in first" }, 401);
+        if (pcPath[1] === "ask" && req.method !== "POST") return json({ error: "POST" }, 405);
+        return env.PCLINK.get(env.PCLINK.idFromName("user-" + user.id)).fetch(req);
       }
 
       // --- game API ---

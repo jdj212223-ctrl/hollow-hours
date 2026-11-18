@@ -15,12 +15,13 @@ mod sfx;
 mod view3d;
 mod mac;
 mod roam;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod voice;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 #[path = "voice_android.rs"]
 mod voice;
 mod platform;
+mod pclink;
 mod pad;
 
 use serde_json::json;
@@ -466,6 +467,10 @@ struct Game {
     stamina: f32,
     winded: bool,
     sprinting: bool,
+    /// Lending this computer's Claude to your phone (K on the title).
+    pclink: Option<pclink::PcLink>,
+    /// The login the phone link and lending were last set up with.
+    link_token: Option<String>,
     /// Max players for a server made in the game.
     server_max: u32,
     /// Voice chat and the radio (online games).
@@ -581,6 +586,9 @@ fn local_mods() -> Vec<serde_json::Value> {
     }
     out
 }
+
+/// The website's WebSocket address (wss://...).
+fn net_base() -> String { std::env::var("HOLLOW_SERVER").unwrap_or_else(|_| net::SERVER.into()) }
 
 fn site() -> String {
     std::env::var("HOLLOW_SERVER").unwrap_or_else(|_| net::SERVER.into()).replacen("wss://", "https://", 1).replacen("ws://", "http://", 1)
@@ -1937,6 +1945,8 @@ async fn main() {
         mac: mac::Mac::default(),
         fullscreen: false,
         server_max: 20,
+        pclink: None,
+        link_token: Some(String::new()), // anything but the real token: set up on the first frame
         stamina: 1.0,
         winded: false,
         sprinting: false,
@@ -1958,7 +1968,7 @@ async fn main() {
         }
     }
     // Phones: no Desktop, terminal or other windows to reach, so the meta scares stay off there.
-    if cfg!(target_os = "android") { g.meta.allowed = Some(false); }
+    if cfg!(any(target_os = "android", target_os = "ios")) { g.meta.allowed = Some(false); }
     if g.meta.allowed.is_none() {
         g.screen = Screen::Consent;
     }
@@ -2029,6 +2039,16 @@ async fn main() {
             _ => pad::Mode::Menu,
         };
         pad::update(pad_mode, g.net.is_some());
+        // Logged in or out: phones ask your computer's Claude with this login; computers (re)start lending.
+        let tok = g.account.as_ref().map(|a| a.token.clone());
+        if tok != g.link_token {
+            g.link_token = tok.clone();
+            ai::set_phone_link(&site(), tok.clone());
+            g.pclink = match (&tok, pclink::enabled() && ai::claude_cli().is_some()) {
+                (Some(t), true) => Some(pclink::start(&net_base(), t)),
+                _ => None,
+            };
+        }
         set_camera(&cam);
         let dt = get_frame_time().min(0.05);
         // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
@@ -2090,6 +2110,20 @@ async fn main() {
                         g.login_email.clear(); g.login_pw.clear(); g.login_field = 0; g.status.clear();
                         while get_char_pressed().is_some() {}
                         g.screen = Screen::Login;
+                    }
+                }
+                // K: lend this computer's Claude to your phone (same account).
+                if pressed(KeyCode::K) && !pad::touch_mode() {
+                    if g.pclink.is_some() {
+                        g.pclink = None;
+                        pclink::set_enabled(false);
+                    } else if g.account.is_none() {
+                        g.status = "Lending Claude to your phone needs a login (L).".into();
+                    } else if ai::claude_cli().is_none() {
+                        g.status = "Lending Claude needs the claude command on this computer (Claude Code).".into();
+                    } else {
+                        pclink::set_enabled(true);
+                        g.pclink = g.account.as_ref().map(|a| pclink::start(&net_base(), &a.token));
                     }
                 }
                 if pressed(KeyCode::J) {
@@ -2971,6 +3005,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
 
 fn draw_title(g: &Game) {
     draw_text(&g.rules.title, 60.0, 78.0, 56.0, Color::new(0.85, 0.3, 0.35, 1.0));
+    if !g.status.is_empty() { draw_text(&g.status, 60.0, 102.0, 18.0, Color::new(1.0, 0.75, 0.4, 1.0)); }
     let lines = [
         "A small horror game where the characters are real AIs.".to_string(),
         format!("Claude app: {}", if ai::claude_cli().is_some() { "found, so the Claude characters talk through it (real Claude)" } else { "not found" }),
@@ -2984,7 +3019,12 @@ fn draw_title(g: &Game) {
         "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
         "  I  watch the story (ASTRA 9.1, one year later)      M in game = sound on/off".into(),
         "  J  INFECTION ONLINE: play with friends (type the same room code)   S  server list   (needs a login)".into(),
-        match &g.account { Some(a) => format!("  Logged in as {} (L to log out)", a.name), None => "  L  log in (make an account on the website)".into() },
+        match &g.account {
+            Some(a) if pad::touch_mode() => format!("  Logged in as {}.  Real Claude: turn on K on your computer (same account)", a.name),
+            Some(a) => format!("  Logged in as {} (L to log out)   K  lend Claude to your phone: {}", a.name,
+                g.pclink.as_ref().and_then(|p| p.status.lock().ok().map(|s| s.clone())).unwrap_or_else(|| "off".into())),
+            None => "  L  log in (make an account on the website)".into(),
+        },
         String::new(),
         format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),
         "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),

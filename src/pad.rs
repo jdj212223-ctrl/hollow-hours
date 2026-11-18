@@ -14,7 +14,7 @@
 //!               buttons for use, hide, sprint, sneak, 2D/3D, panic and menu
 //!   Elsewhere:  big buttons for every choice; the on-screen keyboard opens where you type
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use gilrs::{Axis, Button, Gilrs};
 use macroquad::prelude::*;
 use std::cell::RefCell;
@@ -39,12 +39,12 @@ enum Role {
 
 #[derive(Default)]
 struct State {
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     gilrs: Option<Gilrs>,
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     tried: bool,
     name: Option<String>,
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     prev: HashSet<Button>,
     pressed_keys: HashSet<KeyCode>,
     held_keys: HashSet<KeyCode>,
@@ -64,18 +64,18 @@ thread_local! {
 
 /// Touch controls are on: on Android, or when HOLLOW_TOUCH is set (to try them with a mouse).
 pub fn touch_mode() -> bool {
-    cfg!(target_os = "android") || std::env::var("HOLLOW_TOUCH").is_ok()
+    cfg!(any(target_os = "android", target_os = "ios")) || std::env::var("HOLLOW_TOUCH").is_ok()
 }
 
 // ---------------- Controllers ----------------
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn dead(v: f32) -> f32 {
     if v.abs() < 0.2 { 0.0 } else { (v - 0.2 * v.signum()) / 0.8 }
 }
 
 /// Which keys a button stands for on this kind of screen.
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
     use Button::{DPadDown, DPadLeft, DPadUp, East, LeftThumb, LeftTrigger, LeftTrigger2, North, RightTrigger, RightTrigger2, Select, South, Start, West};
     use KeyCode as K;
@@ -115,7 +115,7 @@ fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_controller(p: &mut State, mode: Mode) {
     if !p.tried {
         p.tried = true;
@@ -226,7 +226,7 @@ fn read_touch(p: &mut State, mode: Mode) {
     p.look = Vec2::ZERO;
     let dpi = macroquad::miniquad::window::dpi_scale();
     let mut list: Vec<(u64, TouchPhase, Vec2)> = touches().into_iter().map(|t| (t.id, t.phase, to_canvas(t.position / dpi))).collect();
-    if !cfg!(target_os = "android") {
+    if !cfg!(any(target_os = "android", target_os = "ios")) {
         // Trying it on a computer: the mouse is one finger.
         let m = to_canvas(Vec2::from(mouse_position()));
         if is_mouse_button_pressed(MouseButton::Left) { list.push((0, TouchPhase::Started, m)); }
@@ -295,7 +295,7 @@ pub fn update(mode: Mode, online: bool) {
         p.left = Vec2::ZERO;
         p.right = Vec2::ZERO;
         p.online = online;
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         read_controller(&mut p, mode);
         if touch_mode() {
             if !p.touch_on {

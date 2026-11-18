@@ -157,6 +157,35 @@ fn new_uuid() -> String {
     format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
 }
 
+/// The website and your login, for asking your computer's Claude from a phone (None = not logged in).
+fn phone_link() -> &'static std::sync::Mutex<Option<(String, String)>> {
+    static L: std::sync::OnceLock<std::sync::Mutex<Option<(String, String)>>> = std::sync::OnceLock::new();
+    L.get_or_init(Default::default)
+}
+
+pub fn set_phone_link(site: &str, token: Option<String>) {
+    if let Ok(mut l) = phone_link().lock() { *l = token.map(|t| (site.to_string(), t)); }
+}
+
+/// A phone asks your own computer (the website connects the two, only within your account).
+fn via_your_computer(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
+    let (site, token) = phone_link().lock().ok()?.clone()?;
+    let hist: Vec<Value> = history.iter().rev().take(12).rev().map(|m| json!({"user": m.user, "text": m.text})).collect();
+    let v: Value = ureq::post(&format!("{site}/api/pc/ask"))
+        .timeout(Duration::from_secs(95))
+        .set("Authorization", &format!("Bearer {token}"))
+        .send_json(json!({"name": name, "cloud": cloud, "system": system, "history": hist}))
+        .ok()?
+        .into_json()
+        .ok()?;
+    Some((v["text"].as_str()?.to_string(), v["via"].as_str().unwrap_or("real Claude on your computer").to_string()))
+}
+
+/// Your phone asked this computer (see pclink.rs): answered the same way as the game here, same sessions.
+pub fn ask_claude_here(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
+    via_claude_cli(name, cloud, system, history)
+}
+
 /// Asks real Claude through the Claude app's command line (`claude -p`), with the right model, continuing this
 /// character's session.
 fn via_claude_cli(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
@@ -233,6 +262,8 @@ fn talk(name: &str, backend: &str, cloud: &str, model: &str, system: &str, histo
                 .ok()?;
             Some((v["content"][0]["text"].as_str()?.to_string(), format!("Claude API ({model})")))
         }
+        // Phones and tablets: real Claude from your own computer, if it lends it (K on its title screen).
+        "anthropic" if cfg!(any(target_os = "android", target_os = "ios")) => via_your_computer(name, cloud, system, history),
         "anthropic" => via_claude_cli(name, cloud, system, history),
         "openai" if key("OPENAI_API_KEY").is_some() => {
             let model = std::env::var("HOLLOW_OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
@@ -284,6 +315,27 @@ mod tests {
     fn test_sessions_file() {
         let f = std::env::temp_dir().join("hh-test-claude-sessions.json");
         unsafe { std::env::set_var("HOLLOW_SESSIONS_FILE", &f); }
+    }
+
+    /// The whole phone -> website -> your computer -> claude -> back trip. Needs a running website and a login:
+    /// HOLLOW_TEST_SERVER=ws://127.0.0.1:8799 HOLLOW_TEST_TOKEN=... cargo test --release phone_asks -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn phone_asks_your_computer() {
+        test_sessions_file();
+        let (base, token) = (std::env::var("HOLLOW_TEST_SERVER").unwrap(), std::env::var("HOLLOW_TEST_TOKEN").unwrap());
+        let link = crate::pclink::start(&base, &token);
+        for _ in 0..50 {
+            if link.status.lock().unwrap().starts_with("on") { break; }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        assert!(link.status.lock().unwrap().starts_with("on"), "the computer connected: {}", link.status.lock().unwrap());
+        let site = base.replacen("ws://", "http://", 1).replacen("wss://", "https://", 1);
+        set_phone_link(&site, Some(token));
+        let (text, via) = via_your_computer("Haiku 4.5 (phone test)", "claude-haiku-4-5", "You are Haiku 4.5, the lookout. Very short sentences.",
+            &[Msg { user: true, text: "Haiku, I'm on my phone. Can you hear me?".into() }]).expect("an answer came back");
+        println!("phone got: {text}  ({via})");
+        assert!(via.contains("your computer"));
     }
 
     /// A character's session is saved, so the next game continues it instead of starting a new one.

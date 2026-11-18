@@ -1,4 +1,4 @@
-//! Voice chat on Android: not yet (the microphone needs its own Android permission flow). Same API as voice.rs,
+//! Voice chat on phones (Android, iOS): not yet (the microphone needs its own Android permission flow). Same API as voice.rs,
 //! so the game is the same everywhere; you still hear the radio clicks and see who's talking.
 
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ pub struct Voice {
 
 impl Voice {
     pub fn set_talking(&mut self, t: Option<bool>) {
-        if t.is_some() { self.error = Some("voice chat isn't on Android yet".into()); }
+        if t.is_some() { self.error = Some("voice chat isn't on phones yet".into()); }
         self.talking = None;
     }
     pub fn take_packet(&mut self) -> Option<serde_json::Value> { None }

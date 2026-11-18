@@ -7,9 +7,18 @@ compatibility_date = "2026-11-01"
 name = "ROOMS"
 class_name = "Room"
 
+[[durable_objects.bindings]]
+name = "PCLINK"
+class_name = "PcLink"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Room"]
+
+# Lending Claude from your computer to your phone (one per account).
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["PcLink"]
 
 [[d1_databases]]
 binding = "DB"

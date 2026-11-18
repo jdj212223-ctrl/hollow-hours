@@ -458,6 +458,10 @@ struct Game {
     /// The Mac Studio on the desk.
     mac: mac::Mac,
     fullscreen: bool,
+    /// Sprinting (hold Space): 0..1, drains while you sprint. Run it empty and you're winded for a bit.
+    stamina: f32,
+    winded: bool,
+    sprinting: bool,
     /// Max players for a server made in the game.
     server_max: u32,
     /// Voice chat and the radio (online games).
@@ -1929,6 +1933,9 @@ async fn main() {
         mac: mac::Mac::default(),
         fullscreen: false,
         server_max: 20,
+        stamina: 1.0,
+        winded: false,
+        sprinting: false,
         voice: voice::Voice::default(),
         voice_hint: false,
         my_name: std::env::var("HOLLOW_NAME").map(|n| n.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(12).collect())
@@ -2494,9 +2501,18 @@ fn update(g: &mut Game, dt: f32) {
         } else {
             g.ai = None;
         }
+        // Sprint: hold Space (L3 on a controller). Fast and loud, and it tires you out.
+        g.sprinting = d != Vec2::ZERO && !g.sneaking && !g.winded && down(KeyCode::Space);
+        if g.sprinting {
+            g.stamina -= dt / 5.0;
+            if g.stamina <= 0.0 { g.stamina = 0.0; g.winded = true; g.log.push("You're out of breath.".into()); }
+        } else {
+            g.stamina = (g.stamina + dt / if d == Vec2::ZERO { 5.0 } else { 8.0 }).min(1.0);
+            if g.winded && g.stamina >= 0.35 { g.winded = false; }
+        }
         if d != Vec2::ZERO {
-            let speed = if g.sneaking { g.rules.sneak } else { g.rules.player_speed };
-            if !g.sneaking { g.noise = 1.0; }
+            let speed = if g.sneaking { g.rules.sneak } else if g.sprinting { g.rules.player_speed * 1.65 } else { g.rules.player_speed };
+            if !g.sneaking { g.noise = if g.sprinting { 1.7 } else { 1.0 }; }
             let step = d.normalize() * speed * T * dt;
             let r = 10.0;
             let nx = g.pos.x + step.x;
@@ -2508,7 +2524,7 @@ fn update(g: &mut Game, dt: f32) {
         g.step_t -= dt;
         if d != Vec2::ZERO && g.step_t <= 0.0 {
             g.sfx.step(!g.sneaking);
-            g.step_t = if g.sneaking { 0.55 } else { 0.32 };
+            g.step_t = if g.sneaking { 0.55 } else if g.sprinting { 0.2 } else { 0.32 };
         }
         let here = tile(g.map, (g.pos.x / T) as i32, (g.pos.y / T) as i32);
         if let Some((m, at)) = door(here, g.map) {
@@ -2888,6 +2904,13 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         draw_circle(sw / 2.0 + 70.0, sh / 2.0 - 30.0, 26.0, Color::new(1.0, 0.0, 0.0, k));
     }
 
+    // Stamina (only while it isn't full).
+    if g.stamina < 0.999 && g.screen == Screen::Play {
+        let col = if g.winded { Color::new(0.95, 0.35, 0.3, 0.9) } else { Color::new(0.95, 0.9, 0.6, 0.85) };
+        draw_rectangle(sw / 2.0 - 80.0, sh - 18.0, 160.0, 6.0, Color::new(0.0, 0.0, 0.0, 0.5));
+        draw_rectangle(sw / 2.0 - 80.0, sh - 18.0, 160.0 * g.stamina, 6.0, col);
+        if g.winded { draw_text("winded", sw / 2.0 - 22.0, sh - 24.0, 15.0, col); }
+    }
     // HUD.
     let y0 = sh;
     draw_rectangle(-margin(), y0, vw(), HUD, g.rules.hud);
@@ -2928,7 +2951,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         if &t != l { t = format!("{}...", t.trim_end_matches('.')); }
         draw_text(&t, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
-    draw_text(if pad::name().is_some() { "stick move · A talk · X hide · LT sneak · Y 2D/3D · RB voice · RT radio · View PANIC" } else if g.infection { if g.net.is_some() { "WASD · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD move · mouse/arrows look · Shift sneak · H hide · E talk · Tab 2D · P PANIC" } else { "WASD move · Shift sneak · H hide · E talk · Tab 3D · P PANIC · Esc" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
+    draw_text(if pad::name().is_some() { "stick move · L3 sprint · A talk · X hide · LT sneak · Y 2D/3D · RB voice · RT radio · View PANIC" } else if g.infection { if g.net.is_some() { "WASD · Space sprint · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD · mouse look · Space sprint · Shift sneak · H hide · E talk · Tab 2D · P PANIC" } else { "WASD · Space sprint · Shift sneak · H hide · E talk · Tab 3D · P PANIC" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
 }

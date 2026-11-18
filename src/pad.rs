@@ -3,7 +3,7 @@
 //!
 //!   Title:      A = Infection   X = Normal   Y = the story   RB = server list   LB = log in
 //!   Playing:    left stick = walk   right stick = look (3D)   A = talk / use   X = hide   Y = 2D/3D map
-//!               LT or LB or L3 = sneak (hold)   RB = voice (hold)   RT = radio (hold)
+//!               LT or LB = sneak (hold)   L3 (click the left stick) = sprint (hold)   RB = voice   RT = radio
 //!               D-pad down = sound on/off   View/Select = PANIC
 //!   Menus:      A = OK / Enter   B = back / Esc   D-pad = up/down
 //!   Typing:     the Steam keyboard (Steam + X on a Steam Deck / Legion Go), A = send, B = cancel
@@ -60,7 +60,8 @@ fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
         (Mode::Play, DPadDown) => &[K::M],
         (Mode::Play, Select) => &[K::P],
         (Mode::Play, Start) => &[K::Escape],
-        (Mode::Play, LeftTrigger) | (Mode::Play, LeftTrigger2) | (Mode::Play, LeftThumb) => &[K::LeftShift],
+        (Mode::Play, LeftTrigger) | (Mode::Play, LeftTrigger2) => &[K::LeftShift],
+        (Mode::Play, LeftThumb) => &[K::Space],
         (Mode::Play, RightTrigger) => &[K::V],
         (Mode::Play, RightTrigger2) => &[K::R],
         (Mode::Typing, South) => &[K::Enter],

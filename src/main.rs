@@ -24,6 +24,7 @@ mod platform;
 mod pclink;
 mod drone;
 mod learn;
+mod combat;
 mod pad;
 
 use serde_json::json;
@@ -499,6 +500,13 @@ struct Game {
     followers: Vec<(usize, f32, usize, Vec2)>,
     /// Seconds you've been out of food or water (60 = you collapse).
     weak_t: f32,
+    /// Fighting: what you hold (and hits left), weapons lying around, the cooldown, the swing, and time on the
+    /// floor after a dropkick.
+    weapon: Option<(combat::Weapon, u32)>,
+    weapon_items: Vec<(usize, Vec2, combat::Weapon)>,
+    attack_cd: f32,
+    swing_t: f32,
+    down_t: f32,
     /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
     raw: u32,
     fry_t: f32,
@@ -1168,6 +1176,13 @@ fn network(g: &mut Game, dt: f32) {
                 }
             }
             Some("left") => g.remotes.retain(|x| x.id != from),
+            // A guest hit one of the infected (the host's game moves them).
+            Some("hit") if !guest(g) => {
+                let i = m["i"].as_u64().unwrap_or(u64::MAX) as usize;
+                let dir = vec2(m["dx"].as_f64().unwrap_or(0.0) as f32, m["dy"].as_f64().unwrap_or(0.0) as f32).clamp_length_max(1.0);
+                combat::apply_hit(g, i, (m["stun"].as_f64().unwrap_or(0.0) as f32).min(4.0), dir,
+                    (m["knock"].as_f64().unwrap_or(0.0) as f32).min(4.0), m["off"].as_bool().unwrap_or(false));
+            }
             // The host's infected broke a wall: it's broken for everyone.
             Some("breach") => set_tile(m["map"].as_u64().unwrap_or(0) as usize, m["x"].as_i64().unwrap_or(-1) as i32, m["y"].as_i64().unwrap_or(-1) as i32, b'.'),
             Some("vc") => {
@@ -1308,6 +1323,9 @@ fn start_infection(g: &mut Game) {
     g.hunt_t = 90.0;
     g.followers.clear();
     g.weak_t = 0.0;
+    g.weapon = None;
+    g.weapon_items = combat::spawn();
+    g.down_t = 0.0;
     g.log = vec!["You are the last human. Hide (H), find food and water, and stay away from green eyes.".into(),
         "The Marketplace (south door on the beach) has lots of food... and corrupted Helix robots.".into()];
     g.shop_t = 30.0;
@@ -2050,6 +2068,11 @@ async fn main() {
         hunt_t: 90.0,
         followers: vec![],
         weak_t: 0.0,
+        weapon: None,
+        weapon_items: vec![],
+        attack_cd: 0.0,
+        swing_t: 0.0,
+        down_t: 0.0,
         link_token: Some(String::new()), // anything but the real token: set up on the first frame
         stamina: 1.0,
         winded: false,
@@ -2662,6 +2685,7 @@ fn update(g: &mut Game, dt: f32) {
         }
         // The drone: Q launches it or calls it back; while it flies, your keys fly it and you stand still.
         if pressed(KeyCode::Q) && g.infection { drone::toggle(g); }
+        if g.down_t > 0.0 { d = Vec2::ZERO; } // knocked flat after a dropkick
         if drone::fly(g, d, dt) { d = Vec2::ZERO; }
         // Sprint: hold Space (L3 on a controller). Fast and loud, and it tires you out.
         g.sprinting = d != Vec2::ZERO && !g.sneaking && !g.winded && down(KeyCode::Space);
@@ -2788,6 +2812,7 @@ fn update(g: &mut Game, dt: f32) {
         }
     }
     update_frying(g, dt);
+    if g.infection { combat::update(g, dt); }
     if g.infection { drone::update(g, dt); }
     if g.scare_t > g.prev_scare + 0.2 { g.sfx.sting(); }
     if g.scare_t > 0.0 { g.scare_t -= dt; }
@@ -3005,6 +3030,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
             draw_text(&label, r.pos.x - measure_text(&label, None, 15, 1.0).width / 2.0, r.pos.y - 16.0, 15.0, Color::new(0.75, 0.85, 1.0, 1.0));
         }
         drone::draw_2d(g);
+        combat::draw_items_2d(g);
         // You (see-through while hiding).
         let you = if g.hidden { Color::new(0.95, 0.95, 0.98, 0.35) } else { Color::new(0.95, 0.95, 0.98, 1.0) };
         draw_circle(g.pos.x, g.pos.y, 11.0, you);
@@ -3137,6 +3163,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         let t = format!("raw food: {}", g.raw);
         draw_text(&t, sw - measure_text(&t, None, 16, 1.0).width - 14.0, sh - 10.0, 16.0, Color::new(1.0, 0.7, 0.45, 0.9));
     }
+    combat::draw_hud(g, sw, sh);
     // Stamina (only while it isn't full).
     if g.stamina < 0.999 && g.screen == Screen::Play {
         let col = if g.winded { Color::new(0.95, 0.35, 0.3, 0.9) } else { Color::new(0.95, 0.9, 0.6, 0.85) };
@@ -3184,7 +3211,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         if &t != l { t = format!("{}...", t.trim_end_matches('.')); }
         draw_text(&t, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
-    draw_text(if pad::name().is_some() { "stick move · L3 sprint · A talk · X hide · LT sneak · Y 2D/3D · D-up drone · RB voice · View PANIC" } else if g.infection { if g.net.is_some() { "WASD · Space sprint · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD · mouse look · Space sprint · Shift sneak · H hide · E use · Q drone · Tab 2D · P PANIC" } else { "WASD · Space sprint · Shift sneak · H hide · E use · Q drone · Tab 3D · P PANIC" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
+    draw_text(if pad::name().is_some() { "stick · L3 sprint · A use · B hit · D-right kick · X hide · LT sneak · D-up drone · View PANIC" } else if g.infection { if g.net.is_some() { "WASD · Space sprint · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD · mouse · Space sprint · Shift sneak · H hide · E use · F hit · G kick · Q drone · P PANIC" } else { "WASD · Space sprint · Shift sneak · H hide · E use · F hit · G kick · Q drone · P PANIC" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
 }

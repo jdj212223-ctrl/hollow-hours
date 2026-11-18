@@ -57,6 +57,7 @@ pub struct Sfx {
     sizzle_on: bool,
     buzz: Option<Sound>,
     buzz_on: bool,
+    hit: Option<Sound>,
     pub on: bool,
     wind_on: bool,
 }
@@ -108,10 +109,12 @@ impl Sfx {
             let saw = |f: f32| 2.0 * ((f * t) % 1.0) - 1.0;
             (saw(210.0) * 0.5 + saw(213.0) * 0.5) * 0.14 * (0.75 + 0.25 * (TAU * 30.0 * t).sin())
         });
+        // A hit: a low thud with a bit of crunch.
+        let hit = gen(0.25, |t, r| ((TAU * 70.0 * t).sin() * 0.7 + r.next() * 0.35) * (-t * 22.0).exp());
         let radio = gen(0.35, |t, r| r.next() * 0.35 * (1.0 - t / 0.35) * if ((t * 60.0) as i32) % 3 == 0 { 1.0 } else { 0.3 });
         Sfx {
             hum: s(hum).await, wind: s(wind).await, heart: s(heart).await, step: s(step).await, sting: s(sting).await,
-            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, buzz: s(buzz).await, buzz_on: false, on: true, wind_on: false,
+            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, buzz: s(buzz).await, buzz_on: false, hit: s(hit).await, on: true, wind_on: false,
         }
     }
 
@@ -133,6 +136,7 @@ impl Sfx {
     pub fn pickup(&self) { self.once(&self.pickup, 0.5); }
     pub fn door(&self) { self.once(&self.door, 0.5); }
     pub fn radio(&self) { self.once(&self.radio, 0.4); }
+    pub fn hit(&self) { self.once(&self.hit, 0.8); }
     /// The drone flying (loops until it lands).
     pub fn drone(&mut self, on: bool) {
         let Some(s) = &self.buzz else { return };

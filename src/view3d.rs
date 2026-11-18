@@ -151,6 +151,18 @@ pub fn render(g: &Game, view: &RenderTarget) {
         }
     }
 
+    // Weapons on the floor: a bat, a knife.
+    for (wm, p, w) in &g.weapon_items {
+        if *wm != m { continue; }
+        let c = vec3(p.x / T, 0.04, p.y / T);
+        match w {
+            super::combat::Weapon::Bat => draw_cube(c, vec3(0.75, 0.07, 0.07), None, fog.at(Color::new(0.55, 0.38, 0.22, 1.0), c)),
+            super::combat::Weapon::Knife => {
+                draw_cube(c + vec3(0.08, 0.0, 0.0), vec3(0.22, 0.02, 0.05), None, fog.at(Color::new(0.85, 0.87, 0.9, 1.0), c));
+                draw_cube(c - vec3(0.1, 0.0, 0.0), vec3(0.14, 0.04, 0.05), None, fog.at(Color::new(0.2, 0.16, 0.14, 1.0), c));
+            }
+        }
+    }
     // The characters.
     for c in g.chars.iter().filter(|c| c.map == m) {
         let base = vec3(c.pos.x / T, 0.0, c.pos.y / T);

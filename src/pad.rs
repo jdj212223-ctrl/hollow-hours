@@ -77,7 +77,7 @@ fn dead(v: f32) -> f32 {
 /// Which keys a button stands for on this kind of screen.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
-    use Button::{DPadDown, DPadLeft, DPadUp, East, LeftThumb, LeftTrigger, LeftTrigger2, North, RightTrigger, RightTrigger2, Select, South, Start, West};
+    use Button::{DPadDown, DPadLeft, DPadRight, DPadUp, East, LeftThumb, LeftTrigger, LeftTrigger2, North, RightTrigger, RightTrigger2, Select, South, Start, West};
     use KeyCode as K;
     match (mode, b) {
         (Mode::Title, South) | (Mode::Title, Start) => &[K::Key4],
@@ -90,6 +90,8 @@ fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
         (Mode::Play, North) => &[K::Tab],
         (Mode::Play, DPadDown) => &[K::M],
         (Mode::Play, DPadUp) => &[K::Q],
+        (Mode::Play, East) => &[K::F],
+        (Mode::Play, DPadRight) => &[K::G],
         (Mode::Play, Select) => &[K::P],
         (Mode::Play, Start) => &[K::Escape],
         (Mode::Play, LeftTrigger) | (Mode::Play, LeftTrigger2) => &[K::LeftShift],
@@ -178,6 +180,8 @@ fn buttons(mode: Mode, online: bool) -> Vec<Btn> {
                 b(r - 210.0, 54.0, 90.0, 54.0, "PANIC", K::P, false),
                 b(l + 20.0, 54.0, 90.0, 54.0, "MENU", K::Escape, false),
                 b(r - 310.0, 54.0, 90.0, 54.0, "DRONE", K::Q, false),
+                b(r - 370.0, wh - 270.0, 100.0, 70.0, "HIT", K::F, false),
+                b(r - 250.0, wh - 290.0, 100.0, 70.0, "KICK", K::G, false),
             ];
             if online {
                 v.push(b(r - 370.0, wh - 90.0, 100.0, 70.0, "TALK", K::V, true));

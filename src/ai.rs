@@ -85,7 +85,17 @@ fn tidy(t: &str) -> String {
         .chars().filter(|c| (*c as u32) < 0x2000).collect();
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     let s = s.trim().trim_matches('"').to_string();
-    if s.chars().count() > 260 { format!("{}…", s.chars().take(257).collect::<String>()) } else { s }
+    if s.chars().count() <= 300 { return s; }
+    // Too long for a bubble: end at the last whole sentence that fits, or at least at a whole word
+    // (cutting mid-word once turned "a piece of furniture" into "a piece of fu...").
+    let head: String = s.chars().take(300).collect();
+    if let Some(i) = head.rfind(['.', '!', '?']).filter(|&i| i > 80) {
+        return head[..=i].to_string();
+    }
+    match head.rfind(' ') {
+        Some(i) => format!("{}...", head[..i].trim_end_matches([',', ';', ':'])),
+        None => head,
+    }
 }
 
 /// The Claude desktop app is installed and its `claude` command works: Claude characters can talk through it (your
@@ -231,6 +241,18 @@ fn talk(name: &str, backend: &str, cloud: &str, model: &str, system: &str, histo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Long answers end at a whole sentence, never mid-word ("a piece of fu...").
+    #[test]
+    fn long_bubbles_end_cleanly() {
+        let sonnet = "Honestly, probably not on purpose, but I wouldn't be surprised if they ignored warnings. Right now the tornado is 15 tiles south-east, so stay low and keep the house between you and it, with Opus 5.5 and Haiku 4.5 right next to you. Press H at a piece of furniture to get down behind something solid.";
+        let t = tidy(sonnet);
+        assert!(t.ends_with('.') && !t.contains("piece of fu…") && !t.ends_with("fu..."), "{t}");
+        let words = "word ".repeat(100);
+        let t = tidy(&words);
+        assert!(t.ends_with("word...") && t.chars().count() <= 303, "{t}");
+        assert_eq!(tidy("Short and fine."), "Short and fine.");
+    }
 
     /// Needs Ollama running with a chat model; skips quietly otherwise.
     #[test]

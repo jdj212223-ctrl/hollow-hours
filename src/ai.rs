@@ -111,11 +111,45 @@ pub fn claude_cli() -> Option<String> {
     paths.into_iter().find(|p| std::path::Path::new(p).is_file())
 }
 
-/// One Claude session per character for this run of the game, so the whole chat stays together and is easy to find:
-/// it's named "Hollow Hours: <character>" (claude --resume lists it; it's saved under ~/.claude/projects).
+/// Where Hollow Hours keeps its own things (and where the Claude sessions run, so they can always be resumed).
+fn home_dir() -> std::path::PathBuf {
+    let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Library/Application Support/Hollow Hours");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+fn sessions_file() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("HOLLOW_SESSIONS_FILE") { return p.into(); } // tests
+    home_dir().join("claude_sessions.json")
+}
+
+/// One Claude session per character that carries on from game to game: the first time you talk to Sonnet 4.6 a
+/// session named "Hollow Hours: Sonnet 4.6" starts, and every later game continues that same session (so it
+/// remembers you). Saved in ~/Library/Application Support/Hollow Hours/claude_sessions.json; `claude --resume` lists them.
 fn sessions() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
     static S: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, String>>> = std::sync::OnceLock::new();
-    S.get_or_init(Default::default)
+    S.get_or_init(|| {
+        let saved = std::fs::read_to_string(sessions_file()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        std::sync::Mutex::new(saved)
+    })
+}
+
+fn save_sessions(map: &std::collections::HashMap<String, String>) {
+    let file = sessions_file();
+    if std::fs::write(&file, serde_json::to_string_pretty(map).unwrap_or_default()).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+}
+
+fn remember_session(name: &str, id: Option<String>) {
+    if let Ok(mut m) = sessions().lock() {
+        match id { Some(id) => { m.insert(name.to_string(), id); } None => { m.remove(name); } }
+        save_sessions(&m);
+    }
 }
 
 fn new_uuid() -> String {
@@ -134,6 +168,17 @@ fn new_uuid() -> String {
 /// Asks real Claude through the Claude app's command line (`claude -p`), with the right model, continuing this
 /// character's session.
 fn via_claude_cli(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
+    let r = ask_claude_cli(name, cloud, system, history);
+    if r.is_some() { return r; }
+    // The saved session is gone (deleted, or made on another Mac): forget it and start a fresh one.
+    if sessions().lock().ok()?.contains_key(name) {
+        remember_session(name, None);
+        return ask_claude_cli(name, cloud, system, history);
+    }
+    None
+}
+
+fn ask_claude_cli(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
     let cli = claude_cli()?;
     let alias = if cloud.contains("haiku") { "haiku" } else if cloud.contains("sonnet") { "sonnet" } else { "opus" };
     let existing = sessions().lock().ok()?.get(name).cloned();
@@ -156,7 +201,7 @@ fn via_claude_cli(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Opt
         None => {
             let id = new_uuid();
             args.extend(["--session-id".into(), id.clone(), "--name".into(), format!("Hollow Hours: {name}")]);
-            sessions().lock().ok()?.insert(name.to_string(), id);
+            remember_session(name, Some(id));
         }
     }
     args.extend(["--tools".into(), String::new()]);
@@ -164,6 +209,7 @@ fn via_claude_cli(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Opt
     use std::io::Write;
     let mut child = std::process::Command::new(cli)
         .args(&args)
+        .current_dir(home_dir()) // always the same folder, so every session can be resumed next time
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -242,6 +288,24 @@ fn talk(name: &str, backend: &str, cloud: &str, model: &str, system: &str, histo
 mod tests {
     use super::*;
 
+    /// Tests keep their sessions in their own file, never the player's.
+    fn test_sessions_file() {
+        let f = std::env::temp_dir().join("hh-test-claude-sessions.json");
+        unsafe { std::env::set_var("HOLLOW_SESSIONS_FILE", &f); }
+    }
+
+    /// A character's session is saved, so the next game continues it instead of starting a new one.
+    #[test]
+    fn sessions_carry_on_between_games() {
+        test_sessions_file();
+        remember_session("Sonnet 4.6 (test)", Some("11111111-2222-4333-8444-555555555555".into()));
+        let saved: std::collections::HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(sessions_file()).unwrap()).unwrap();
+        assert_eq!(saved.get("Sonnet 4.6 (test)").map(String::as_str), Some("11111111-2222-4333-8444-555555555555"), "written to disk");
+        remember_session("Sonnet 4.6 (test)", None);
+        let saved: std::collections::HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(sessions_file()).unwrap()).unwrap();
+        assert!(!saved.contains_key("Sonnet 4.6 (test)"), "and forgotten again");
+    }
+
     /// Long answers end at a whole sentence, never mid-word ("a piece of fu...").
     #[test]
     fn long_bubbles_end_cleanly() {
@@ -270,6 +334,7 @@ mod tests {
     /// Needs the Claude app and its `claude` command; skips quietly otherwise.
     #[test]
     fn claude_answers_through_the_claude_app() {
+        test_sessions_file();
         if claude_cli().is_none() { return; }
         let r = via_claude_cli("Haiku 4.5 (test)", "claude-haiku-4-5", "You are Haiku 4.5, the lookout in a survival game. Very short sentences.",
             &[Msg { user: true, text: "Haiku, is it safe to go outside?".into() }]);

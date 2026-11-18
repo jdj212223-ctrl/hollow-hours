@@ -18,5 +18,7 @@
     <key>CFBundleURLName</key><string>Hollow Hours login</string>
     <key>CFBundleURLSchemes</key><array><string>hollowhours</string></array>
   </dict></array>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Hollow Hours uses the microphone only while you hold V (voice chat) or R (the radio) in an online game.</string>
 </dict>
 </plist>

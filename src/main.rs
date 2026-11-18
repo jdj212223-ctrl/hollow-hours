@@ -13,6 +13,7 @@ mod sfx;
 mod view3d;
 mod mac;
 mod roam;
+mod voice;
 
 use serde_json::json;
 
@@ -453,6 +454,9 @@ struct Game {
     /// The Mac Studio on the desk.
     mac: mac::Mac,
     fullscreen: bool,
+    /// Voice chat and the radio (online games).
+    voice: voice::Voice,
+    voice_hint: bool,
 }
 
 /// Logged in to the website: the session token (never the password) and the display name.
@@ -926,6 +930,7 @@ impl Game {
         self.scare_t = 0.0;
         self.vest.play(haptics::Effect::StopAll);
         self.sfx.silence();
+        self.voice.set_talking(None);
         self.meta.paused = true; // no more files, Terminal windows or window switching this session
         self.lost_control = false;
         self.screen = Screen::Safe;
@@ -1077,6 +1082,17 @@ fn network(g: &mut Game, dt: f32) {
                 }
             }
             Some("left") => g.remotes.retain(|x| x.id != from),
+            Some("vc") => {
+                // A voice: the radio reaches everyone; out loud only reaches you on the same map, fading with distance.
+                let radio = m["r"].as_bool().unwrap_or(false);
+                let gain = if radio { 0.9 } else {
+                    g.remotes.iter().find(|r| r.id == from).filter(|r| r.map == g.map)
+                        .map(|r| (1.0 - r.pos.distance(g.pos) / (voice::RANGE * T)).max(0.0)).unwrap_or(0.0)
+                };
+                let started = g.voice.is_talking(&from, now).is_none();
+                g.voice.hear(&from, m["d"].as_str().unwrap_or(""), radio, gain, now);
+                if radio && started { g.sfx.radio(); }
+            }
             Some("error") => {
                 let msg = m["msg"].as_str().unwrap_or("error").to_string();
                 if msg.contains("log in") { g.account = None; forget_account(); }
@@ -1092,6 +1108,9 @@ fn network(g: &mut Game, dt: f32) {
         }
     }
     g.remotes.retain(|r| now - r.seen < 6.0);
+    if let Some(p) = g.voice.take_packet() {
+        if let Some(n) = &g.net { n.send(p); }
+    }
     g.net_t -= dt;
     g.world_t -= dt;
     let Some(n) = &g.net else { return };
@@ -1897,6 +1916,8 @@ async fn main() {
         last_mouse: Vec2::ZERO,
         mac: mac::Mac::default(),
         fullscreen: false,
+        voice: voice::Voice::default(),
+        voice_hint: false,
         my_name: std::env::var("HOLLOW_NAME").map(|n| n.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(12).collect())
             .unwrap_or_else(|_| format!("Human-{}", rand::gen_range(10, 99))),
     };
@@ -2290,6 +2311,7 @@ async fn main() {
                     show_mouse(true);
                 } else if is_key_pressed(KeyCode::Escape) && g.screen == Screen::Play {
                     g.net = None;
+                    g.voice.stop();
                     g.remotes.clear();
                     g.vest.play(haptics::Effect::StopAll);
                     g.screen = Screen::Title;
@@ -2383,6 +2405,22 @@ fn update(g: &mut Game, dt: f32) {
     g.sneaking = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
     g.noise = (g.noise - dt * 1.5).max(0.0);
     g.ai_t += dt;
+    // Voice: hold V to talk out loud (nearby players hear you), hold R for the radio (everyone hears you).
+    if g.screen == Screen::Play {
+        let want = if is_key_down(KeyCode::R) { Some(true) } else if is_key_down(KeyCode::V) { Some(false) } else { None };
+        if g.net.is_none() {
+            if want.is_some() && !g.voice_hint {
+                g.voice_hint = true;
+                g.log.push("Voice chat (V) and the radio (R) work in online games: J on the title screen.".into());
+            }
+        } else if want != g.voice.talking {
+            if want == Some(true) || g.voice.talking == Some(true) { g.sfx.radio(); }
+            g.voice.set_talking(want);
+            if let Some(e) = g.voice.error.take() { g.log.push(format!("Voice chat: {e}")); }
+        }
+    } else if g.voice.talking.is_some() {
+        g.voice.set_talking(None);
+    }
     if g.screen == Screen::Play && !g.hidden && !g.lost_control {
         let mut d = Vec2::ZERO;
         if g.view3d {
@@ -2762,6 +2800,30 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     // Discomfort: a faint wrong-coloured tint.
     if g.discomfort > 0.2 { draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.6, 0.0, 0.3, g.discomfort * 0.12)); }
 
+    // Who's talking: a label over their head (same map), and a banner for anyone on the radio.
+    let now = get_time();
+    for r in &g.remotes {
+        if let Some(radio) = g.voice.is_talking(&r.id, now) {
+            if r.map == g.map {
+                if let Some(p) = at(r.pos, 1.7) {
+                    let t = if radio { "(radio)" } else { "(talking)" };
+                    draw_text(t, p.x - measure_text(t, None, 15, 1.0).width / 2.0, p.y - if g.view3d { 0.0 } else { 34.0 }, 15.0, Color::new(0.55, 1.0, 0.6, 1.0));
+                }
+            }
+            if radio {
+                let t = format!("RADIO  {}", r.name);
+                draw_rectangle(10.0, 10.0, measure_text(&t, None, 18, 1.0).width + 20.0, 28.0, Color::new(0.0, 0.0, 0.0, 0.7));
+                draw_text(&t, 20.0, 30.0, 18.0, Color::new(1.0, 0.75, 0.3, 1.0));
+            }
+        }
+    }
+    if let Some(radio) = g.voice.talking {
+        let t = if radio { "ON THE RADIO: everyone hears you" } else { "TALKING: players near you hear you" };
+        let w = measure_text(t, None, 18, 1.0).width + 20.0;
+        draw_rectangle(sw / 2.0 - w / 2.0, 10.0, w, 28.0, Color::new(0.0, 0.0, 0.0, 0.7));
+        draw_text(t, sw / 2.0 - w / 2.0 + 10.0, 30.0, 18.0, if radio { Color::new(1.0, 0.75, 0.3, 1.0) } else { Color::new(0.55, 1.0, 0.6, 1.0) });
+    }
+
     // Speech bubbles (drawn over the dark so you can read them).
     for c in g.chars.iter().filter(|c| c.map == g.map && c.bubble_t > 0.0) {
         if let Some(p) = at(c.pos, 1.3) { bubble(&c.bubble, &c.via, p.x, p.y); }
@@ -2827,7 +2889,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         if &t != l { t = format!("{}...", t.trim_end_matches('.')); }
         draw_text(&t, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
-    draw_text(if g.infection { if g.view3d { "WASD move · mouse/arrows look · Shift sneak · H hide · E talk · Tab 2D · P PANIC" } else { "WASD move · Shift sneak · H hide · E talk · Tab 3D · P PANIC · Esc" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
+    draw_text(if g.infection { if g.net.is_some() { "WASD · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD move · mouse/arrows look · Shift sneak · H hide · E talk · Tab 2D · P PANIC" } else { "WASD move · Shift sneak · H hide · E talk · Tab 3D · P PANIC · Esc" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
 }

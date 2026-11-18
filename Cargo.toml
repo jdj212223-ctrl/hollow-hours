@@ -14,6 +14,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 keyring = { version = "3", features = ["apple-native"] }
 sha2 = "0.10"
+cpal = "0.15"
 
 [profile.release]
 opt-level = 3

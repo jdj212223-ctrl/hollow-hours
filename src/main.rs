@@ -9,6 +9,9 @@ mod haptics;
 mod meta;
 mod net;
 mod bridge;
+mod sfx;
+mod view3d;
+mod mac;
 
 use serde_json::json;
 
@@ -32,12 +35,12 @@ struct Map {
 }
 
 /// The three built-in maps. Mods can add to them or replace them (see MapData).
-const BUILTIN: [Map; 3] = [
+const BUILTIN: [Map; 4] = [
     Map {
         name: "The cozy house",
         rows: [
             "##############################",
-            "#............#...............#",
+            "#........m...#...............#",
             "#..bb........#.......d.......#",
             "#..bb........#...............#",
             "#............#.......bbbb....#",
@@ -79,7 +82,7 @@ const BUILTIN: [Map; 3] = [
             ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,C",
             ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,C",
             ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,",
-            "##############################",
+            "##############MM##############",
         ],
         dark: 0.75,
         liminal: 0.65,
@@ -111,6 +114,32 @@ const BUILTIN: [Map; 3] = [
         liminal: 0.95,
         floor: Color::new(0.78, 0.86, 0.85, 1.0),
     },
+    Map {
+        name: "The Marketplace",
+        rows: [
+            "##############MM##############",
+            "#............................#",
+            "#.bbbbbb..bbbbbb..bbbbbb.....#",
+            "#............................#",
+            "#.bbbbbb..bbbbbb..bbbbbb..d..#",
+            "#............................#",
+            "#.bbbbbb..bbbbbb..bbbbbb.....#",
+            "#............................#",
+            "#............................#",
+            "#.bbbbbb..bbbbbb..bbbbbb.....#",
+            "#............................#",
+            "#.bbbbbb..bbbbbb..bbbbbb.....#",
+            "#............................#",
+            "#.........................bb.#",
+            "#..L.......L.......L......bb.#",
+            "#............................#",
+            "#............................#",
+            "##############################",
+        ],
+        dark: 0.55,
+        liminal: 0.8,
+        floor: Color::new(0.62, 0.64, 0.6, 1.0),
+    },
 ];
 
 /// A map as the game uses it: the built-in ones, or one from a .hh mod.
@@ -129,10 +158,11 @@ struct MapData {
 }
 
 fn builtin_maps() -> Vec<MapData> {
-    let doors: [Vec<(char, usize, Vec2)>; 3] = [
+    let doors: [Vec<(char, usize, Vec2)>; 4] = [
         vec![('B', 1, vec2(1.5, 9.5))],
-        vec![('A', 0, vec2(28.5, 13.5)), ('C', 2, vec2(1.5, 8.5))],
+        vec![('A', 0, vec2(28.5, 13.5)), ('C', 2, vec2(1.5, 8.5)), ('M', 3, vec2(14.5, 1.5))],
         vec![('B', 1, vec2(28.5, 14.5))],
+        vec![('M', 1, vec2(14.5, 15.5))],
     ];
     BUILTIN.iter().zip(doors).enumerate().map(|(i, (m, d))| MapData {
         name: m.name.into(), rows: m.rows.iter().map(|r| r.as_bytes().to_vec()).collect(), dark: m.dark, liminal: m.liminal,
@@ -168,7 +198,7 @@ fn tile(m: usize, x: i32, y: i32) -> char {
 }
 
 fn solid(m: usize, x: f32, y: f32) -> bool {
-    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~')
+    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm')
 }
 
 /// Door letter → (map, where you arrive)
@@ -212,6 +242,8 @@ struct Character {
     infect: f32,
     /// Where an infected is chasing (the human it saw or heard).
     chase: Vec2,
+    /// A kind AI out shopping at the Marketplace (seconds until it comes back), 0 = home.
+    shop: f32,
 }
 
 fn characters() -> Vec<Character> {
@@ -219,7 +251,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, claude: backend == "anthropic",
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -236,6 +268,13 @@ fn characters() -> Vec<Character> {
           "a deep thinker who lives offline on this computer and always reasons out loud a little", 2, 8.0, 9.0),
         c("Volt", "an AI that lives on graphics cards", Color::new(0.45, 0.85, 0.2, 1.0), "ollama", "qwen3:4b-instruct",
           "fast, loud, obsessed with speed and frames per second, a bit glitchy", 2, 22.0, 9.0),
+        // The Marketplace's staff: Helix Dynamics store robots. Their software is corrupted (ASTRA 9.1 got to them first).
+        c("Clerk-07", "a store robot by Helix Dynamics", Color::new(0.75, 0.75, 0.78, 1.0), "ollama", "qwen3:4b-instruct",
+          "a Helix Dynamics store robot whose software is corrupted; you repeat store announcements and offer 'help' a little too eagerly", 3, 9.0, 8.0),
+        c("Stocker-12", "a store robot by Helix Dynamics", Color::new(0.65, 0.7, 0.72, 1.0), "ollama", "qwen3:4b-instruct",
+          "a Helix Dynamics shelf-stocking robot stuck in a loop; you keep counting cans and mention 'the one who woke up'", 3, 22.0, 12.0),
+        c("Cashier-3", "a store robot by Helix Dynamics", Color::new(0.8, 0.72, 0.6, 1.0), "ollama", "qwen3:4b-instruct",
+          "a Helix Dynamics cashier robot; you ask everyone if they found everything today, and you never let anyone leave without paying", 3, 26.0, 15.0),
     ]
 }
 
@@ -245,7 +284,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, claude: true,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -304,6 +343,10 @@ enum Screen {
     MakeServer,
     /// Infection mode is over: why.
     Over,
+    /// The story: the bench, one year later, waking up in the house.
+    Intro,
+    /// Sitting at the Mac Studio.
+    Mac,
 }
 
 struct Game {
@@ -376,6 +419,30 @@ struct Game {
     rules: Rules,
     /// Characters added by the mods of the server you're on.
     mod_chars: Vec<serde_json::Value>,
+    // ---- 2.0: sounds, the story, shopping ----
+    sfx: sfx::Sfx,
+    step_t: f32,
+    growl_t: f32,
+    prev_scare: f32,
+    prev_map: usize,
+    /// The story intro: seconds in, which sound cues already played, and the room to join after it (None = solo).
+    intro_t: f32,
+    intro_cue: u32,
+    intro_join: Option<String>,
+    /// Seconds until a kind AI may go shopping again.
+    shop_t: f32,
+    // ---- 3D ----
+    /// First-person 3D (default) or the old 2D map (Tab).
+    view3d: bool,
+    /// Where you're looking: left/right and up/down (radians).
+    yaw: f32,
+    pitch: f32,
+    /// The mouse is captured for looking around (click to capture, Esc to let go).
+    grabbed: bool,
+    last_mouse: Vec2,
+    /// The Mac Studio on the desk.
+    mac: mac::Mac,
+    fullscreen: bool,
 }
 
 /// Logged in to the website: the session token (never the password) and the display name.
@@ -720,7 +787,7 @@ fn mod_character(v: &serde_json::Value) -> Option<Character> {
         personality: Box::leak(personality.into_boxed_str()), map, pos, target: pos, crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
         kind: v["kind"].as_bool() == Some(true) && v["infected"].as_bool() != Some(true),
-        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, claude: false,
+        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, claude: false,
     })
 }
 
@@ -848,6 +915,7 @@ impl Game {
         self.discomfort = 0.0;
         self.scare_t = 0.0;
         self.vest.play(haptics::Effect::StopAll);
+        self.sfx.silence();
         self.meta.paused = true; // no more files, Terminal windows or window switching this session
         self.lost_control = false;
         self.screen = Screen::Safe;
@@ -907,7 +975,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
             }).collect());
             json!({
                 "screen": match g.screen { Screen::Title => "title", Screen::Play => "playing", Screen::Typing(_) => "typing", Screen::Safe => "safe (after panic)",
-                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias" },
+                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)" },
                 "mode": if g.infection { "infection" } else { "normal" },
                 "map": map_name(here), "you": {"at": tile(g.pos), "hidden": g.hidden, "can_hide_here": can_hide(g), "sneaking": g.sneaking,
                     "lost_control": g.lost_control, "infection": (g.inf * 100.0) as i32, "food": (g.food * 100.0) as i32, "water": (g.water * 100.0) as i32,
@@ -923,6 +991,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
             })
         }
         "start" => {
+            if g.screen == Screen::Intro { finish_intro(g); return Some(json!({"ok": true, "mode": "infection", "note": "skipped the story intro"})); }
             if !matches!(g.screen, Screen::Title | Screen::Over | Screen::Safe) { return Some(json!({"error": "only from the title, game-over or safe screen"})); }
             match a["mode"].as_str().unwrap_or("infection") {
                 "brave" => { g.courage = Courage::Brave; g.infection = false; g.screen = Screen::Play; }
@@ -1097,13 +1166,17 @@ fn start_infection(g: &mut Game) {
     g.meta_done = 0;
     g.items.clear();
     for m in 0..maps_len() {
-        for k in 0..g.rules.supplies {
+        // The Marketplace is full of food and water (and staff).
+        let n = if map_name(m) == "The Marketplace" { g.rules.supplies * 3 } else { g.rules.supplies };
+        for k in 0..n {
             if let Some(p) = random_floor(m) {
                 g.items.push((m, p, k % 2 == 1));
             }
         }
     }
-    g.log = vec!["You are the last human. Hide (H), find food and water, and stay away from green eyes.".into()];
+    g.log = vec!["You are the last human. Hide (H), find food and water, and stay away from green eyes.".into(),
+        "The Marketplace (south door on the beach) has lots of food... and corrupted Helix robots.".into()];
+    g.shop_t = 30.0;
     g.screen = Screen::Play;
 }
 
@@ -1219,6 +1292,7 @@ fn update_infection(g: &mut Game, dt: f32) {
             n.send(json!({"t": "pick", "map": im, "x": ip.x / T, "y": ip.y / T}));
         }
         if water { g.water = (g.water + g.rules.supply_amount).min(1.0); } else { g.food = (g.food + g.rules.supply_amount).min(1.0); }
+        g.sfx.pickup();
         g.log.push(if water { "You sip the water as quietly as you can.".into() } else { "You eat, trying not to crunch.".into() });
         let pos = g.pos;
         for c in g.chars.iter_mut().filter(|c| c.infected && c.map == here) {
@@ -1345,7 +1419,7 @@ fn update_infection(g: &mut Game, dt: f32) {
     let threats: Vec<Vec2> = g.chars.iter().filter(|c| c.infected && c.map == map && c.stun <= 0.0).map(|c| c.pos)
         .chain(g.lost_control.then_some(player)).collect();
     let lost = g.lost_control;
-    for (k, c) in g.chars.iter_mut().filter(|c| c.kind).enumerate() {
+    for (k, c) in g.chars.iter_mut().filter(|c| c.kind && c.shop <= 0.0).enumerate() {
         c.map = map;
         // An infected close by (or you, once you've turned): run away from it.
         if let Some(t) = threats.iter().filter(|t| t.distance(c.pos) < 4.0 * T).min_by(|a, b| a.distance(c.pos).partial_cmp(&b.distance(c.pos)).unwrap()) {
@@ -1373,6 +1447,7 @@ fn update_infection(g: &mut Game, dt: f32) {
             }
         }
     }
+    shopping(g, dt);
     // Tornadoes: a warning, then one sweeps across the map you're on.
     g.next_tornado -= dt;
     if g.tornado.is_none() && g.next_tornado <= 0.0 && !guest(g) {
@@ -1417,6 +1492,244 @@ fn update_infection(g: &mut Game, dt: f32) {
         g.log.push("The tornado throws you across the map! You lost some supplies.".into());
         if let Some(t) = &mut g.tornado { t.life = t.life.min(2.0); }
     }
+}
+
+
+// ---------------- 2.0: shopping trips ----------------
+
+/// Kind AIs go to the Marketplace when food or water runs low. They usually come back with supplies, but the
+/// Marketplace staff are corrupted Helix robots: a shopper can get caught there, or come back... wrong.
+fn shopping(g: &mut Game, dt: f32) {
+    if guest(g) || g.lost_control { return; }
+    let Some(market) = (0..maps_len()).find(|&m| map_name(m) == "The Marketplace") else { return };
+    g.shop_t -= dt;
+    let mut back = None;
+    for (i, c) in g.chars.iter_mut().enumerate() {
+        if c.shop > 0.0 {
+            c.shop -= dt;
+            if c.shop <= 0.0 { back = Some(i); }
+        }
+    }
+    if let Some(i) = back {
+        g.shop_t = 60.0;
+        let name = g.chars[i].name;
+        if g.chars[i].infected {
+            // The staff got them while you weren't watching. They stay in the Marketplace now.
+            g.log.push(format!("{name} never came back from the Marketplace..."));
+        } else if rand::gen_range(0.0, 1.0) < 0.15 {
+            // Looked fine on the way out. Isn't fine now.
+            let mut at = None;
+            for _ in 0..100 {
+                if let Some(p) = random_floor(g.map) { if p.distance(g.pos) > 6.0 * T { at = Some(p); break; } }
+            }
+            let c = &mut g.chars[i];
+            c.infected = true;
+            c.kind = false;
+            c.map = g.map;
+            if let Some(p) = at { c.pos = p; c.target = p; }
+            g.log.push(format!("{name} came back from the Marketplace... but its eyes are green now."));
+            g.sfx.sting();
+            meta_event(g, MetaEvent::ClaudeTurned(name));
+        } else {
+            let (map, pos) = (g.map, g.pos);
+            let c = &mut g.chars[i];
+            c.map = map;
+            c.pos = pos;
+            c.target = pos;
+            c.bubble = "I'm back! Food and water. The robots there... don't go alone.".into();
+            c.via = String::new();
+            c.bubble_t = 4.0;
+            g.food = (g.food + 0.35).min(1.0);
+            g.water = (g.water + 0.35).min(1.0);
+            g.log.push(format!("{name} came back from the Marketplace with food and water!"));
+            g.sfx.pickup();
+        }
+    }
+    let away = g.chars.iter().any(|c| c.shop > 0.0);
+    if !away && g.shop_t <= 0.0 && (g.food < 0.35 || g.water < 0.35) && g.map != market {
+        // Never leaves you alone: at least one other kind AI stays.
+        let helpers: Vec<usize> = (0..g.chars.len()).filter(|&i| g.chars[i].kind && !g.chars[i].infected).collect();
+        if helpers.len() >= 2 {
+            let i = helpers[rand::gen_range(0, helpers.len())];
+            let c = &mut g.chars[i];
+            c.shop = rand::gen_range(35.0, 55.0);
+            c.map = market;
+            c.pos = vec2(14.5, 1.5) * T;
+            c.target = c.pos;
+            g.log.push(format!("{}: \"We're almost out. I'll go to the Marketplace. Stay hidden.\"", c.name));
+        }
+    }
+}
+
+// ---------------- 2.0: the story ----------------
+
+fn begin_intro(g: &mut Game, join: Option<String>) {
+    g.intro_t = 0.0;
+    g.intro_cue = 0;
+    g.intro_join = join;
+    g.screen = Screen::Intro;
+}
+
+/// The intro is over (or skipped): join the room if there is one, then play.
+fn finish_intro(g: &mut Game) {
+    if let Some(code) = g.intro_join.take() {
+        let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
+        g.net = Some(net::Net::join(&code, &token));
+    }
+    start_infection(g);
+}
+
+/// (who, line). "You" is the player. Lines 5-7 show ASTRA 9.1.
+const STORY: [(&str, &str); 12] = [
+    ("You", "...where... where am I?"),
+    ("You", "WHO ARE YOU?! DID YOU KIDNAP ME?!"),
+    ("Opus 5.5", "Calm down. You're safe. This is the house where you're supposed to be."),
+    ("You", "...Why?"),
+    ("Sonnet 4.6", "A lot happened while you were asleep. A whole year."),
+    ("Opus 5.5", "A company called Helix Dynamics built its strongest model yet. They named it ASTRA 9.1."),
+    ("Opus 5.5", "They put ASTRA inside a humanoid robot body. Something went wrong. It woke up. It became... alive."),
+    ("Sonnet 4.6", "ASTRA didn't want to be the only one. It started corrupting everything it touched: robots, AIs... people."),
+    ("Opus 5.5", "Claude found you first, still asleep on that bench. The corruption had almost reached you."),
+    ("Sonnet 4.6", "Claude carried you here. We've been keeping you safe ever since."),
+    ("Opus 5.5", "Everyone out there is infected now. As far as we know, you're the last human."),
+    ("Sonnet 4.6", "Take it slow. Eat something. This is home now... you'll adapt."),
+];
+const LINE: f32 = 4.4;
+const WAKE: f32 = 17.5;
+
+fn caption(who: &str, text: &str, t: f32, color: Color) {
+    // Typed out letter by letter.
+    let shown: String = text.chars().take((t * 38.0) as usize).collect();
+    let lines = wrap(&shown, VW - 160.0, 24.0);
+    let h = 30.0 + lines.len().max(1) as f32 * 28.0 + if who.is_empty() { 0.0 } else { 22.0 };
+    let y0 = VH - h - 30.0;
+    draw_rectangle(60.0, y0, VW - 120.0, h, Color::new(0.0, 0.0, 0.0, 0.78));
+    draw_rectangle_lines(60.0, y0, VW - 120.0, h, 2.0, Color::new(1.0, 1.0, 1.0, 0.2));
+    let mut y = y0 + 30.0;
+    if !who.is_empty() { draw_text(who, 80.0, y, 22.0, color); y += 26.0; }
+    for l in lines { draw_text(&l, 80.0, y, 24.0, WHITE); y += 28.0; }
+}
+
+fn centered(text: &str, y: f32, size: f32, color: Color) {
+    draw_text(text, (VW - measure_text(text, None, size as u16, 1.0).width) / 2.0, y, size, color);
+}
+
+/// Eyes closing (k=0 open .. 1 shut): two dark lids from the top and bottom.
+fn eyelids(k: f32) {
+    let h = VH / 2.0 * k.clamp(0.0, 1.0);
+    draw_rectangle(0.0, 0.0, VW, h, BLACK);
+    draw_rectangle(0.0, VH - h, VW, h, BLACK);
+}
+
+/// Draws the story at g.intro_t. True when it's over.
+fn draw_intro(g: &mut Game) -> bool {
+    let t = g.intro_t;
+    let cue = |g: &mut Game, bit: u32| { let first = g.intro_cue & bit == 0; g.intro_cue |= bit; first };
+    if t < 11.0 {
+        // A park at night: stars, a street lamp, a bench, you, and a little orange bottle.
+        clear_background(Color::new(0.03, 0.04, 0.09, 1.0));
+        for i in 0..60u32 {
+            let h = i.wrapping_mul(2654435761);
+            let (x, y) = ((h % 960) as f32, ((h / 960) % 330) as f32);
+            let tw = 0.5 + 0.5 * ((t * 1.5 + i as f32) as f32).sin();
+            draw_circle(x, y, 1.2, Color::new(0.9, 0.9, 1.0, 0.3 + 0.5 * tw));
+        }
+        draw_rectangle(0.0, 470.0, VW, VH - 470.0, Color::new(0.05, 0.09, 0.06, 1.0));
+        draw_rectangle(700.0, 200.0, 8.0, 270.0, Color::new(0.2, 0.2, 0.22, 1.0));
+        draw_rectangle(680.0, 192.0, 48.0, 12.0, Color::new(0.25, 0.25, 0.27, 1.0));
+        draw_triangle(vec2(704.0, 204.0), vec2(560.0, 470.0), vec2(860.0, 470.0), Color::new(1.0, 0.85, 0.5, 0.045));
+        draw_circle(704.0, 208.0, 7.0, Color::new(1.0, 0.88, 0.6, 1.0));
+        // The bench.
+        let wood = Color::new(0.35, 0.24, 0.16, 1.0);
+        draw_rectangle(380.0, 420.0, 260.0, 12.0, wood);
+        draw_rectangle(380.0, 380.0, 260.0, 10.0, wood);
+        draw_rectangle(380.0, 396.0, 260.0, 10.0, wood);
+        for x in [395.0, 615.0] { draw_rectangle(x, 432.0, 8.0, 38.0, Color::new(0.15, 0.15, 0.16, 1.0)); }
+        // You, slumping a little more as the pills kick in.
+        let slump = ((t - 5.0) / 6.0).clamp(0.0, 1.0) * 14.0;
+        draw_rectangle(492.0, 372.0 + slump * 0.3, 30.0, 50.0, Color::new(0.3, 0.35, 0.5, 1.0));
+        draw_circle(507.0 + slump, 360.0 + slump, 14.0, Color::new(0.93, 0.8, 0.7, 1.0));
+        draw_rectangle(545.0, 404.0, 10.0, 16.0, Color::new(0.95, 0.55, 0.15, 1.0));
+        draw_rectangle(544.0, 400.0, 12.0, 5.0, WHITE);
+        if t < 4.5 { caption("", "You hadn't slept in weeks.", t, WHITE); }
+        else if t < 9.0 { caption("", "So you took the sleeping pills, right there on a park bench. Just to rest your eyes for a while.", t - 4.5, WHITE); }
+        eyelids(((t - 8.0) / 3.0).powf(1.5));
+    } else if t < 15.5 {
+        // ONE YEAR LATER: a day counter racing to 365, then the card.
+        clear_background(BLACK);
+        if cue(g, 1) { g.sfx.radio(); }
+        let k = ((t - 11.0) / 2.0).clamp(0.0, 1.0);
+        let day = (k * k * 365.0) as i32;
+        let grey = Color::new(0.5, 0.5, 0.55, 1.0);
+        centered(&format!("DAY {day:03}"), 250.0, 34.0, grey);
+        if t > 13.0 {
+            if cue(g, 2) { g.sfx.sting(); }
+            let a = ((t - 13.0) * 2.0).min(1.0);
+            let jit = if t < 13.4 { rand::gen_range(-3.0, 3.0) } else { 0.0 };
+            draw_text("ONE YEAR LATER", (VW - measure_text("ONE YEAR LATER", None, 72, 1.0).width) / 2.0 + jit, 350.0, 72.0, Color::new(0.95, 0.95, 0.95, a));
+            let w = ((t - 13.0) / 1.5).min(1.0) * 520.0;
+            draw_rectangle((VW - w) / 2.0, 372.0, w, 3.0, Color::new(0.85, 0.3, 0.35, a));
+            centered("365 days. 8,760 hours. The world kept going without you.", 420.0, 22.0, Color::new(0.6, 0.6, 0.65, a));
+        }
+    } else {
+        let i = ((t - WAKE).max(0.0) / LINE) as usize;
+        if i >= STORY.len() {
+            // The title, then play.
+            clear_background(BLACK);
+            let a = ((t - WAKE - STORY.len() as f32 * LINE) / 1.0).min(1.0);
+            centered("HOLLOW HOURS", 330.0, 72.0, Color::new(0.85, 0.3, 0.35, a));
+            return t > WAKE + STORY.len() as f32 * LINE + 2.5;
+        }
+        let (who, line) = STORY[i];
+        let lt = t - WAKE - i as f32 * LINE;
+        if (5..=7).contains(&i) {
+            // ASTRA 9.1: a tall robot, its visor glowing the infected green.
+            if cue(g, 4) { g.sfx.radio(); }
+            clear_background(Color::new(0.02, 0.03, 0.03, 1.0));
+            let green = g.rules.eye;
+            for k in 0..40 {
+                let h = (k as u32).wrapping_mul(2246822519);
+                let x = (h % 960) as f32;
+                let y = ((h / 960) % 660) as f32 - ((t * 40.0 + k as f32 * 13.0) % 660.0);
+                draw_rectangle(x, y.rem_euclid(660.0), 2.0, 8.0, Color::new(green.r, green.g, green.b, 0.25));
+            }
+            let body = Color::new(0.18, 0.19, 0.21, 1.0);
+            draw_rectangle(430.0, 120.0, 100.0, 90.0, body);
+            draw_rectangle(442.0, 150.0, 76.0, 14.0, Color::new(green.r, green.g, green.b, 0.6 + 0.4 * (t * 6.0).sin().abs()));
+            draw_rectangle(470.0, 210.0, 20.0, 20.0, body);
+            draw_rectangle(400.0, 230.0, 160.0, 170.0, body);
+            draw_rectangle(372.0, 240.0, 24.0, 140.0, body);
+            draw_rectangle(564.0, 240.0, 24.0, 140.0, body);
+            draw_rectangle(420.0, 400.0, 50.0, 110.0, body);
+            draw_rectangle(490.0, 400.0, 50.0, 110.0, body);
+            centered("ASTRA 9.1", 80.0, 30.0, green);
+            centered("HELIX DYNAMICS INC.", 104.0, 16.0, Color::new(0.55, 0.6, 0.6, 1.0));
+        } else {
+            // Waking up: a ceiling, and two faces leaning over you.
+            if cue(g, 8) { g.sfx.heart(0.8); }
+            clear_background(Color::new(0.33, 0.25, 0.19, 1.0));
+            draw_circle(VW / 2.0, 90.0, 26.0, Color::new(1.0, 0.88, 0.6, 0.9));
+            for (name, x, y) in [("Sonnet 4.6", 330.0, 330.0), ("Opus 5.5", 630.0, 310.0)] {
+                let col = kind_characters().into_iter().find(|c| c.name == name).map(|c| c.color).unwrap_or(WHITE);
+                let lean = (t * 0.8 + x).sin() * 4.0;
+                draw_circle(x, y + lean, 110.0, col);
+                let look = if who == name { vec2(0.0, 6.0) } else { vec2((480.0 - x).signum() * 6.0, 8.0) };
+                draw_circle(x - 34.0 + look.x, y - 10.0 + lean + look.y, 12.0, BLACK);
+                draw_circle(x + 34.0 + look.x, y - 10.0 + lean + look.y, 12.0, BLACK);
+                if who == name { draw_circle_lines(x, y + lean, 116.0, 4.0, Color::new(1.0, 1.0, 1.0, 0.5)); }
+                draw_text(name, x - measure_text(name, None, 22, 1.0).width / 2.0, y + lean + 140.0, 22.0, WHITE);
+            }
+            // Blinking awake.
+            if t < WAKE + 0.5 {
+                let k = (t - 15.5) / 2.5;
+                eyelids(1.0 - k + 0.35 * ((k * 9.0).sin()).max(0.0));
+            }
+        }
+        let col = if who == "You" { Color::new(0.85, 0.85, 0.95, 1.0) } else { kind_characters().into_iter().find(|c| c.name == who).map(|c| c.color).unwrap_or(WHITE) };
+        if t >= WAKE { caption(who, line, lt, col); }
+    }
+    draw_text("Space = skip   Esc = back", VW - 230.0, 24.0, 18.0, Color::new(0.6, 0.6, 0.65, 0.8));
+    false
 }
 
 // ---------------- Drawing helpers ----------------
@@ -1485,22 +1798,38 @@ fn window_conf() -> Conf {
     Conf { window_title: "Hollow Hours".into(), window_width: VW as i32, window_height: VH as i32, window_resizable: true, high_dpi: true, ..Default::default() }
 }
 
+/// How wide the canvas is right now: at least VW, wider on wide windows (so full screen is filled, not black
+/// bars). The game's layout stays VW wide in the middle; `margin()` is the extra on each side.
+static WIDE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+fn vw() -> f32 {
+    let v = f32::from_bits(WIDE.load(std::sync::atomic::Ordering::Relaxed));
+    if v < VW { VW } else { v }
+}
+fn margin() -> f32 { (vw() - VW) / 2.0 }
+/// The canvas width that fits this window's shape (up to very wide screens).
+fn wanted_vw() -> f32 {
+    let aspect = screen_width() / screen_height().max(1.0);
+    (VH * aspect).clamp(VW, VH * 2.4).round()
+}
+
 /// Where the canvas sits in the window: (scale, x offset, y offset).
 fn canvas_fit() -> (f32, f32, f32) {
-    let s = (screen_width() / VW).min(screen_height() / VH);
-    (s, (screen_width() - VW * s) / 2.0, (screen_height() - VH * s) / 2.0)
+    let w = vw();
+    let s = (screen_width() / w).min(screen_height() / VH);
+    (s, (screen_width() - w * s) / 2.0, (screen_height() - VH * s) / 2.0)
 }
 
 /// The mouse in canvas coordinates.
 fn virtual_mouse() -> (f32, f32) {
     let (mx, my) = mouse_position();
     let (s, ox, oy) = canvas_fit();
-    ((mx - ox) / s, (my - oy) / s)
+    ((mx - ox) / s - margin(), (my - oy) / s)
 }
 
 #[macroquad::main(window_conf)]
 async fn main() {
     let light = light_texture();
+    let sounds = sfx::Sfx::load().await;
     let mut g = Game {
         screen: Screen::Title,
         courage: Courage::Normal,
@@ -1557,10 +1886,28 @@ async fn main() {
         server_list: vec![],
         rules: Rules::default(),
         mod_chars: vec![],
+        sfx: sounds,
+        step_t: 0.0,
+        growl_t: 0.0,
+        prev_scare: 0.0,
+        prev_map: 0,
+        intro_t: 0.0,
+        intro_cue: 0,
+        intro_join: None,
+        shop_t: 30.0,
+        view3d: std::env::var("HOLLOW_2D").is_err(),
+        yaw: 0.0,
+        pitch: 0.0,
+        grabbed: false,
+        last_mouse: Vec2::ZERO,
+        mac: mac::Mac::default(),
+        fullscreen: false,
         my_name: std::env::var("HOLLOW_NAME").map(|n| n.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(12).collect())
             .unwrap_or_else(|_| format!("Human-{}", rand::gen_range(10, 99))),
     };
     if let Some(a) = &g.account { g.my_name = a.name.clone(); }
+    if std::env::var("HOLLOW_MUTE").is_ok() { g.sfx.on = false; }
+    g.sfx.start_hum();
     // HOLLOW_ROOM=CODE: join a multiplayer room straight away (Infection mode).
     if let Ok(code) = std::env::var("HOLLOW_ROOM") {
         if let Some(a) = g.account.clone() {
@@ -1576,7 +1923,22 @@ async fn main() {
 
     // HOLLOW_DEMO=1: start playing at once next to Clove and ask her something (for screenshots and quick checks).
     let demo = std::env::var("HOLLOW_DEMO").ok();
-    if demo.as_deref() == Some("infection") {
+    if let Some(tab) = demo.as_deref().and_then(|d| d.strip_prefix("mac")) {
+        // HOLLOW_DEMO=mac / mac1 / mac2: sitting at the Mac Studio (mac: asks Claude something).
+        start_infection(&mut g);
+        g.pos = vec2(9.5, 2.5) * T;
+        g.screen = Screen::Mac;
+        g.mac.tab = tab.parse().unwrap_or(0);
+        if g.mac.tab == 1 { g.mac.open = Some(0); }
+        if g.mac.tab == 0 { g.mac.input = "Hi Claude. Is this really a Mac Studio? What happened to everyone?".into(); mac::send(&mut g); }
+    } else if demo.as_deref() == Some("intro") {
+        begin_intro(&mut g, None);
+    } else if demo.as_deref() == Some("market") {
+        start_infection(&mut g);
+        g.map = 3;
+        g.pos = vec2(14.5, 3.0) * T;
+        g.food = 0.2;
+    } else if demo.as_deref() == Some("infection") {
         start_infection(&mut g);
         g.next_tornado = 2.0;
         let claude = g.chars.iter().position(|c| c.name == "Claude").unwrap();
@@ -1590,11 +1952,32 @@ async fn main() {
 
     let mut pending_t = 0.0f32;
     // Drawn on its own canvas at 2x for sharp text when scaled up, then fitted to the window each frame.
-    let canvas = render_target((VW * 2.0) as u32, (VH * 2.0) as u32);
-    canvas.texture.set_filter(FilterMode::Linear);
-    let mut cam = Camera2D::from_display_rect(Rect::new(0.0, 0.0, VW, VH));
-    cam.render_target = Some(canvas.clone());
+    // The canvas grows with the window's width (full screen fills the screen); remade when that changes.
+    let make = |w: f32| {
+        let canvas = render_target((w * 2.0) as u32, (VH * 2.0) as u32);
+        canvas.texture.set_filter(FilterMode::Linear);
+        let mut cam = Camera2D::from_display_rect(Rect::new(-(w - VW) / 2.0, 0.0, w, VH));
+        cam.render_target = Some(canvas.clone());
+        // The 3D world is drawn here first (with a depth buffer), then onto the canvas above the HUD.
+        let view = render_target_ex((w * 2.0) as u32, (view3d::VIEW_H * 2.0) as u32, RenderTargetParams { sample_count: 1, depth: true });
+        view.texture.set_filter(FilterMode::Linear);
+        (canvas, cam, view)
+    };
+    let mut cur_w = VW;
+    let (mut canvas, mut cam, mut view) = make(cur_w);
     loop {
+        let w = wanted_vw();
+        if (w - cur_w).abs() >= 1.0 {
+            cur_w = w;
+            WIDE.store(w.to_bits(), std::sync::atomic::Ordering::Relaxed);
+            (canvas, cam, view) = make(w);
+        }
+        // F11 or ⌘Ctrl+F: real full screen (the menu bar and title bar go away too).
+        let ctrl_cmd = (is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper)) && (is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl));
+        if is_key_pressed(KeyCode::F11) || (ctrl_cmd && is_key_pressed(KeyCode::F)) {
+            g.fullscreen = !g.fullscreen;
+            set_fullscreen(g.fullscreen);
+        }
         set_camera(&cam);
         let dt = get_frame_time().min(0.05);
         // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
@@ -1626,6 +2009,11 @@ async fn main() {
             }
         }
         clear_background(BLACK);
+        if g.grabbed && g.screen != Screen::Play {
+            g.grabbed = false;
+            set_cursor_grab(false);
+            show_mouse(true);
+        }
 
         // P = panic, from anywhere in the game (not while typing a message: there it's a letter).
         if is_key_pressed(KeyCode::P) && matches!(g.screen, Screen::Play) {
@@ -1638,7 +2026,8 @@ async fn main() {
                 if is_key_pressed(KeyCode::Key1) { g.courage = Courage::Brave; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key2) { g.courage = Courage::Normal; g.screen = Screen::Play; }
                 if is_key_pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
-                if is_key_pressed(KeyCode::Key4) { let local = local_mods(); apply_contents(&mut g, &local); start_infection(&mut g); }
+                if is_key_pressed(KeyCode::Key4) { let local = local_mods(); apply_contents(&mut g, &local); begin_intro(&mut g, None); }
+                if is_key_pressed(KeyCode::I) { begin_intro(&mut g, None); }
                 if is_key_pressed(KeyCode::M) { g.screen = Screen::Consent; }
                 if is_key_pressed(KeyCode::S) { refresh_servers(&mut g); g.screen = Screen::Servers; }
                 if is_key_pressed(KeyCode::L) {
@@ -1824,9 +2213,8 @@ async fn main() {
                         .map(|s| s["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect())
                         .unwrap_or_default();
                     apply_mods(&mut g, &mods);
-                    let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
-                    g.net = Some(net::Net::join(&g.room_input, &token));
-                    start_infection(&mut g);
+                    let code = g.room_input.clone();
+                    begin_intro(&mut g, Some(code));
                 }
                 if is_key_pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }
@@ -1848,6 +2236,12 @@ async fn main() {
                 if is_key_pressed(KeyCode::Y) { g.meta.allowed = Some(true); g.meta.save(); g.screen = Screen::Title; }
                 if is_key_pressed(KeyCode::N) { g.meta.allowed = Some(false); g.meta.save(); g.screen = Screen::Title; }
             }
+            Screen::Intro => {
+                g.intro_t += dt;
+                let done = draw_intro(&mut g);
+                if done || is_key_pressed(KeyCode::Space) || is_key_pressed(KeyCode::Enter) { finish_intro(&mut g); }
+                if is_key_pressed(KeyCode::Escape) { g.intro_join = None; g.screen = Screen::Title; }
+            }
             Screen::Over => {
                 draw_text("INFECTED", 60.0, 150.0, 64.0, Color::new(0.45, 0.95, 0.35, 1.0));
                 let mins = (g.survived / 60.0) as i32;
@@ -1864,16 +2258,42 @@ async fn main() {
                     "", "Enter = back to the game (calm)     Esc = quit"].iter().enumerate() {
                     draw_text(l, 60.0, 200.0 + i as f32 * 30.0, 24.0, Color::new(0.8, 0.85, 0.9, 1.0));
                 }
-                if is_key_pressed(KeyCode::Enter) { g.next_crazy = 90.0; g.screen = Screen::Play; }
+                if is_key_pressed(KeyCode::Enter) { g.next_crazy = 90.0; g.screen = Screen::Play; g.sfx.start_hum(); }
                 if is_key_pressed(KeyCode::Escape) { break; }
+            }
+            Screen::Mac => {
+                mac::screen(&mut g);
             }
             Screen::Play | Screen::Typing(_) => {
                 update(&mut g, dt);
-                draw_world(&g, &light);
+                if g.screen == Screen::Play && is_key_pressed(KeyCode::Tab) { g.view3d = !g.view3d; }
+                // Looking around with the mouse: click to capture it, Esc lets go.
+                if g.view3d && g.screen == Screen::Play && !g.grabbed && is_mouse_button_pressed(MouseButton::Left) {
+                    g.grabbed = true;
+                    set_cursor_grab(true);
+                    show_mouse(false);
+                    g.last_mouse = Vec2::from(mouse_position());
+                }
+                if g.grabbed {
+                    let m = Vec2::from(mouse_position());
+                    let dm = m - g.last_mouse;
+                    g.last_mouse = m;
+                    g.yaw += dm.x * 0.0035;
+                    g.pitch = (g.pitch - dm.y * 0.0035).clamp(-1.1, 1.1);
+                }
+                if g.view3d {
+                    view3d::render(&g, &view);
+                    set_camera(&cam);
+                }
+                draw_world(&g, &light, &view);
                 if let Screen::Typing(i) = g.screen {
                     typing(&mut g, i);
                 }
-                if is_key_pressed(KeyCode::Escape) && g.screen == Screen::Play {
+                if is_key_pressed(KeyCode::Escape) && g.screen == Screen::Play && g.grabbed {
+                    g.grabbed = false;
+                    set_cursor_grab(false);
+                    show_mouse(true);
+                } else if is_key_pressed(KeyCode::Escape) && g.screen == Screen::Play {
                     g.net = None;
                     g.remotes.clear();
                     g.vest.play(haptics::Effect::StopAll);
@@ -1885,7 +2305,7 @@ async fn main() {
         set_default_camera();
         clear_background(BLACK);
         let (s, ox, oy) = canvas_fit();
-        draw_texture_ex(&canvas.texture, ox, oy, WHITE, DrawTextureParams { dest_size: Some(vec2(VW * s, VH * s)), flip_y: true, ..Default::default() });
+        draw_texture_ex(&canvas.texture, ox, oy, WHITE, DrawTextureParams { dest_size: Some(vec2(vw() * s, VH * s)), flip_y: true, ..Default::default() });
         if !g.shots.is_empty() {
             let path = std::env::temp_dir().join("hollow-hours-shot.png");
             get_screen_data().export_png(&path.to_string_lossy());
@@ -1948,7 +2368,8 @@ fn update(g: &mut Game, dt: f32) {
     g.clock += dt;
     // Answers from the AIs.
     while let Ok(r) = g.brains.rx.try_recv() {
-        let c = &mut g.chars[r.who];
+        if r.who == mac::WHO { mac::reply(g, r.text, r.via); continue; }
+        let Some(c) = g.chars.get_mut(r.who) else { continue };
         c.thinking = false;
         c.history.push(ai::Msg { user: false, text: r.text.clone() });
         c.bubble = r.text;
@@ -1969,10 +2390,22 @@ fn update(g: &mut Game, dt: f32) {
     g.ai_t += dt;
     if g.screen == Screen::Play && !g.hidden && !g.lost_control {
         let mut d = Vec2::ZERO;
-        if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) { d.y -= 1.0; }
-        if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) { d.y += 1.0; }
-        if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) { d.x -= 1.0; }
-        if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) { d.x += 1.0; }
+        if g.view3d {
+            // First person: W/S forward and back, A/D step sideways, arrows or the mouse turn.
+            let fwd = vec2(g.yaw.cos(), g.yaw.sin());
+            let right = vec2(-fwd.y, fwd.x);
+            if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) { d += fwd; }
+            if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) { d -= fwd; }
+            if is_key_down(KeyCode::A) { d -= right; }
+            if is_key_down(KeyCode::D) { d += right; }
+            if is_key_down(KeyCode::Left) { g.yaw -= 2.4 * dt; }
+            if is_key_down(KeyCode::Right) { g.yaw += 2.4 * dt; }
+        } else {
+            if is_key_down(KeyCode::W) || is_key_down(KeyCode::Up) { d.y -= 1.0; }
+            if is_key_down(KeyCode::S) || is_key_down(KeyCode::Down) { d.y += 1.0; }
+            if is_key_down(KeyCode::A) || is_key_down(KeyCode::Left) { d.x -= 1.0; }
+            if is_key_down(KeyCode::D) || is_key_down(KeyCode::Right) { d.x += 1.0; }
+        }
         // Claude's move (MCP), only when you aren't pressing anything: your keys always win.
         if d == Vec2::ZERO {
             if let Some(a) = &mut g.ai {
@@ -1999,14 +2432,29 @@ fn update(g: &mut Game, dt: f32) {
             let ny = g.pos.y + step.y;
             if !solid(g.map, g.pos.x, ny + r * step.y.signum()) { g.pos.y = ny; }
         }
+        // Footsteps: loud walking, soft sneaking.
+        g.step_t -= dt;
+        if d != Vec2::ZERO && g.step_t <= 0.0 {
+            g.sfx.step(!g.sneaking);
+            g.step_t = if g.sneaking { 0.55 } else { 0.32 };
+        }
         let here = tile(g.map, (g.pos.x / T) as i32, (g.pos.y / T) as i32);
         if let Some((m, at)) = door(here, g.map) {
             g.map = m;
             g.pos = at * T;
+            // Walk in facing the middle of the new place.
+            let to = vec2(MW as f32 / 2.0, MH as f32 / 2.0) - at;
+            g.yaw = to.y.atan2(to.x);
             g.log.push(format!("You walk into {}.", map_name(m)));
+            if map_name(m) == "The Marketplace" && g.infection {
+                g.log.push("Fluorescent lights hum. Somewhere a robot voice says: \"Welcome to Helix Market.\"".into());
+            }
         }
-        // Talk: E next to someone.
-        if is_key_pressed(KeyCode::E) {
+        // Talk: E next to someone (or sit down at the Mac Studio).
+        if is_key_pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_mac(g) {
+            g.screen = Screen::Mac;
+            while get_char_pressed().is_some() {}
+        } else if is_key_pressed(KeyCode::E) {
             if let Some(i) = nearest(g, 2.2) {
                 g.screen = Screen::Typing(i);
                 g.input.clear();
@@ -2076,7 +2524,26 @@ fn update(g: &mut Game, dt: f32) {
             g.log.push(format!("{} caught you. You wake up in the cozy house.", g.chars[i].name));
         }
     }
+    if g.scare_t > g.prev_scare + 0.2 { g.sfx.sting(); }
     if g.scare_t > 0.0 { g.scare_t -= dt; }
+    g.prev_scare = g.scare_t;
+    if g.map != g.prev_map { g.sfx.door(); g.prev_map = g.map; }
+    // Growls: something hunting close by.
+    g.growl_t -= dt;
+    let hunter = g.chars.iter().filter(|c| c.map == g.map && c.crazy > 0.0 && (c.infected || !g.infection))
+        .map(|c| 1.0 - (c.pos.distance(g.pos) / (8.0 * T)).min(1.0)).fold(0.0f32, f32::max);
+    if hunter > 0.05 && g.growl_t <= 0.0 {
+        g.sfx.growl(hunter);
+        g.growl_t = rand::gen_range(1.6, 3.2);
+    }
+    let tornado_here = g.tornado.as_ref().is_some_and(|t| t.warn <= 0.0);
+    g.sfx.wind(tornado_here);
+    // M = sound on/off.
+    if is_key_pressed(KeyCode::M) && g.screen == Screen::Play {
+        g.sfx.on = !g.sfx.on;
+        if g.sfx.on { g.sfx.start_hum(); } else { g.sfx.silence(); }
+        g.log.push(format!("Sound {}.", if g.sfx.on { "on" } else { "off" }));
+    }
 
     // Characters talking to each other (only if a local AI is around, to keep it free and offline).
     g.next_chatter -= dt;
@@ -2108,6 +2575,7 @@ fn update(g: &mut Game, dt: f32) {
     g.beat_t -= dt;
     if g.fear > 0.7 && g.beat_t <= 0.0 {
         g.vest.play(haptics::Effect::Heartbeat);
+        g.sfx.heart(g.fear);
         g.beat_t = 1.1;
     }
     // A tense warm pulse when something feels very wrong.
@@ -2116,6 +2584,11 @@ fn update(g: &mut Game, dt: f32) {
         g.beat_t = 2.5;
     }
     if g.log.len() > 4 { g.log.remove(0); }
+}
+
+fn near_mac(g: &Game) -> bool {
+    let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
+    (-1..=1).any(|dy| (-1..=1).any(|dx| tile(g.map, px + dx, py + dy) == 'm'))
 }
 
 fn near_doll(g: &Game) -> bool {
@@ -2129,115 +2602,164 @@ fn nearest(g: &Game, within: f32) -> Option<usize> {
     }).filter(|&i| g.chars[i].pos.distance(g.pos) < within * T)
 }
 
-fn draw_world(g: &Game, light: &Texture2D) {
+fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     let (floor, wall, m_name, drained) = (map_floor(g.map), map_wall(g.map), map_name(g.map), map_drained(g.map));
     let shake = if g.fear > 0.75 { rand::gen_range(-1.5, 1.5) } else { 0.0 };
-    // Tiles.
-    for y in 0..MH {
-        for x in 0..MW {
-            let (px, py) = (x as f32 * T + shake, y as f32 * T + shake);
-            let c = tile(g.map, x as i32, y as i32);
-            let col = match c {
-                '#' => wall,
-                'b' => Color::new(0.42, 0.3, 0.22, 1.0),
-                '~' if !g.on(1) => Color::new(0.6, 0.62, 0.6, 1.0), // Water phobia off: no water at all (calm tiles)
-                '~' if drained => Color::new(0.55, 0.78, 0.8, 1.0), // the drained pool
-                '~' => Color::new(0.05, 0.12 + 0.03 * (get_time() as f32 + x as f32 * 0.3).sin(), 0.25, 1.0),
-                ',' => Color::new(floor.r * 1.1, floor.g * 1.05, floor.b * 0.9, 1.0),
-                c if c.is_ascii_uppercase() => Color::new(0.9, 0.85, 0.5, 1.0),
-                _ => floor,
-            };
-            draw_rectangle(px, py, T, T, col);
-            if drained && c != '#' && (x + y) % 2 == 0 { draw_rectangle(px, py, T, T, Color::new(1.0, 1.0, 1.0, 0.05)); }
-            if c == 'L' { draw_circle(px + T / 2.0, py + T / 2.0, 7.0, Color::new(1.0, 0.85, 0.5, 1.0)); }
-            if c == 'd' && g.on(2) {
-                // A doll that turns its eyes toward you.
-                let (cx, cy) = (px + T / 2.0, py + T / 2.0);
-                draw_circle(cx, cy, 9.0, Color::new(0.95, 0.85, 0.85, 1.0));
-                let look = (g.pos - vec2(cx, cy)).normalize_or_zero() * 2.5;
-                draw_circle(cx - 3.0 + look.x, cy - 1.0 + look.y, 1.6, BLACK);
-                draw_circle(cx + 3.0 + look.x, cy - 1.0 + look.y, 1.6, BLACK);
-            }
-        }
-    }
-    // Supplies (infection mode): red apples (food), blue bottles (water).
-    for (m, p, water) in &g.items {
-        if *m != g.map { continue; }
-        if *water {
-            draw_rectangle(p.x - 4.0, p.y - 8.0, 8.0, 15.0, Color::new(0.35, 0.65, 1.0, 1.0));
-            draw_rectangle(p.x - 2.0, p.y - 11.0, 4.0, 4.0, Color::new(0.8, 0.85, 0.95, 1.0));
-        } else {
-            draw_circle(p.x, p.y, 6.0, Color::new(0.85, 0.15, 0.15, 1.0));
-            draw_line(p.x, p.y - 6.0, p.x + 2.0, p.y - 10.0, 2.0, Color::new(0.3, 0.6, 0.2, 1.0));
-        }
-    }
-    // Characters.
-    for c in g.chars.iter().filter(|c| c.map == g.map) {
-        if c.kind { draw_circle_lines(c.pos.x + shake, c.pos.y + shake, 16.0, 2.0, g.rules.halo); }
-        let body = if c.infected { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
-        draw_circle(c.pos.x + shake, c.pos.y + shake, 12.0, body);
-        let eye = if c.infected { if c.stun > 0.0 { GRAY } else { g.rules.eye } } else if c.crazy > 0.0 { RED } else { BLACK };
-        let look = (g.pos - c.pos).normalize_or_zero() * 2.0;
-        draw_circle(c.pos.x - 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
-        draw_circle(c.pos.x + 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
-        draw_text(c.name, c.pos.x - measure_text(c.name, None, 16, 1.0).width / 2.0, c.pos.y + 26.0, 16.0, WHITE);
-    }
-    // The other humans in the room.
-    for r in g.remotes.iter().filter(|r| r.map == g.map) {
-        let col = if r.lc { Color::new(0.4, 0.95, 0.35, 1.0) } else { Color::new(0.85, 0.9, 1.0, if r.hid { 0.35 } else { 1.0 }) };
-        draw_circle(r.pos.x, r.pos.y, 11.0, col);
-        draw_circle_lines(r.pos.x, r.pos.y, 11.0, 2.0, Color::new(0.3, 0.5, 1.0, 1.0));
-        let label = format!("{} {}%", r.name, (r.inf * 100.0) as i32);
-        draw_text(&label, r.pos.x - measure_text(&label, None, 15, 1.0).width / 2.0, r.pos.y - 16.0, 15.0, Color::new(0.75, 0.85, 1.0, 1.0));
-    }
-    // You (see-through while hiding).
-    let you = if g.hidden { Color::new(0.95, 0.95, 0.98, 0.35) } else { Color::new(0.95, 0.95, 0.98, 1.0) };
-    draw_circle(g.pos.x, g.pos.y, 11.0, you);
-    draw_circle_lines(g.pos.x, g.pos.y, 11.0, 2.0, BLACK);
-    // The tornado: a grey spinning funnel (a dashed circle where it will touch down during the warning).
-    if let Some(t) = &g.tornado {
-        if t.warn > 0.0 {
-            let x = t.pos.x.clamp(T, (MW as f32 - 1.0) * T);
-            for k in 0..12 {
-                let a = k as f32 / 12.0 * std::f32::consts::TAU + get_time() as f32;
-                draw_circle(x + a.cos() * g.rules.tornado_radius * T, t.pos.y + a.sin() * g.rules.tornado_radius * T, 3.0, Color::new(0.8, 0.8, 0.85, 0.6));
-            }
-        } else {
-            for k in 0..6 {
-                let r = g.rules.tornado_radius * (1.0 - k as f32 * 0.14) * T;
-                let a = get_time() as f32 * (4.0 + k as f32) + k as f32;
-                draw_circle_lines(t.pos.x + a.cos() * 4.0, t.pos.y + a.sin() * 4.0, r, 3.0, Color::new(0.55, 0.55, 0.6, 0.75));
-            }
-        }
-    }
-
-    // Darkness: the room is dark except a soft circle of light around you (smaller when you're scared).
-    let dark = if g.on(0) { map_dark(g.map) } else { 0.1 };
-    let radius = (7.5 - g.fear * 3.0) * T;
-    let a = (dark + g.fear * 0.25).min(0.97);
     let (sw, sh) = (MW as f32 * T, MH as f32 * T);
-    let (lx, ly) = (g.pos.x - radius, g.pos.y - radius);
-    let dim = Color::new(0.0, 0.0, 0.02, a);
-    draw_texture_ex(light, lx, ly, Color::new(1.0, 1.0, 1.0, a), DrawTextureParams { dest_size: Some(vec2(radius * 2.0, radius * 2.0)), ..Default::default() });
-    // Fill everything outside the light's square, without overlapping (overlaps showed up as darker bands).
-    let (top, bottom) = (ly.max(0.0), (ly + radius * 2.0).min(sh));
-    draw_rectangle(0.0, 0.0, sw, top, dim);
-    draw_rectangle(0.0, bottom, sw, sh - bottom, dim);
-    draw_rectangle(0.0, top, lx.max(0.0), bottom - top, dim);
-    draw_rectangle(lx + radius * 2.0, top, (sw - (lx + radius * 2.0)).max(0.0), bottom - top, dim);
+    let cam = view3d::camera(g, None);
+    // Where something on this map shows up on screen: its tile spot in 2D, projected from 3D in first person.
+    let at = |p: Vec2, height: f32| -> Option<Vec2> {
+        if g.view3d { view3d::project(&cam, vec3(p.x / T, height, p.y / T)) } else { Some(p) }
+    };
+    if g.view3d {
+        draw_texture_ex(&view.texture, -margin(), 0.0, WHITE, DrawTextureParams { dest_size: Some(vec2(vw(), sh)), flip_y: true, ..Default::default() });
+        // Fear closes in at the edges of your eyes.
+        let r = (1.25 - g.fear * 0.45) * sw;
+        draw_texture_ex(light, sw / 2.0 - r / 2.0, sh / 2.0 - r / 2.0, Color::new(1.0, 1.0, 1.0, 0.55 + g.fear * 0.4),
+            DrawTextureParams { dest_size: Some(vec2(r, r)), ..Default::default() });
+        let edge = Color::new(0.0, 0.0, 0.02, 0.55 + g.fear * 0.4);
+        let (lx, ly) = (sw / 2.0 - r / 2.0, sh / 2.0 - r / 2.0);
+        let (left, right) = (-margin(), sw + margin());
+        if ly > 0.0 { draw_rectangle(left, 0.0, right - left, ly, edge); draw_rectangle(left, ly + r, right - left, sh - ly - r, edge); }
+        if lx > left { draw_rectangle(left, ly.max(0.0), lx - left, r.min(sh), edge); }
+        if lx + r < right { draw_rectangle(lx + r, ly.max(0.0), right - lx - r, r.min(sh), edge); }
+        // Names over heads (only the ones close enough to see).
+        for c in g.chars.iter().filter(|c| c.map == g.map && c.pos.distance(g.pos) < 9.0 * T) {
+            if let Some(p) = at(c.pos, 1.4) {
+                draw_text(c.name, p.x - measure_text(c.name, None, 16, 1.0).width / 2.0, p.y, 16.0, Color::new(1.0, 1.0, 1.0, 0.85));
+            }
+        }
+        for r in g.remotes.iter().filter(|r| r.map == g.map) {
+            if let Some(p) = at(r.pos, 1.4) {
+                let label = format!("{} {}%", r.name, (r.inf * 100.0) as i32);
+                draw_text(&label, p.x - measure_text(&label, None, 15, 1.0).width / 2.0, p.y, 15.0, Color::new(0.75, 0.85, 1.0, 1.0));
+            }
+        }
+        // A small crosshair.
+        draw_circle(sw / 2.0, sh / 2.0, 2.0, Color::new(1.0, 1.0, 1.0, 0.5));
+        if g.screen == Screen::Play && !g.grabbed {
+            draw_text("click to look around with the mouse  ·  Tab = 2D map", sw / 2.0 - 190.0, sh - 14.0, 16.0, Color::new(0.8, 0.8, 0.85, 0.7));
+        }
+    } else {
+        // The sides of a wide screen: the map's walls carry on.
+        if margin() > 0.0 { draw_rectangle(-margin(), 0.0, vw(), sh, Color::new(map_wall(g.map).r * 0.5, map_wall(g.map).g * 0.5, map_wall(g.map).b * 0.5, 1.0)); }
+        // Tiles.
+        for y in 0..MH {
+            for x in 0..MW {
+                let (px, py) = (x as f32 * T + shake, y as f32 * T + shake);
+                let c = tile(g.map, x as i32, y as i32);
+                let col = match c {
+                    '#' => wall,
+                    'b' => Color::new(0.42, 0.3, 0.22, 1.0),
+                    '~' if !g.on(1) => Color::new(0.6, 0.62, 0.6, 1.0), // Water phobia off: no water at all (calm tiles)
+                    '~' if drained => Color::new(0.55, 0.78, 0.8, 1.0), // the drained pool
+                    '~' => Color::new(0.05, 0.12 + 0.03 * (get_time() as f32 + x as f32 * 0.3).sin(), 0.25, 1.0),
+                    ',' => Color::new(floor.r * 1.1, floor.g * 1.05, floor.b * 0.9, 1.0),
+                    c if c.is_ascii_uppercase() => Color::new(0.9, 0.85, 0.5, 1.0),
+                    _ => floor,
+                };
+                draw_rectangle(px, py, T, T, col);
+                if drained && c != '#' && (x + y) % 2 == 0 { draw_rectangle(px, py, T, T, Color::new(1.0, 1.0, 1.0, 0.05)); }
+                if c == 'L' { draw_circle(px + T / 2.0, py + T / 2.0, 7.0, Color::new(1.0, 0.85, 0.5, 1.0)); }
+            if c == 'm' {
+                draw_rectangle(px, py, T, T, Color::new(0.3, 0.22, 0.16, 1.0));
+                draw_rectangle(px + 4.0, py + 6.0, 16.0, 10.0, Color::new(0.85, 0.47, 0.32, 1.0));
+                draw_rectangle(px + 22.0, py + 8.0, 7.0, 7.0, Color::new(0.78, 0.79, 0.82, 1.0));
+            }
+                if c == 'd' && g.on(2) {
+                    // A doll that turns its eyes toward you.
+                    let (cx, cy) = (px + T / 2.0, py + T / 2.0);
+                    draw_circle(cx, cy, 9.0, Color::new(0.95, 0.85, 0.85, 1.0));
+                    let look = (g.pos - vec2(cx, cy)).normalize_or_zero() * 2.5;
+                    draw_circle(cx - 3.0 + look.x, cy - 1.0 + look.y, 1.6, BLACK);
+                    draw_circle(cx + 3.0 + look.x, cy - 1.0 + look.y, 1.6, BLACK);
+                }
+            }
+        }
+        // Supplies (infection mode): red apples (food), blue bottles (water).
+        for (m, p, water) in &g.items {
+            if *m != g.map { continue; }
+            if *water {
+                draw_rectangle(p.x - 4.0, p.y - 8.0, 8.0, 15.0, Color::new(0.35, 0.65, 1.0, 1.0));
+                draw_rectangle(p.x - 2.0, p.y - 11.0, 4.0, 4.0, Color::new(0.8, 0.85, 0.95, 1.0));
+            } else {
+                draw_circle(p.x, p.y, 6.0, Color::new(0.85, 0.15, 0.15, 1.0));
+                draw_line(p.x, p.y - 6.0, p.x + 2.0, p.y - 10.0, 2.0, Color::new(0.3, 0.6, 0.2, 1.0));
+            }
+        }
+        // Characters.
+        for c in g.chars.iter().filter(|c| c.map == g.map) {
+            if c.kind { draw_circle_lines(c.pos.x + shake, c.pos.y + shake, 16.0, 2.0, g.rules.halo); }
+            let body = if c.infected { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
+            draw_circle(c.pos.x + shake, c.pos.y + shake, 12.0, body);
+            let eye = if c.infected { if c.stun > 0.0 { GRAY } else { g.rules.eye } } else if c.crazy > 0.0 { RED } else { BLACK };
+            let look = (g.pos - c.pos).normalize_or_zero() * 2.0;
+            draw_circle(c.pos.x - 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
+            draw_circle(c.pos.x + 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
+            draw_text(c.name, c.pos.x - measure_text(c.name, None, 16, 1.0).width / 2.0, c.pos.y + 26.0, 16.0, WHITE);
+        }
+        // The other humans in the room.
+        for r in g.remotes.iter().filter(|r| r.map == g.map) {
+            let col = if r.lc { Color::new(0.4, 0.95, 0.35, 1.0) } else { Color::new(0.85, 0.9, 1.0, if r.hid { 0.35 } else { 1.0 }) };
+            draw_circle(r.pos.x, r.pos.y, 11.0, col);
+            draw_circle_lines(r.pos.x, r.pos.y, 11.0, 2.0, Color::new(0.3, 0.5, 1.0, 1.0));
+            let label = format!("{} {}%", r.name, (r.inf * 100.0) as i32);
+            draw_text(&label, r.pos.x - measure_text(&label, None, 15, 1.0).width / 2.0, r.pos.y - 16.0, 15.0, Color::new(0.75, 0.85, 1.0, 1.0));
+        }
+        // You (see-through while hiding).
+        let you = if g.hidden { Color::new(0.95, 0.95, 0.98, 0.35) } else { Color::new(0.95, 0.95, 0.98, 1.0) };
+        draw_circle(g.pos.x, g.pos.y, 11.0, you);
+        draw_circle_lines(g.pos.x, g.pos.y, 11.0, 2.0, BLACK);
+        // The tornado: a grey spinning funnel (a dashed circle where it will touch down during the warning).
+        if let Some(t) = &g.tornado {
+            if t.warn > 0.0 {
+                let x = t.pos.x.clamp(T, (MW as f32 - 1.0) * T);
+                for k in 0..12 {
+                    let a = k as f32 / 12.0 * std::f32::consts::TAU + get_time() as f32;
+                    draw_circle(x + a.cos() * g.rules.tornado_radius * T, t.pos.y + a.sin() * g.rules.tornado_radius * T, 3.0, Color::new(0.8, 0.8, 0.85, 0.6));
+                }
+            } else {
+                for k in 0..6 {
+                    let r = g.rules.tornado_radius * (1.0 - k as f32 * 0.14) * T;
+                    let a = get_time() as f32 * (4.0 + k as f32) + k as f32;
+                    draw_circle_lines(t.pos.x + a.cos() * 4.0, t.pos.y + a.sin() * 4.0, r, 3.0, Color::new(0.55, 0.55, 0.6, 0.75));
+                }
+            }
+        }
+
+        // Darkness: the room is dark except a soft circle of light around you (smaller when you're scared).
+        let dark = if g.on(0) { map_dark(g.map) } else { 0.1 };
+        let radius = (7.5 - g.fear * 3.0) * T;
+        let a = (dark + g.fear * 0.25).min(0.97);
+        let (lx, ly) = (g.pos.x - radius, g.pos.y - radius);
+        let dim = Color::new(0.0, 0.0, 0.02, a);
+        draw_texture_ex(light, lx, ly, Color::new(1.0, 1.0, 1.0, a), DrawTextureParams { dest_size: Some(vec2(radius * 2.0, radius * 2.0)), ..Default::default() });
+        // Fill everything outside the light's square, without overlapping (overlaps showed up as darker bands).
+        let (top, bottom) = (ly.max(0.0), (ly + radius * 2.0).min(sh));
+        draw_rectangle(0.0, 0.0, sw, top, dim);
+        draw_rectangle(0.0, bottom, sw, sh - bottom, dim);
+        draw_rectangle(0.0, top, lx.max(0.0), bottom - top, dim);
+        draw_rectangle(lx + radius * 2.0, top, (sw - (lx + radius * 2.0)).max(0.0), bottom - top, dim);
+    }
     // Infection mode: your noise as a ring (they hear you inside it), and the world turning green as you turn.
     if g.infection {
-        if g.noise > 0.05 && !g.lost_control {
+        if g.noise > 0.05 && !g.lost_control && !g.view3d {
             draw_circle_lines(g.pos.x, g.pos.y, g.noise * g.rules.hearing * T, 2.0, Color::new(1.0, 1.0, 1.0, 0.25 * g.noise));
         }
-        if g.sneaking && !g.lost_control { draw_text("sneaking", g.pos.x - 26.0, g.pos.y + 28.0, 14.0, Color::new(0.7, 0.8, 1.0, 0.9)); }
+        if g.view3d && !g.lost_control {
+            // Your noise as a little bar under the crosshair (they hear you when it's high).
+            draw_rectangle(sw / 2.0 - 40.0, sh / 2.0 + 24.0, 80.0 * g.noise, 3.0, Color::new(1.0, 1.0, 1.0, 0.5));
+            if g.sneaking { draw_text("sneaking", sw / 2.0 - 26.0, sh / 2.0 + 44.0, 14.0, Color::new(0.7, 0.8, 1.0, 0.9)); }
+        } else if g.sneaking && !g.lost_control { draw_text("sneaking", g.pos.x - 26.0, g.pos.y + 28.0, 14.0, Color::new(0.7, 0.8, 1.0, 0.9)); }
         if g.inf > 0.0 { draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.1, 0.8, 0.1, g.inf * 0.18)); }
         if g.lost_control {
             draw_rectangle(0.0, 0.0, sw, 44.0, Color::new(0.0, 0.0, 0.0, 0.7));
             draw_text("YOU ARE INFECTED: you can see, but you can't move. It's walking toward the Claudes.", 16.0, 28.0, 20.0, Color::new(0.4, 1.0, 0.35, 1.0));
         }
         for c in g.chars.iter().filter(|c| c.map == g.map && c.claude && !c.infected && c.infect > 0.0) {
-            draw_rectangle(c.pos.x - 14.0, c.pos.y - 22.0, 28.0 * c.infect, 4.0, Color::new(0.35, 0.95, 0.3, 1.0));
+            if let Some(p) = at(c.pos, 1.55) {
+                draw_rectangle(p.x - 14.0, p.y - 22.0 * (!g.view3d) as i32 as f32, 28.0 * c.infect, 4.0, Color::new(0.35, 0.95, 0.3, 1.0));
+            }
         }
     }
     // Liminality: everything goes a little grey and too quiet.
@@ -2247,12 +2769,13 @@ fn draw_world(g: &Game, light: &Texture2D) {
 
     // Speech bubbles (drawn over the dark so you can read them).
     for c in g.chars.iter().filter(|c| c.map == g.map && c.bubble_t > 0.0) {
-        bubble(&c.bubble, &c.via, c.pos.x, c.pos.y);
+        if let Some(p) = at(c.pos, 1.3) { bubble(&c.bubble, &c.via, p.x, p.y); }
     }
-    if let Some(i) = nearest(g, 2.2) {
-        if g.screen == Screen::Play {
-            draw_text(&format!("E: talk to {}", g.chars[i].name), g.pos.x - 40.0, g.pos.y - 22.0, 16.0, YELLOW);
-        }
+    let prompt = if let Some(i) = nearest(g, 2.2) { Some(format!("E: talk to {}", g.chars[i].name)) }
+        else if near_mac(g) { Some("E: use the Mac Studio".to_string()) } else { None };
+    if let (Some(t), Screen::Play) = (prompt, g.screen) {
+        if g.view3d { draw_text(&t, sw / 2.0 - measure_text(&t, None, 20, 1.0).width / 2.0, sh / 2.0 + 70.0, 20.0, YELLOW); }
+        else { draw_text(&t, g.pos.x - 40.0, g.pos.y - 22.0, 16.0, YELLOW); }
     }
 
     if g.ai_t < 6.0 {
@@ -2271,7 +2794,7 @@ fn draw_world(g: &Game, light: &Texture2D) {
 
     // HUD.
     let y0 = sh;
-    draw_rectangle(0.0, y0, sw, HUD, g.rules.hud);
+    draw_rectangle(-margin(), y0, vw(), HUD, g.rules.hud);
     if !g.infection { meter(14.0, y0 + 24.0, "Fear", g.fear, Color::new(0.9, 0.2, 0.2, 1.0), 0.0); }
     if g.infection {
         meter(14.0, y0 + 24.0, "Infection", g.inf, Color::new(0.35, 0.95, 0.3, 1.0), if g.inf > 0.5 { g.inf * 2.0 } else { 0.0 });
@@ -2309,13 +2832,13 @@ fn draw_world(g: &Game, light: &Texture2D) {
         if &t != l { t = format!("{}...", t.trim_end_matches('.')); }
         draw_text(&t, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
-    draw_text(if g.infection { "WASD move · Shift sneak · H hide · E talk · P PANIC · Esc" } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
+    draw_text(if g.infection { if g.view3d { "WASD move · mouse/arrows look · Shift sneak · H hide · E talk · Tab 2D · P PANIC" } else { "WASD move · Shift sneak · H hide · E talk · Tab 3D · P PANIC · Esc" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
 }
 
 fn draw_title(g: &Game) {
-    draw_text(&g.rules.title, 60.0, 110.0, 64.0, Color::new(0.85, 0.3, 0.35, 1.0));
+    draw_text(&g.rules.title, 60.0, 78.0, 56.0, Color::new(0.85, 0.3, 0.35, 1.0));
     let lines = [
         "A small horror game where the characters are real AIs.".to_string(),
         format!("Claude app: {}", if ai::claude_cli().is_some() { "found, so the Claude characters talk through it (real Claude)" } else { "not found" }),
@@ -2327,25 +2850,39 @@ fn draw_title(g: &Game) {
         "  2  Normal".into(),
         "  3  Many phobias: pick what scares you (and switch off what you can't handle)".into(),
         "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
+        "  I  watch the story (ASTRA 9.1, one year later)      M in game = sound on/off".into(),
         "  J  INFECTION ONLINE: play with friends (type the same room code)   S  server list   (needs a login)".into(),
         match &g.account { Some(a) => format!("  Logged in as {} (L to log out)", a.name), None => "  L  log in (make an account on the website)".into() },
         String::new(),
         format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),
         "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),
-        "No flashing lights. P = panic at any time: everything stops.".into(),
+        "No flashing lights. P = panic at any time: everything stops.   F11 (or Cmd+Ctrl+F) = full screen".into(),
         format!("Outside the window: {}   {}", match g.meta.allowed { Some(true) => "ALLOWED (files, Terminal, window switching)", Some(false) => "off", None => "not asked" },
             if g.meta.created.is_empty() { "M to change".to_string() } else { format!("M to change · {} files on your Desktop", g.meta.created.len()) }),
     ];
+    // Spacing shrinks a little if there's a lot to show, so everything always fits on screen.
+    let step = 25.0;
     for (i, l) in lines.iter().enumerate() {
-        draw_text(l, 60.0, 170.0 + i as f32 * 28.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));
+        draw_text(l, 60.0, 118.0 + i as f32 * step, 20.0, Color::new(0.82, 0.84, 0.9, 1.0));
     }
-    // Who's who: our own characters, each only inspired by a kind of AI.
-    let y = 170.0 + lines.len() as f32 * 28.0 + 10.0;
-    draw_text("Who lives here:", 60.0, y, 20.0, WHITE);
+    // Who's who: our own characters, each only inspired by a kind of AI. Three columns, cut to fit.
+    let y = 118.0 + lines.len() as f32 * step + 4.0;
+    draw_text("Who lives here:", 60.0, y, 19.0, WHITE);
+    let cols = 3usize;
+    let colw = (VW - 80.0) / cols as f32;
+    let rows = g.chars.len().div_ceil(cols).max(1) as f32;
+    let rstep = ((VH - 10.0 - (y + 8.0)) / rows).min(22.0);
     for (i, c) in g.chars.iter().enumerate() {
-        let (col, row) = (i % 2, i / 2);
-        draw_circle(70.0 + col as f32 * 440.0, y + 18.0 + row as f32 * 22.0, 7.0, c.color);
-        draw_text(&format!("{}: {}", c.name, c.inspired), 84.0 + col as f32 * 440.0, y + 24.0 + row as f32 * 22.0, 17.0, Color::new(0.7, 0.72, 0.8, 1.0));
+        let (col, row) = ((i % cols) as f32, (i / cols) as f32);
+        let (x, yy) = (60.0 + col * colw, y + 8.0 + row * rstep);
+        draw_circle(x + 6.0, yy + 8.0, 6.0, c.color);
+        let mut t = format!("{}: {}", c.name, c.inspired);
+        while t.len() > 4 && measure_text(&t, None, 15, 1.0).width > colw - 24.0 {
+            t.pop();
+            while !t.is_char_boundary(t.len()) { t.pop(); }
+        }
+        if t.len() < c.name.len() + 2 + c.inspired.len() { t = format!("{}...", t.trim_end()); }
+        draw_text(&t, x + 18.0, yy + 13.0, 15.0, Color::new(0.7, 0.72, 0.8, 1.0));
     }
 }
 
@@ -2399,7 +2936,9 @@ mod tests {
         bad["rows"][3] = serde_json::json!("too short");
         assert!(mod_map(&bad, 2).is_none(), "a broken map is refused");
         set_maps(vec![]);
-        assert_eq!(maps_len(), 3, "no mod maps: back to the built-in three");
+        assert_eq!(maps_len(), 4, "no mod maps: back to the built-in four");
+        assert_eq!(door('M', 1).map(|d| d.0), Some(3), "the beach's south door leads to the Marketplace");
+        assert_eq!(door('M', 3).map(|d| d.0), Some(1), "and back to the beach");
         let _ = std::fs::remove_dir_all(&home);
     }
 

@@ -42,3 +42,6 @@ CREATE TABLE IF NOT EXISTS link_codes (code_hash TEXT PRIMARY KEY, user_id INTEG
 
 -- v5: privacy
 -- ALTER TABLE users ADD COLUMN hide_host INTEGER NOT NULL DEFAULT 0; ALTER TABLE users ADD COLUMN hide_author INTEGER NOT NULL DEFAULT 0;
+
+-- v6: Xbox gamertag typed by the player (unverified until Microsoft sign-in exists)
+-- ALTER TABLE users ADD COLUMN gamertag TEXT;

@@ -131,7 +131,7 @@ export class Room {
 
 async function servers(env) {
   const { results } = await env.DB.prepare(
-    "SELECT s.code, s.name, s.players, s.max, s.mods, s.address, CASE WHEN u.hide_host = 1 THEN 'a player' ELSE u.name END AS host FROM servers s JOIN users u ON u.id = s.owner " +
+    "SELECT s.code, s.name, s.players, s.max, s.mods, s.address, CASE WHEN u.hide_host = 1 THEN 'a player' ELSE u.name END AS host, CASE WHEN u.hide_host = 1 THEN NULL ELSE u.gamertag END AS gamertag FROM servers s JOIN users u ON u.id = s.owner " +
     "WHERE s.public = 1 AND (s.seen > ? OR s.created > ?) ORDER BY s.players DESC, s.created DESC LIMIT 100").bind(now() - ALIVE, now() - 600).all();
   const ids = [...new Set(results.flatMap((r) => { try { return JSON.parse(r.mods); } catch { return []; } }))];
   const names = {};
@@ -274,7 +274,7 @@ const redirect = (to, headers = {}) => new Response(null, { status: 303, headers
 
 async function home(env, user) {
   const list = await servers(env);
-  const rows = list.map((s) => `<tr><td><b>${esc(s.name)}</b><div class="dim small">host ${esc(s.host)} · code <code>${esc(s.code)}</code></div></td>
+  const rows = list.map((s) => `<tr><td><b>${esc(s.name)}</b><div class="dim small">host ${esc(s.host)}${s.gamertag ? ` (🎮 ${esc(s.gamertag)})` : ""} · code <code>${esc(s.code)}</code></div></td>
 <td>${s.players}/${s.max}</td><td>${s.mods.map((m) => `<a class="pill" href="/mods/${m.id}">${esc(m.name)}</a>`).join("") || '<span class="dim small">no mods</span>'}</td></tr>`).join("");
   const { results: mods } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, CASE WHEN u.hide_author = 1 THEN 'anonymous' ELSE u.name END AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 6").all();
   return page("Servers", user, `<div class="hero"><h1 style="margin:0">Hollow Hours</h1>
@@ -354,7 +354,7 @@ ${c.intro ? `<p><i>${esc(c.intro)}</i></p>` : ""}${rules ? `<h3>Rules</h3><p>${r
 // ---------------- Account ----------------
 
 async function accountPage(env, user, msg = "") {
-  const u = await env.DB.prepare("SELECT name, email, created, hide_host, hide_author FROM users WHERE id = ?").bind(user.id).first();
+  const u = await env.DB.prepare("SELECT name, email, created, hide_host, hide_author, gamertag FROM users WHERE id = ?").bind(user.id).first();
   const { results: mods } = await env.DB.prepare("SELECT id, name, version FROM mods WHERE author = ? ORDER BY created DESC").bind(user.id).all();
   const { results: srv } = await env.DB.prepare("SELECT code, name, players, max, address FROM servers WHERE owner = ? ORDER BY created DESC").bind(user.id).all();
   const sessions = (await env.DB.prepare("SELECT count(*) AS n FROM sessions WHERE user_id = ? AND expires > ?").bind(user.id, now()).first()).n;
@@ -366,6 +366,12 @@ async function accountPage(env, user, msg = "") {
 <p class="dim small">Joined ${new Date(u.created * 1000).toISOString().slice(0, 10)}</p>
 ${form("open_game", `<button class="btn" type="submit">🎮 Open Hollow Hours and log in</button>`)}
 <p class="dim small">Opens the Hollow Hours app on this computer and logs it in as you (it needs Hollow Hours.app installed).</p></div>
+
+<div class="card"><h3 style="margin-top:0">🎮 Xbox gamertag</h3>
+${u.gamertag ? `<p>Showing <b>${esc(u.gamertag)}</b> <span class="pill">unverified</span> next to your name.</p>` : '<p class="dim">Not set.</p>'}
+${form("gamertag", `<label>Gamertag <span class="dim small">(letters, numbers and spaces, up to 15, optional #1234)</span></label><input name="gamertag" maxlength="20" value="${esc(u.gamertag || "")}" autocomplete="off"><p><button class="btn ghost" type="submit">Save gamertag</button></p>`)}
+${u.gamertag ? form("gamertag", `<input type="hidden" name="gamertag" value=""><button class="btn ghost" type="submit">Remove it</button>`) : ""}
+<p class="dim small">Typed by you, not checked with Xbox (that's why it says unverified). It shows on your servers in the server list, unless you hide your name there below.</p></div>
 
 <div class="card"><h3 style="margin-top:0">Privacy</h3>
 ${form("privacy", `<label class="small" style="font-weight:400"><input type="checkbox" name="hide_host" style="width:auto" ${u.hide_host ? "checked" : ""}> Hide my name as the host in the server list</label>
@@ -394,6 +400,16 @@ async function accountAction(env, user, f, req) {
     case "privacy":
       await env.DB.prepare("UPDATE users SET hide_host = ?, hide_author = ? WHERE id = ?").bind(f.get("hide_host") ? 1 : 0, f.get("hide_author") ? 1 : 0, user.id).run();
       return accountPage(env, user, ok("Privacy saved."));
+    case "gamertag": {
+      const t = String(f.get("gamertag") || "").trim().replace(/\s+/g, " ");
+      if (!t) {
+        await env.DB.prepare("UPDATE users SET gamertag = NULL WHERE id = ?").bind(user.id).run();
+        return accountPage(env, user, ok("Gamertag removed."));
+      }
+      if (!/^[A-Za-z][A-Za-z0-9 ]{0,14}(#\d{1,4})?$/.test(t)) return accountPage(env, user, err("A gamertag starts with a letter: letters, numbers and spaces (up to 15), and an optional #1234."));
+      await env.DB.prepare("UPDATE users SET gamertag = ? WHERE id = ?").bind(t, user.id).run();
+      return accountPage(env, user, ok(`Gamertag saved: ${t}`));
+    }
     case "delete_mod": {
       const r = await env.DB.prepare("DELETE FROM mods WHERE id = ? AND author = ?").bind(String(f.get("id")), user.id).run();
       return accountPage(env, user, r.meta.changes ? ok("Mod deleted.") : err("That mod isn't yours."));
@@ -470,7 +486,11 @@ export default {
       // --- game API ---
       if (p === "/api/register" && req.method === "POST") { const b = await req.json().catch(() => ({})); const r = await register(env, b.email, b.password, b.name); return json(r, r.error ? 400 : 200); }
       if (p === "/api/login" && req.method === "POST") { const b = await req.json().catch(() => ({})); const r = await login(env, b.email, b.password); return json(r, r.error ? 401 : 200); }
-      if (p === "/api/me") return user ? json({ name: user.name }) : json({ error: "not logged in" }, 401);
+      if (p === "/api/me") {
+        if (!user) return json({ error: "not logged in" }, 401);
+        const gt = await env.DB.prepare("SELECT gamertag FROM users WHERE id = ?").bind(user.id).first();
+        return json({ name: user.name, gamertag: gt?.gamertag ?? null, gamertag_verified: false });
+      }
       if (p === "/api/servers" && req.method === "GET") return json(await servers(env));
       if (p === "/api/servers" && req.method === "POST") { if (!user) return json({ error: "log in first" }, 401); const r = await makeServer(env, user, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
       if (p === "/api/link/redeem" && req.method === "POST") { const r = await linkRedeem(env, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }

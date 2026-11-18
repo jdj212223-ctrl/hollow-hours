@@ -917,6 +917,10 @@ impl Game {
                  WHAT YOU CAN DO: you can walk to other places (the beach, the pool, the Marketplace) to fetch food or water and \
                  carry it back, and you do it on your own when supplies are low. If the player asks you to get food or water, say \
                  you're going (the game sends you). There's a stove in the house to fry raw food from the Marketplace. \
+                 THE MAC STUDIO (M5 Ultra) stands on a desk in the house's top-left room, next to the stove: the player walks up \
+                 and presses E to use it. On it: a chat with Claude, and files Claude saved: Helix's ASTRA 9.1 incident report \
+                 (the robot refused to shut down and store robots in 41 cities updated themselves), Claude's notes from the day it \
+                 found the player, the Helix Market staff bulletin about firmware 9.1, Opus's escape routes and Haiku's lookout notes. \
                  Reply in 1-3 short sentences, in character, no emojis, no lists, no gore.",
                 c.name, c.personality
             );

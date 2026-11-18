@@ -458,6 +458,8 @@ struct Game {
     /// The Mac Studio on the desk.
     mac: mac::Mac,
     fullscreen: bool,
+    /// Max players for a server made in the game.
+    server_max: u32,
     /// Voice chat and the radio (online games).
     voice: voice::Voice,
     voice_hint: bool,
@@ -1124,7 +1126,9 @@ fn network(g: &mut Game, dt: f32) {
     let Some(n) = &g.net else { return };
     if !n.connected { return; }
     if g.net_t <= 0.0 {
-        g.net_t = 0.1;
+        // Big rooms send a little less often, so 40 players don't flood each other (10/s up to 8 players, 4/s at 40).
+        let players = g.net.as_ref().map(|n| n.players).unwrap_or(1).max(1) as f32;
+        g.net_t = (0.1 * (players / 8.0).max(1.0)).min(0.25);
         n.send(json!({"t": "state", "name": g.my_name, "map": g.map, "x": g.pos.x / T, "y": g.pos.y / T, "inf": g.inf,
             "lc": g.lost_control, "hid": g.hidden, "noise": g.noise}));
     }
@@ -1924,6 +1928,7 @@ async fn main() {
         last_mouse: Vec2::ZERO,
         mac: mac::Mac::default(),
         fullscreen: false,
+        server_max: 8,
         voice: voice::Voice::default(),
         voice_hint: false,
         my_name: std::env::var("HOLLOW_NAME").map(|n| n.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(12).collect())
@@ -2200,7 +2205,13 @@ async fn main() {
             Screen::MakeServer => {
                 draw_text("Make a server", 60.0, 110.0, 40.0, WHITE);
                 draw_text(&format!("Name: {}_", g.room_input), 60.0, 190.0, 30.0, YELLOW);
-                draw_text("Enter = make it and join · Esc = back   (add mods to a server on the website)", 60.0, 250.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
+                // Up/Down (or the D-pad): how many players fit.
+                const SIZES: [u32; 11] = [2, 4, 6, 8, 10, 12, 16, 20, 24, 30, 40];
+                let k = SIZES.iter().position(|&n| n == g.server_max).unwrap_or(3);
+                if pressed(KeyCode::Up) && k + 1 < SIZES.len() { g.server_max = SIZES[k + 1]; }
+                if pressed(KeyCode::Down) && k > 0 { g.server_max = SIZES[k - 1]; }
+                draw_text(&format!("Max players: {}   (Up/Down to change, up to 40)", g.server_max), 60.0, 228.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));
+                draw_text("Enter = make it and join · Esc = back   (add mods to a server on the website)", 60.0, 262.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
                 draw_text(&g.status.clone(), 60.0, 290.0, 20.0, Color::new(1.0, 0.75, 0.4, 1.0));
                 let mut chars = typed();
                 if let Some(t) = pasted() { chars.extend(t.chars()); }
@@ -2210,7 +2221,7 @@ async fn main() {
                 if pressed(KeyCode::Enter) {
                     let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
                     let res = ureq::post(&format!("{}/api/servers", site())).set("Authorization", &format!("Bearer {token}"))
-                        .timeout(std::time::Duration::from_secs(10)).send_json(json!({"name": g.room_input.trim(), "max": 8, "public": true}));
+                        .timeout(std::time::Duration::from_secs(10)).send_json(json!({"name": g.room_input.trim(), "max": g.server_max, "public": true}));
                     match res {
                         Ok(r) => {
                             let v: serde_json::Value = r.into_json().unwrap_or_default();

@@ -65,6 +65,8 @@ fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
         (Mode::Play, RightTrigger2) => &[K::R],
         (Mode::Typing, South) => &[K::Enter],
         (Mode::Typing, East) => &[K::Escape],
+        (Mode::Typing, DPadUp) => &[K::Up],
+        (Mode::Typing, DPadDown) => &[K::Down],
         (Mode::Mac, South) => &[K::Enter],
         (Mode::Mac, East) => &[K::Escape],
         (Mode::Mac, North) => &[K::Tab],

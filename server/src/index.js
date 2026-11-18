@@ -20,6 +20,9 @@ const hex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, 
 const sha256 = async (s) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
 const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
+/** The most players one room can hold. */
+const MAX_PLAYERS = 40;
+
 // ---------------- Join tickets (for servers hosted somewhere else) ----------------
 // The game never sends its login token to someone else's server. It asks this website for a ticket instead: signed
 // with Ed25519, valid 60 seconds, only for one server address. The outside server checks it with GET /api/ticket-key.
@@ -75,7 +78,7 @@ export class Room {
     if (req.headers.get("Upgrade") !== "websocket") return new Response("expected a WebSocket", { status: 426 });
     const code = new URL(req.url).pathname.split("/").pop().toUpperCase();
     const server = await this.env.DB.prepare("SELECT name, max, mods FROM servers WHERE code = ?").bind(code).first().catch(() => null);
-    const max = Math.min(server?.max ?? 8, 8);
+    const max = Math.min(server?.max ?? 8, MAX_PLAYERS);
     if (this.sockets().length >= max) return new Response("room is full", { status: 429 });
     // The Worker checked the login before sending the player here (see the router); these headers come only from it.
     const uid = parseInt(req.headers.get("X-HH-User-Id") || "0");
@@ -150,7 +153,7 @@ async function servers(env) {
 async function makeServer(env, user, body) {
   const name = String(body.name || "").trim();
   if (!/^[A-Za-z0-9 _!.'-]{3,32}$/.test(name)) return { error: "Server name: 3-32 letters, numbers, spaces and _ ! . ' -" };
-  const max = Math.max(2, Math.min(8, parseInt(body.max) || 8));
+  const max = Math.max(2, Math.min(MAX_PLAYERS, parseInt(body.max) || 8));
   const mods = (Array.isArray(body.mods) ? body.mods : String(body.mods || "").split(/[\s,]+/)).map(String).filter((m) => /^[0-9a-f]{12}$/.test(m)).slice(0, 8);
   for (const id of mods) if (!(await env.DB.prepare("SELECT 1 FROM mods WHERE id = ?").bind(id).first())) return { error: `There's no mod ${id}.` };
   // Each player keeps at most 3 servers: making a 4th removes their oldest.
@@ -303,7 +306,7 @@ async function newServerPage(env, user, error = "") {
   const { results: mods } = await env.DB.prepare("SELECT id, name, version FROM mods ORDER BY created DESC LIMIT 50").all();
   return page("Make a server", user, `<div class="card" style="max-width:520px;margin:0 auto"><h2 style="margin-top:0">Make a server</h2>${error ? `<p class="err">${esc(error)}</p>` : ""}
 <form method="post" action="/servers/new"><label>Name</label><input name="name" required minlength="3" maxlength="32">
-<label>Max players</label><select name="max">${[2, 3, 4, 5, 6, 7, 8].map((n) => `<option ${n === 8 ? "selected" : ""}>${n}</option>`).join("")}</select>
+<label>Max players</label><select name="max">${[2, 4, 6, 8, 10, 12, 16, 20, 24, 30, 40].map((n) => `<option ${n === 8 ? "selected" : ""}>${n}</option>`).join("")}</select>
 <label><input type="checkbox" name="public" checked style="width:auto"> Show it in the server list</label>
 <label>Hosted somewhere else? <span class="dim small">(optional: your own server's address, e.g. wss://hh.example.com)</span></label><input name="address" placeholder="leave empty to host it here">
 <label>Mods</label>${mods.length ? mods.map((m) => `<label class="small" style="font-weight:400"><input type="checkbox" name="mods" value="${m.id}" style="width:auto"> ${esc(m.name)} ${esc(m.version)}</label>`).join("") : '<p class="dim small">No mods uploaded yet.</p>'}

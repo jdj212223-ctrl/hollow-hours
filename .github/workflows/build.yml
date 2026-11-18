@@ -111,27 +111,25 @@ jobs:
         with:
           files: Hollow-Hours.flatpak
 
-  # Android (.apk) with touch controls. The macroquad Android image is from 2024, so a current Rust goes on top.
+  # Android (.apk) with touch controls, built with today's tools (android/build-apk.sh).
   android:
     runs-on: ubuntu-latest
-    container: notfl3/cargo-apk
     steps:
       - uses: actions/checkout@v4
-      - name: Current Rust
-        run: |
-          rustup update stable
-          rustup default stable
-          rustup target add aarch64-linux-android armv7-linux-androideabi
-          rustc --version
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked
       - name: Build the .apk
-        # cargo-quad-apk only reads the older Cargo.lock format (same contents, older header).
         run: |
-          sed -i 's/^version = 4$/version = 3/' Cargo.lock
-          cargo quad-apk build --release --bin hollow-hours
-      - name: Package
-        run: |
-          find target -name "*.apk" | head
-          cp "$(find target -name '*.apk' | head -1)" Hollow-Hours-Android.apk
+          export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          sh android/build-apk.sh
       - uses: actions/upload-artifact@v4
         with:
           name: Hollow-Hours-Android

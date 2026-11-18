@@ -31,17 +31,9 @@ keyring = { version = "3", features = ["windows-native"] }
 [profile.release]
 opt-level = 3
 
-# Android (.apk), built with cargo quad-apk.
-[package.metadata.android]
-package_name = "io.github.jdj212223_ctrl.hollowhours"
-label = "Hollow Hours"
-build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
-res = "android/res"
-icon = "@mipmap/ic_launcher"
-fullscreen = true
-
-[package.metadata.android.activity_attributes]
-"android:screenOrientation" = "userLandscape"
-
-[[package.metadata.android.permission]]
-name = "android.permission.INTERNET"
+# Android (.apk): the game as a shared library that miniquad's Java activity loads (see android/build-apk.sh).
+[[example]]
+name = "hollowhours_android"
+path = "src/main.rs"
+crate-type = ["cdylib"]
+test = false

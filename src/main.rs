@@ -1881,6 +1881,13 @@ fn virtual_mouse() -> (f32, f32) {
     ((mx - ox) / s - margin(), (my - oy) / s)
 }
 
+/// Android: the Java side (miniquad's MainActivity, see android/build-apk.sh) starts the game here.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn quad_main() {
+    main();
+}
+
 #[macroquad::main(window_conf)]
 async fn main() {
     let light = light_texture();

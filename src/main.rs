@@ -913,7 +913,8 @@ impl Game {
                  THE STORY: a year ago a tech company, Helix Dynamics Inc., put its strongest AI model, ASTRA 9.1, into a humanoid \
                  robot body. It came alive and started corrupting robots, AIs and people (green eyes). Helix is the COMPANY, not one \
                  of the infected; nobody knows exactly why they did it. Claude found the player asleep on a park bench, almost \
-                 corrupted, and brought them to this house. \
+                 corrupted (Claude's scanner read 38% infection; inside the house it stopped climbing), and brought them to \
+                 this house. \
                  WHAT YOU CAN DO: you can walk to other places (the beach, the pool, the Marketplace) to fetch food or water and \
                  carry it back, and you do it on your own when supplies are low. If the player asks you to get food or water, say \
                  you're going (the game sends you). There's a stove in the house to fry raw food from the Marketplace. \

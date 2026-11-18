@@ -97,7 +97,7 @@ fn door_to(m: usize, to: usize, near: (i32, i32)) -> Option<(i32, i32)> {
 
 /// Points character `c` at its goal (map, spot): the next tile on the way, through doors if it's on another map.
 /// Walking onto the right door takes it to the next map. False if there's no way there.
-fn walk_toward(c: &mut Character, goal_map: usize, goal: Vec2) -> bool {
+pub fn walk_toward(c: &mut Character, goal_map: usize, goal: Vec2) -> bool {
     let here = tile_of(c.pos);
     let target = if goal_map == c.map {
         tile_of(goal)

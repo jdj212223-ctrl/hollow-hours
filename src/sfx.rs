@@ -55,6 +55,8 @@ pub struct Sfx {
     radio: Option<Sound>,
     sizzle: Option<Sound>,
     sizzle_on: bool,
+    buzz: Option<Sound>,
+    buzz_on: bool,
     pub on: bool,
     wind_on: bool,
 }
@@ -101,10 +103,15 @@ impl Sfx {
                 (last * 0.22 + pop) * (0.8 + 0.2 * (TAU * 0.7 * t).sin())
             })
         };
+        // The drone: two close, buzzing saw tones with a fast flutter (the propellers).
+        let buzz = gen(2.0, |t, _| {
+            let saw = |f: f32| 2.0 * ((f * t) % 1.0) - 1.0;
+            (saw(210.0) * 0.5 + saw(213.0) * 0.5) * 0.14 * (0.75 + 0.25 * (TAU * 30.0 * t).sin())
+        });
         let radio = gen(0.35, |t, r| r.next() * 0.35 * (1.0 - t / 0.35) * if ((t * 60.0) as i32) % 3 == 0 { 1.0 } else { 0.3 });
         Sfx {
             hum: s(hum).await, wind: s(wind).await, heart: s(heart).await, step: s(step).await, sting: s(sting).await,
-            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, on: true, wind_on: false,
+            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, buzz: s(buzz).await, buzz_on: false, on: true, wind_on: false,
         }
     }
 
@@ -126,6 +133,12 @@ impl Sfx {
     pub fn pickup(&self) { self.once(&self.pickup, 0.5); }
     pub fn door(&self) { self.once(&self.door, 0.5); }
     pub fn radio(&self) { self.once(&self.radio, 0.4); }
+    /// The drone flying (loops until it lands).
+    pub fn drone(&mut self, on: bool) {
+        let Some(s) = &self.buzz else { return };
+        if on && !self.buzz_on && self.on { play_sound(s, PlaySoundParams { looped: true, volume: 0.45 }); self.buzz_on = true; }
+        if !on && self.buzz_on { stop_sound(s); self.buzz_on = false; }
+    }
     /// Frying on the stove (loops until turned off).
     pub fn sizzle(&mut self, on: bool) {
         let Some(s) = &self.sizzle else { return };
@@ -140,7 +153,8 @@ impl Sfx {
     }
     /// Everything off (the panic key, or M to mute).
     pub fn silence(&mut self) {
-        for s in [&self.hum, &self.wind, &self.sizzle].into_iter().flatten() { stop_sound(s); }
+        for s in [&self.hum, &self.wind, &self.sizzle, &self.buzz].into_iter().flatten() { stop_sound(s); }
+        self.buzz_on = false;
         self.wind_on = false;
         self.sizzle_on = false;
     }

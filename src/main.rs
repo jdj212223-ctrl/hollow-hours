@@ -22,6 +22,8 @@ mod voice;
 mod voice;
 mod platform;
 mod pclink;
+mod drone;
+mod learn;
 mod pad;
 
 use serde_json::json;
@@ -184,10 +186,24 @@ fn builtin_maps() -> Vec<MapData> {
 thread_local! {
     /// The maps of the game being played (built-in, or changed by mods).
     static WORLD: std::cell::RefCell<Vec<MapData>> = std::cell::RefCell::new(builtin_maps());
+    /// The same maps as they started (walls the infected broke come back in the next game).
+    static PRISTINE: std::cell::RefCell<Vec<MapData>> = std::cell::RefCell::new(builtin_maps());
 }
 
 fn set_maps(maps: Vec<MapData>) {
-    WORLD.with(|w| *w.borrow_mut() = if maps.is_empty() { builtin_maps() } else { maps });
+    let maps = if maps.is_empty() { builtin_maps() } else { maps };
+    PRISTINE.with(|p| *p.borrow_mut() = maps.clone());
+    WORLD.with(|w| *w.borrow_mut() = maps);
+}
+/// Undo everything that changed in the maps last game (broken walls).
+fn reset_world() {
+    let maps = PRISTINE.with(|p| p.borrow().clone());
+    WORLD.with(|w| *w.borrow_mut() = maps);
+}
+/// Changes one tile (a broken wall).
+fn set_tile(m: usize, x: i32, y: i32, c: u8) {
+    if x < 0 || y < 0 || x >= MW as i32 || y >= MH as i32 { return; }
+    WORLD.with(|w| if let Some(d) = w.borrow_mut().get_mut(m) { d.rows[y as usize][x as usize] = c; });
 }
 fn maps_len() -> usize { WORLD.with(|w| w.borrow().len()) }
 fn with_map<R>(m: usize, f: impl FnOnce(&MapData) -> R) -> R {
@@ -264,6 +280,10 @@ struct Character {
     goal: Option<(usize, Vec2)>,
     /// Seconds since it last radioed about green eyes (so it doesn't repeat itself).
     spotted: f32,
+    /// An infected coming over from another place to find you (after 6 minutes).
+    hunting: bool,
+    /// How long an infected has been smashing at a wall (after 12 minutes).
+    breach: f32,
 }
 
 fn characters() -> Vec<Character> {
@@ -271,7 +291,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, claude: backend == "anthropic",
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -304,7 +324,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, claude: true,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -467,6 +487,16 @@ struct Game {
     stamina: f32,
     winded: bool,
     sprinting: bool,
+    /// The scout drone (Q) while it flies, and its battery while docked (0..1).
+    drone: Option<drone::Drone>,
+    drone_charge: f32,
+    /// What the infected have learned (0 nothing, 1 doors, 2 walls), when the next hunter comes, and who's
+    /// following you through a door: (character, seconds until it arrives, map, where).
+    learn_level: u8,
+    hunt_t: f32,
+    followers: Vec<(usize, f32, usize, Vec2)>,
+    /// Seconds you've been out of food or water (60 = you collapse).
+    weak_t: f32,
     /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
     raw: u32,
     fry_t: f32,
@@ -523,7 +553,7 @@ impl Default for Rules {
     fn default() -> Self {
         Rules {
             infected_speed: 2.4, player_speed: 3.2, sneak: 1.5, sight: 8.0, hearing: 6.0, infect_touch: 0.22, infect_near: 0.02,
-            claude_infect: 0.18, food_secs: 300.0, water_secs: 200.0, supplies: 5, supply_amount: 0.4, tornado: (60.0, 110.0),
+            claude_infect: 0.18, food_secs: 900.0, water_secs: 600.0, supplies: 5, supply_amount: 0.4, tornado: (60.0, 110.0),
             tornado_speed: 2.6, tornado_radius: 1.6, title: "HOLLOW HOURS".into(),
             over_infected: "You're infected. You can still see... but your body isn't yours anymore.".into(),
             over_claudes: "Every Claude is infected. Nobody is left to protect anyone.".into(),
@@ -830,7 +860,7 @@ fn mod_character(v: &serde_json::Value) -> Option<Character> {
         personality: Box::leak(personality.into_boxed_str()), map, pos, target: pos, crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
         kind: v["kind"].as_bool() == Some(true) && v["infected"].as_bool() != Some(true),
-        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, claude: false,
+        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, claude: false,
     })
 }
 
@@ -1112,6 +1142,8 @@ fn network(g: &mut Game, dt: f32) {
                 }
             }
             Some("left") => g.remotes.retain(|x| x.id != from),
+            // The host's infected broke a wall: it's broken for everyone.
+            Some("breach") => set_tile(m["map"].as_u64().unwrap_or(0) as usize, m["x"].as_i64().unwrap_or(-1) as i32, m["y"].as_i64().unwrap_or(-1) as i32, b'.'),
             Some("vc") => {
                 // A voice: the radio reaches everyone; out loud only reaches you on the same map, fading with distance.
                 let radio = m["r"].as_bool().unwrap_or(false);
@@ -1191,6 +1223,7 @@ fn apply_world(g: &mut Game, m: &serde_json::Value) {
 }
 
 fn start_infection(g: &mut Game) {
+    reset_world();
     g.infection = true;
     g.courage = Courage::Normal;
     g.chars = characters();
@@ -1241,6 +1274,12 @@ fn start_infection(g: &mut Game) {
     }
     g.raw = 0;
     g.fry_t = 0.0;
+    g.drone = None;
+    g.drone_charge = 1.0;
+    g.learn_level = 0;
+    g.hunt_t = 90.0;
+    g.followers.clear();
+    g.weak_t = 0.0;
     g.log = vec!["You are the last human. Hide (H), find food and water, and stay away from green eyes.".into(),
         "The Marketplace (south door on the beach) has lots of food... and corrupted Helix robots.".into()];
     g.shop_t = 30.0;
@@ -1329,10 +1368,18 @@ fn update_infection(g: &mut Game, dt: f32) {
     let rate = if g.hidden { 0.6 } else { 1.0 };
     g.food = (g.food - dt * rate / g.rules.food_secs).max(0.0);
     g.water = (g.water - dt * rate / g.rules.water_secs).max(0.0);
+    // Out of food or water: you get weak and slow, and have 60 seconds to find some.
     if g.food <= 0.0 || g.water <= 0.0 {
-        g.over_reason = format!("You collapsed from {}.", if g.water <= 0.0 { "thirst" } else { "hunger" });
-        g.screen = Screen::Over;
-        return;
+        let what = if g.water <= 0.0 { ("dehydrated", "water") } else { ("starving", "food") };
+        if g.weak_t == 0.0 { g.log.push(format!("You're {}. Find {} in 60 seconds or you'll collapse.", what.0, what.1)); g.sfx.heart(1.0); }
+        g.weak_t += dt;
+        if g.weak_t >= 60.0 {
+            g.over_reason = format!("You collapsed from {}.", if g.water <= 0.0 { "thirst" } else { "hunger" });
+            g.screen = Screen::Over;
+            return;
+        }
+    } else {
+        g.weak_t = 0.0;
     }
     // H: hide next to furniture / come out. Hidden = you can't move.
     if pressed(KeyCode::H) && g.screen == Screen::Play {
@@ -1502,6 +1549,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         }
     }
     shopping(g, dt);
+    learn::update(g, dt);
     // Tornadoes: a warning, then one sweeps across the map you're on.
     g.next_tornado -= dt;
     if g.tornado.is_none() && g.next_tornado <= 0.0 && !guest(g) {
@@ -1968,6 +2016,12 @@ async fn main() {
         pclink: None,
         raw: 0,
         fry_t: 0.0,
+        drone: None,
+        drone_charge: 1.0,
+        learn_level: 0,
+        hunt_t: 90.0,
+        followers: vec![],
+        weak_t: 0.0,
         link_token: Some(String::new()), // anything but the real token: set up on the first frame
         stamina: 1.0,
         winded: false,
@@ -2578,6 +2632,9 @@ fn update(g: &mut Game, dt: f32) {
         } else {
             g.ai = None;
         }
+        // The drone: Q launches it or calls it back; while it flies, your keys fly it and you stand still.
+        if pressed(KeyCode::Q) && g.infection { drone::toggle(g); }
+        if drone::fly(g, d, dt) { d = Vec2::ZERO; }
         // Sprint: hold Space (L3 on a controller). Fast and loud, and it tires you out.
         g.sprinting = d != Vec2::ZERO && !g.sneaking && !g.winded && down(KeyCode::Space);
         if g.sprinting {
@@ -2588,7 +2645,8 @@ fn update(g: &mut Game, dt: f32) {
             if g.winded && g.stamina >= 0.35 { g.winded = false; }
         }
         if d != Vec2::ZERO {
-            let speed = if g.sneaking { g.rules.sneak } else if g.sprinting { g.rules.player_speed * 1.65 } else { g.rules.player_speed };
+            let speed = if g.sneaking { g.rules.sneak } else if g.sprinting { g.rules.player_speed * 1.65 } else { g.rules.player_speed }
+                * if g.weak_t > 0.0 { 0.6 } else { 1.0 };
             if !g.sneaking { g.noise = if g.sprinting { 1.7 } else { 1.0 }; }
             let step = d.normalize() * speed * T * dt;
             let r = 10.0;
@@ -2605,8 +2663,10 @@ fn update(g: &mut Game, dt: f32) {
         }
         let here = tile(g.map, (g.pos.x / T) as i32, (g.pos.y / T) as i32);
         if let Some((m, at)) = door(here, g.map) {
+            let (from_map, from_pos) = (g.map, g.pos);
             g.map = m;
             g.pos = at * T;
+            learn::followed_through_door(g, from_map, from_pos, m, at);
             // Walk in facing the middle of the new place.
             let to = vec2(MW as f32 / 2.0, MH as f32 / 2.0) - at;
             g.yaw = to.y.atan2(to.x);
@@ -2651,7 +2711,7 @@ fn update(g: &mut Game, dt: f32) {
         if c.crazy > 0.0 && (c.map == g.map || infection_on) {
             c.target = if infection_on { c.chase } else { g.pos };
             c.crazy -= dt;
-        } else if !c.kind && (c.pos.distance(c.target) < 4.0 || rand::gen_range(0.0, 1.0) < 0.002) {
+        } else if !c.kind && !c.hunting && (c.pos.distance(c.target) < 4.0 || rand::gen_range(0.0, 1.0) < 0.002) {
             for _ in 0..10 {
                 let t = vec2(rand::gen_range(1.0, MW as f32 - 1.0), rand::gen_range(1.0, MH as f32 - 1.0)) * T;
                 if !solid(c.map, t.x, t.y) && tile(c.map, (t.x / T) as i32, (t.y / T) as i32) == tile(c.map, (c.pos.x / T) as i32, (c.pos.y / T) as i32) {
@@ -2700,6 +2760,7 @@ fn update(g: &mut Game, dt: f32) {
         }
     }
     update_frying(g, dt);
+    if g.infection { drone::update(g, dt); }
     if g.scare_t > g.prev_scare + 0.2 { g.sfx.sting(); }
     if g.scare_t > 0.0 { g.scare_t -= dt; }
     g.prev_scare = g.scare_t;
@@ -2915,6 +2976,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
             let label = format!("{} {}%", r.name, (r.inf * 100.0) as i32);
             draw_text(&label, r.pos.x - measure_text(&label, None, 15, 1.0).width / 2.0, r.pos.y - 16.0, 15.0, Color::new(0.75, 0.85, 1.0, 1.0));
         }
+        drone::draw_2d(g);
         // You (see-through while hiding).
         let you = if g.hidden { Color::new(0.95, 0.95, 0.98, 0.35) } else { Color::new(0.95, 0.95, 0.98, 1.0) };
         draw_circle(g.pos.x, g.pos.y, 11.0, you);
@@ -2940,7 +3002,8 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         let dark = if g.on(0) { map_dark(g.map) } else { 0.1 };
         let radius = (7.5 - g.fear * 3.0) * T;
         let a = (dark + g.fear * 0.25).min(0.97);
-        let (lx, ly) = (g.pos.x - radius, g.pos.y - radius);
+        let vp = drone::view_pos(g);
+        let (lx, ly) = (vp.x - radius, vp.y - radius);
         let dim = Color::new(0.0, 0.0, 0.02, a);
         draw_texture_ex(light, lx, ly, Color::new(1.0, 1.0, 1.0, a), DrawTextureParams { dest_size: Some(vec2(radius * 2.0, radius * 2.0)), ..Default::default() });
         // Fill everything outside the light's square, without overlapping (overlaps showed up as darker bands).
@@ -3026,6 +3089,18 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         draw_circle(sw / 2.0 + 70.0, sh / 2.0 - 30.0, 26.0, Color::new(1.0, 0.0, 0.0, k));
     }
 
+    if g.weak_t > 0.0 && g.screen == Screen::Play {
+        let t = format!("{}  {:.0} s", if g.water <= 0.0 { "DEHYDRATED: find water" } else { "STARVING: find food" }, (60.0 - g.weak_t).max(0.0).ceil());
+        let w = measure_text(&t, None, 24, 1.0).width;
+        draw_text(&t, sw / 2.0 - w / 2.0, 70.0, 24.0, Color::new(1.0, 0.3, 0.25, 0.6 + 0.4 * (get_time() as f32 * 4.0).sin().abs()));
+    }
+    if g.infection && (g.drone.is_some() || g.drone_charge < 0.999) && g.screen == Screen::Play {
+        let (b, flying) = g.drone.as_ref().map(|d| (d.battery, true)).unwrap_or((g.drone_charge, false));
+        let label = if flying { format!("DRONE {}%  (Q to bring it back)", (b * 100.0) as i32) } else { format!("drone charging {}%", (b * 100.0) as i32) };
+        draw_text(&label, 14.0, sh - 26.0, 16.0, Color::new(0.5, 0.85, 1.0, 0.9));
+        draw_rectangle(14.0, sh - 20.0, 120.0, 5.0, Color::new(0.0, 0.0, 0.0, 0.5));
+        draw_rectangle(14.0, sh - 20.0, 120.0 * b, 5.0, Color::new(0.4, 0.8, 1.0, 0.9));
+    }
     if g.fry_t > 0.0 {
         draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0, 6.0, Color::new(0.0, 0.0, 0.0, 0.5));
         draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0 * (1.0 - g.fry_t / 6.0), 6.0, Color::new(1.0, 0.55, 0.15, 0.9));
@@ -3081,7 +3156,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         if &t != l { t = format!("{}...", t.trim_end_matches('.')); }
         draw_text(&t, 320.0, y0 + 48.0 + i as f32 * 20.0, 16.0, Color::new(0.65, 0.68, 0.75, 1.0));
     }
-    draw_text(if pad::name().is_some() { "stick move · L3 sprint · A talk · X hide · LT sneak · Y 2D/3D · RB voice · RT radio · View PANIC" } else if g.infection { if g.net.is_some() { "WASD · Space sprint · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD · mouse look · Space sprint · Shift sneak · H hide · E talk · Tab 2D · P PANIC" } else { "WASD · Space sprint · Shift sneak · H hide · E talk · Tab 3D · P PANIC" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
+    draw_text(if pad::name().is_some() { "stick move · L3 sprint · A talk · X hide · LT sneak · Y 2D/3D · D-up drone · RB voice · View PANIC" } else if g.infection { if g.net.is_some() { "WASD · Space sprint · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD · mouse look · Space sprint · Shift sneak · H hide · E use · Q drone · Tab 2D · P PANIC" } else { "WASD · Space sprint · Shift sneak · H hide · E use · Q drone · Tab 3D · P PANIC" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
 }

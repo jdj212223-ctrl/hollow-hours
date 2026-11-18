@@ -11,10 +11,10 @@ pub const VIEW_H: f32 = MH as f32 * T;
 
 /// The camera: your eyes (lower while hiding, a small bob while walking).
 pub fn camera(g: &Game, target: Option<RenderTarget>) -> Camera3D {
-    let p = g.pos / T;
+    let p = super::drone::view_pos(g) / T;
     let bob = (g.clock * 9.0).sin() * 0.035 * g.noise;
     let shake = if g.fear > 0.75 { rand::gen_range(-0.015, 0.015) } else { 0.0 };
-    let eye = if g.hidden { 0.45 } else { EYE } + bob + shake;
+    let eye = if g.drone.is_some() { 1.55 + 0.03 * (g.clock * 7.0).sin() } else if g.hidden { 0.45 } else { EYE } + bob + shake;
     let pos = vec3(p.x, eye, p.y);
     let look = vec3(g.yaw.cos() * g.pitch.cos(), g.pitch.sin(), g.yaw.sin() * g.pitch.cos());
     Camera3D {
@@ -168,6 +168,12 @@ pub fn render(g: &Game, view: &RenderTarget) {
                 draw_sphere(head + vec3(a.cos() * 0.2, 0.32, a.sin() * 0.2), 0.025, None, g.rules.halo);
             }
         }
+    }
+    // You, standing still while you fly the drone.
+    if g.drone.is_some() {
+        let base = vec3(g.pos.x / T, 0.0, g.pos.y / T);
+        draw_cylinder(base, 0.18, 0.22, 0.85, None, fog.at(Color::new(0.95, 0.95, 0.98, 1.0), base));
+        draw_sphere(base + vec3(0.0, 1.05, 0.0), 0.19, None, fog.at(Color::new(0.95, 0.85, 0.8, 1.0), base));
     }
     // The other humans in the room.
     for r in g.remotes.iter().filter(|r| r.map == m) {

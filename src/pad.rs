@@ -5,7 +5,7 @@
 //!   Title:      A = Infection   X = Normal   Y = the story   RB = server list   LB = log in
 //!   Playing:    left stick = walk   right stick = look (3D)   A = talk / use   X = hide   Y = 2D/3D map
 //!               LT or LB = sneak (hold)   L3 (click the left stick) = sprint (hold)   RB = voice   RT = radio
-//!               D-pad down = sound on/off   View/Select = PANIC
+//!               D-pad up = drone   D-pad down = sound on/off   View/Select = PANIC
 //!   Menus:      A = OK / Enter   B = back / Esc   D-pad = up/down
 //!   Typing:     the Steam keyboard (Steam + X on a Steam Deck / Legion Go), A = send, B = cancel
 //!
@@ -89,6 +89,7 @@ fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
         (Mode::Play, West) => &[K::H],
         (Mode::Play, North) => &[K::Tab],
         (Mode::Play, DPadDown) => &[K::M],
+        (Mode::Play, DPadUp) => &[K::Q],
         (Mode::Play, Select) => &[K::P],
         (Mode::Play, Start) => &[K::Escape],
         (Mode::Play, LeftTrigger) | (Mode::Play, LeftTrigger2) => &[K::LeftShift],
@@ -176,6 +177,7 @@ fn buttons(mode: Mode, online: bool) -> Vec<Btn> {
                 b(r - 110.0, 54.0, 90.0, 54.0, "2D/3D", K::Tab, false),
                 b(r - 210.0, 54.0, 90.0, 54.0, "PANIC", K::P, false),
                 b(l + 20.0, 54.0, 90.0, 54.0, "MENU", K::Escape, false),
+                b(r - 310.0, 54.0, 90.0, 54.0, "DRONE", K::Q, false),
             ];
             if online {
                 v.push(b(r - 370.0, wh - 90.0, 100.0, 70.0, "TALK", K::V, true));

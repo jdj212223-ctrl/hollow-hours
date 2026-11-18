@@ -53,6 +53,8 @@ pub struct Sfx {
     pickup: Option<Sound>,
     door: Option<Sound>,
     radio: Option<Sound>,
+    sizzle: Option<Sound>,
+    sizzle_on: bool,
     pub on: bool,
     wind_on: bool,
 }
@@ -89,10 +91,20 @@ impl Sfx {
         });
         let pickup = gen(0.18, |t, _| 0.4 * (TAU * (880.0 + 1200.0 * t) * t).sin() * (-t * 18.0).exp());
         let door = gen(0.8, |t, r| 0.25 * (TAU * (180.0 + 90.0 * (TAU * 3.0 * t).sin()) * t).sin() * (1.0 - t / 0.8) + 0.05 * r.next());
+        // Frying: hissing noise with little fat pops.
+        let sizzle = {
+            let mut last = 0.0;
+            gen(3.0, move |t, r| {
+                let n = r.next();
+                last = last * 0.4 + n * 0.6; // brighter noise
+                let pop = if (t * 37.0).fract() < 0.01 && r.next() > 0.3 { r.next() * 0.8 } else { 0.0 };
+                (last * 0.22 + pop) * (0.8 + 0.2 * (TAU * 0.7 * t).sin())
+            })
+        };
         let radio = gen(0.35, |t, r| r.next() * 0.35 * (1.0 - t / 0.35) * if ((t * 60.0) as i32) % 3 == 0 { 1.0 } else { 0.3 });
         Sfx {
             hum: s(hum).await, wind: s(wind).await, heart: s(heart).await, step: s(step).await, sting: s(sting).await,
-            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, on: true, wind_on: false,
+            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, on: true, wind_on: false,
         }
     }
 
@@ -114,6 +126,12 @@ impl Sfx {
     pub fn pickup(&self) { self.once(&self.pickup, 0.5); }
     pub fn door(&self) { self.once(&self.door, 0.5); }
     pub fn radio(&self) { self.once(&self.radio, 0.4); }
+    /// Frying on the stove (loops until turned off).
+    pub fn sizzle(&mut self, on: bool) {
+        let Some(s) = &self.sizzle else { return };
+        if on && !self.sizzle_on && self.on { play_sound(s, PlaySoundParams { looped: true, volume: 0.55 }); self.sizzle_on = true; }
+        if !on && self.sizzle_on { stop_sound(s); self.sizzle_on = false; }
+    }
     /// Tornado wind while one is on your map.
     pub fn wind(&mut self, on: bool) {
         let Some(w) = &self.wind else { return };
@@ -122,8 +140,9 @@ impl Sfx {
     }
     /// Everything off (the panic key, or M to mute).
     pub fn silence(&mut self) {
-        for s in [&self.hum, &self.wind].into_iter().flatten() { stop_sound(s); }
+        for s in [&self.hum, &self.wind, &self.sizzle].into_iter().flatten() { stop_sound(s); }
         self.wind_on = false;
+        self.sizzle_on = false;
     }
     #[allow(dead_code)]
     pub fn play_once(s: &Sound) { play_sound_once(s); }

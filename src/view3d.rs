@@ -116,6 +116,7 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     draw_cube(center + vec3(0.0, 0.81, 0.0), vec3(0.98, 0.04, 0.98), None, fog.at(mul(wood, 1.25), center));
                 }
                 'm' => mac_studio(&fog, center, t),
+                's' => stove(&fog, center, t, g.fry_t > 0.0),
                 'L' => {
                     draw_cylinder(center, 0.03, 0.05, 1.3, None, fog.at(Color::new(0.25, 0.25, 0.27, 1.0), center));
                     draw_sphere(center + vec3(0.0, 1.35, 0.0), 0.16, None, Color::new(1.0, 0.85, 0.5, 1.0));
@@ -201,6 +202,25 @@ fn eyes(head: Vec3, r: f32, cam: Vec3, color: Color, size: f32) {
     let side = vec3(-to.z, 0.0, to.x);
     for s in [-1.0, 1.0] {
         draw_sphere(head + to * (r * 0.9) + side * (r * 0.38 * s) + vec3(0.0, r * 0.15, 0.0), size, None, color);
+    }
+}
+
+/// The stove: a dark cooker with four burners; glowing, with a pan and steam, while something's frying.
+fn stove(fog: &Fog, c: Vec3, t: f32, frying: bool) {
+    draw_cube(c + vec3(0.0, 0.45, 0.0), vec3(0.96, 0.9, 0.96), None, fog.at(Color::new(0.22, 0.22, 0.24, 1.0), c));
+    draw_cube(c + vec3(0.0, 0.91, 0.0), vec3(0.98, 0.03, 0.98), None, fog.at(Color::new(0.12, 0.12, 0.13, 1.0), c));
+    for (dx, dz) in [(-0.22, -0.22), (0.22, -0.22), (-0.22, 0.22), (0.22, 0.22)] {
+        let col = if frying && dx < 0.0 && dz < 0.0 { Color::new(1.0, 0.4 + 0.1 * (t * 9.0).sin(), 0.1, 1.0) } else { fog.at(Color::new(0.35, 0.35, 0.37, 1.0), c) };
+        draw_cylinder(c + vec3(dx, 0.93, dz), 0.12, 0.12, 0.01, None, col);
+    }
+    if frying {
+        let pan = c + vec3(-0.22, 0.95, -0.22);
+        draw_cylinder(pan, 0.18, 0.16, 0.05, None, Color::new(0.15, 0.15, 0.16, 1.0));
+        draw_cylinder(pan + vec3(0.0, 0.05, 0.0), 0.12, 0.12, 0.01, None, Color::new(0.95, 0.8, 0.4, 1.0));
+        for k in 0..5 {
+            let rise = ((t * 0.8 + k as f32 * 0.2) % 1.0) * 0.6;
+            draw_sphere(pan + vec3(((t + k as f32) * 2.0).sin() * 0.06, 0.1 + rise, ((t * 1.3 + k as f32) * 2.0).cos() * 0.06), 0.03 + rise * 0.04, None, Color::new(0.9, 0.9, 0.95, 0.35 * (1.0 - rise / 0.6)));
+        }
     }
 }
 

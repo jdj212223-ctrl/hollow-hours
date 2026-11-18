@@ -51,7 +51,7 @@ const BUILTIN: [Map; 4] = [
         name: "The cozy house",
         rows: [
             "##############################",
-            "#........m...#...............#",
+            "#ss......m...#...............#",
             "#..bb........#.......d.......#",
             "#..bb........#...............#",
             "#............#.......bbbb....#",
@@ -209,7 +209,7 @@ fn tile(m: usize, x: i32, y: i32) -> char {
 }
 
 fn solid(m: usize, x: f32, y: f32) -> bool {
-    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm')
+    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm' | 's')
 }
 
 /// Door letter → (map, where you arrive)
@@ -467,6 +467,9 @@ struct Game {
     stamina: f32,
     winded: bool,
     sprinting: bool,
+    /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
+    raw: u32,
+    fry_t: f32,
     /// Lending this computer's Claude to your phone (K on the title).
     pclink: Option<pclink::PcLink>,
     /// The login the phone link and lending were last set up with.
@@ -956,6 +959,7 @@ impl Game {
         self.scare_t = 0.0;
         self.vest.play(haptics::Effect::StopAll);
         self.sfx.silence();
+        self.fry_t = 0.0;
         self.voice.set_talking(None);
         self.meta.paused = true; // no more files, Terminal windows or window switching this session
         self.lost_control = false;
@@ -1235,6 +1239,8 @@ fn start_infection(g: &mut Game) {
             }
         }
     }
+    g.raw = 0;
+    g.fry_t = 0.0;
     g.log = vec!["You are the last human. Hide (H), find food and water, and stay away from green eyes.".into(),
         "The Marketplace (south door on the beach) has lots of food... and corrupted Helix robots.".into()];
     g.shop_t = 30.0;
@@ -1352,9 +1358,15 @@ fn update_infection(g: &mut Game, dt: f32) {
         if let Some(n) = &g.net {
             n.send(json!({"t": "pick", "map": im, "x": ip.x / T, "y": ip.y / T}));
         }
-        if water { g.water = (g.water + g.rules.supply_amount).min(1.0); } else { g.food = (g.food + g.rules.supply_amount).min(1.0); }
+        let raw = !water && map_name(im) == "The Marketplace" && rand::gen_range(0, 2) == 0;
         g.sfx.pickup();
-        g.log.push(if water { "You sip the water as quietly as you can.".into() } else { "You eat, trying not to crunch.".into() });
+        if raw {
+            g.raw += 1;
+            g.log.push(format!("Raw {}. Fry it on the stove at home (you have {}).", ["eggs", "meat", "fish"][rand::gen_range(0, 3)], g.raw));
+        } else {
+            if water { g.water = (g.water + g.rules.supply_amount).min(1.0); } else { g.food = (g.food + g.rules.supply_amount).min(1.0); }
+            g.log.push(if water { "You sip the water as quietly as you can.".into() } else { "You eat, trying not to crunch.".into() });
+        }
         let pos = g.pos;
         for c in g.chars.iter_mut().filter(|c| c.infected && c.map == here) {
             if c.pos.distance(pos) < if g.sneaking { 3.0 } else { 9.0 } * T {
@@ -1582,6 +1594,7 @@ fn shopping(g: &mut Game, dt: f32) {
             c.via = String::new();
             c.bubble_t = 4.0;
             g.food = (g.food + 0.35).min(1.0);
+            g.raw += 2;
             g.water = (g.water + 0.35).min(1.0);
             g.log.push(format!("{name} came back from the Marketplace with food and water!"));
             g.sfx.pickup();
@@ -1946,6 +1959,8 @@ async fn main() {
         fullscreen: false,
         server_max: 20,
         pclink: None,
+        raw: 0,
+        fry_t: 0.0,
         link_token: Some(String::new()), // anything but the real token: set up on the first frame
         stamina: 1.0,
         winded: false,
@@ -1983,6 +1998,14 @@ async fn main() {
         g.mac.tab = tab.parse().unwrap_or(0);
         if g.mac.tab == 1 { g.mac.open = Some(0); }
         if g.mac.tab == 0 { g.mac.input = "Hi Claude. Is this really a Mac Studio? What happened to everyone?".into(); mac::send(&mut g); }
+    } else if demo.as_deref() == Some("stove") {
+        // HOLLOW_DEMO=stove: at the stove with raw food, frying.
+        start_infection(&mut g);
+        g.pos = vec2(2.5, 2.6) * T;
+        g.yaw = -std::f32::consts::FRAC_PI_2;
+        g.pitch = -0.5;
+        g.raw = 2;
+        g.fry_t = 6.0;
     } else if demo.as_deref() == Some("intro") {
         begin_intro(&mut g, None);
     } else if demo.as_deref() == Some("market") {
@@ -2585,8 +2608,18 @@ fn update(g: &mut Game, dt: f32) {
                 g.log.push("Fluorescent lights hum. Somewhere a robot voice says: \"Welcome to Helix Market.\"".into());
             }
         }
-        // Talk: E next to someone (or sit down at the Mac Studio).
-        if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_mac(g) {
+        // The stove: E fries one raw food (if you have some and the pan is free).
+        if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_stove(g) {
+            if g.fry_t > 0.0 {
+                g.log.push("It's already in the pan. Stay close or it burns.".into());
+            } else if g.raw == 0 {
+                g.log.push("Nothing to fry. Raw food comes from the Marketplace.".into());
+            } else {
+                g.raw -= 1;
+                g.fry_t = 6.0;
+                g.log.push("You put it in the pan. It sizzles. LOUDLY.".into());
+            }
+        } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_mac(g) {
             g.screen = Screen::Mac;
             while get_char_pressed().is_some() {}
         } else if pressed(KeyCode::E) {
@@ -2659,6 +2692,7 @@ fn update(g: &mut Game, dt: f32) {
             g.log.push(format!("{} caught you. You wake up in the cozy house.", g.chars[i].name));
         }
     }
+    update_frying(g, dt);
     if g.scare_t > g.prev_scare + 0.2 { g.sfx.sting(); }
     if g.scare_t > 0.0 { g.scare_t -= dt; }
     g.prev_scare = g.scare_t;
@@ -2719,6 +2753,32 @@ fn update(g: &mut Game, dt: f32) {
         g.beat_t = 2.5;
     }
     if g.log.len() > 4 { g.log.remove(0); }
+}
+
+fn near_stove(g: &Game) -> bool {
+    let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
+    (-1..=1).any(|dy| (-1..=1).any(|dx| tile(g.map, px + dx, py + dy) == 's'))
+}
+
+/// Frying: loud (the infected can hear it), done after 6 seconds, burnt if you walk away.
+fn update_frying(g: &mut Game, dt: f32) {
+    if g.fry_t <= 0.0 { g.sfx.sizzle(false); return; }
+    g.sfx.sizzle(true);
+    g.noise = g.noise.max(1.2);
+    if !near_stove(g) {
+        g.fry_t = 0.0;
+        g.sfx.sizzle(false);
+        g.log.push("You left the pan. It burnt. That food's gone.".into());
+        return;
+    }
+    g.fry_t -= dt;
+    if g.fry_t <= 0.0 {
+        g.fry_t = 0.0;
+        g.sfx.sizzle(false);
+        g.sfx.pickup();
+        g.food = (g.food + 0.5).min(1.0);
+        g.log.push(format!("Hot food. You eat every bite. (+50% food{})", if g.raw > 0 { format!(", {} raw left", g.raw) } else { String::new() }));
+    }
 }
 
 fn near_mac(g: &Game) -> bool {
@@ -2796,6 +2856,13 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
                 draw_rectangle(px, py, T, T, col);
                 if drained && c != '#' && (x + y) % 2 == 0 { draw_rectangle(px, py, T, T, Color::new(1.0, 1.0, 1.0, 0.05)); }
                 if c == 'L' { draw_circle(px + T / 2.0, py + T / 2.0, 7.0, Color::new(1.0, 0.85, 0.5, 1.0)); }
+            if c == 's' {
+                draw_rectangle(px, py, T, T, Color::new(0.2, 0.2, 0.22, 1.0));
+                let hot = g.fry_t > 0.0;
+                for (bx, by) in [(8.0, 8.0), (24.0, 8.0), (8.0, 24.0), (24.0, 24.0)] {
+                    draw_circle(px + bx, py + by, 5.0, if hot { Color::new(1.0, 0.45, 0.1, 1.0) } else { Color::new(0.35, 0.35, 0.37, 1.0) });
+                }
+            }
             if c == 'm' {
                 draw_rectangle(px, py, T, T, Color::new(0.3, 0.22, 0.16, 1.0));
                 draw_rectangle(px + 4.0, py + 6.0, 16.0, 10.0, Color::new(0.85, 0.47, 0.32, 1.0));
@@ -2931,6 +2998,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         if let Some(p) = at(c.pos, 1.3) { bubble(&c.bubble, &c.via, p.x, p.y); }
     }
     let prompt = if let Some(i) = nearest(g, 2.2) { Some(format!("E: talk to {}", g.chars[i].name)) }
+        else if near_stove(g) { Some(if g.fry_t > 0.0 { format!("Frying... {:.0} s (don't walk away)", g.fry_t.ceil()) } else if g.raw > 0 { format!("E: fry food ({} raw)", g.raw) } else { "The stove (no raw food: get some at the Marketplace)".to_string() }) }
         else if near_mac(g) { Some("E: use the Mac Studio".to_string()) } else { None };
     if let (Some(t), Screen::Play) = (prompt, g.screen) {
         if g.view3d { draw_text(&t, sw / 2.0 - measure_text(&t, None, 20, 1.0).width / 2.0, sh / 2.0 + 70.0, 20.0, YELLOW); }
@@ -2951,6 +3019,14 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         draw_circle(sw / 2.0 + 70.0, sh / 2.0 - 30.0, 26.0, Color::new(1.0, 0.0, 0.0, k));
     }
 
+    if g.fry_t > 0.0 {
+        draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0, 6.0, Color::new(0.0, 0.0, 0.0, 0.5));
+        draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0 * (1.0 - g.fry_t / 6.0), 6.0, Color::new(1.0, 0.55, 0.15, 0.9));
+    }
+    if g.raw > 0 && g.infection {
+        let t = format!("raw food: {}", g.raw);
+        draw_text(&t, sw - measure_text(&t, None, 16, 1.0).width - 14.0, sh - 10.0, 16.0, Color::new(1.0, 0.7, 0.45, 0.9));
+    }
     // Stamina (only while it isn't full).
     if g.stamina < 0.999 && g.screen == Screen::Play {
         let col = if g.winded { Color::new(0.95, 0.35, 0.3, 0.9) } else { Color::new(0.95, 0.9, 0.6, 0.85) };

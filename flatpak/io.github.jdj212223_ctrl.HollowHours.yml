@@ -1,0 +1,28 @@
+# Hollow Hours as a Flatpak (Linux, SteamOS desktop mode). Packs the Linux build from GitHub Actions.
+# Inside the Flatpak the game can't start programs on your computer, so the real-Claude characters (the `claude`
+# command) and the meta terminal window don't work there; everything else does.
+app-id: io.github.jdj212223_ctrl.HollowHours
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: hollow-hours
+finish-args:
+  - --share=network          # online play, the website, AI models
+  - --share=ipc
+  - --socket=x11
+  - --socket=pulseaudio      # sound and voice chat
+  - --device=all             # the GPU and controllers
+  - --filesystem=xdg-desktop # the "Hollow Hours" folder on your Desktop (meta scares, only if you allow them)
+modules:
+  - name: hollow-hours
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: ../hollow-hours
+      - type: file
+        path: io.github.jdj212223_ctrl.HollowHours.desktop
+    build-commands:
+      - install -Dm755 hollow-hours /app/bin/hollow-hours
+      - install -Dm755 hh-mcp /app/bin/hh-mcp
+      - install -Dm644 hollow-hours.png /app/share/icons/hicolor/256x256/apps/io.github.jdj212223_ctrl.HollowHours.png
+      - install -Dm644 io.github.jdj212223_ctrl.HollowHours.desktop /app/share/applications/io.github.jdj212223_ctrl.HollowHours.desktop

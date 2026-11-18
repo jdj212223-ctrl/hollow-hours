@@ -18,10 +18,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # One app for Apple Silicon and Intel Macs.
           - os: macos-latest
             name: macOS
           - os: windows-latest
             name: Windows
+          # Snapdragon / Windows on ARM laptops, built natively.
+          - os: windows-11-arm
+            name: Windows-ARM64
           # An older Ubuntu, so the game also runs on older Linux and SteamOS (glibc 2.35+).
           - os: ubuntu-22.04
             name: Linux
@@ -36,15 +40,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev libudev-dev libx11-dev libxi-dev libgl1-mesa-dev
 
       - name: Build
+        if: runner.os != 'macOS'
         run: cargo build --release --locked
 
       - name: Tests that need no accounts or network
+        if: runner.os != 'macOS'
         run: cargo test --release --locked -- voice_round paths_go long_bubbles sessions_carry night_mall
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          sh macos/bundle.sh
+          UNIVERSAL=1 sh macos/bundle.sh
+          lipo -archs "Hollow Hours.app/Contents/MacOS/hollow-hours-game"
           ditto -c -k --keepParent "Hollow Hours.app" Hollow-Hours-macOS.zip
 
       - name: Package (Windows)
@@ -55,7 +62,8 @@ jobs:
           Copy-Item target/release/hollow-hours.exe "Hollow Hours/Hollow Hours.exe"
           Copy-Item target/release/hh-mcp.exe "Hollow Hours/hh-mcp.exe"
           Copy-Item windows/README.txt "Hollow Hours/README.txt"
-          Compress-Archive -Path "Hollow Hours" -DestinationPath Hollow-Hours-Windows.zip
+          $name = if ("${{ matrix.name }}" -eq "Windows-ARM64") { "Hollow-Hours-Windows-ARM64.zip" } else { "Hollow-Hours-Windows.zip" }
+          Compress-Archive -Path "Hollow Hours" -DestinationPath $name
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
@@ -78,3 +86,27 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "Hollow Hours $GITHUB_REF_NAME" --notes "Downloads for macOS, Windows and Linux (SteamOS)."
           gh release upload "$GITHUB_REF_NAME" Hollow-Hours-*.* --clobber
+
+  # The Linux build packed as a Flatpak.
+  flatpak:
+    needs: build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Hollow-Hours-Linux
+      - run: tar xzf Hollow-Hours-Linux-x86_64.tar.gz
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: Hollow-Hours.flatpak
+          manifest-path: flatpak/io.github.jdj212223_ctrl.HollowHours.yml
+          upload-artifact: true
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Hollow-Hours.flatpak

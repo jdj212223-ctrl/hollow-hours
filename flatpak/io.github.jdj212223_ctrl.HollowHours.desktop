@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Hollow Hours
+Comment=A small horror game where the characters are real AIs
+Exec=hollow-hours
+Icon=io.github.jdj212223_ctrl.HollowHours
+Terminal=false
+Categories=Game;

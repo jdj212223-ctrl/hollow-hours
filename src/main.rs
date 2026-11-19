@@ -32,6 +32,7 @@ mod lore;
 mod disguise;
 mod tts;
 mod pad;
+mod cutscene3d;
 
 use serde_json::json;
 
@@ -2079,105 +2080,13 @@ fn face_color(name: &str) -> Color {
     kind_characters().into_iter().find(|c| c.name == name).map(|c| c.color).unwrap_or(WHITE)
 }
 
-/// A big face leaning over you (from below), eyes looking at you or at whoever's talking.
-fn face(name: &str, x: f32, y: f32, r: f32, look: Vec2, talking: bool, alpha: f32) {
-    let col = face_color(name);
-    draw_circle(x, y, r, Color::new(col.r, col.g, col.b, alpha));
-    for s in [-1.0, 1.0] {
-        draw_circle(x + s * r * 0.31 + look.x, y - r * 0.09 + look.y, r * 0.11, Color::new(0.0, 0.0, 0.0, alpha));
-    }
-    if talking { draw_circle_lines(x, y, r + 6.0, 4.0, Color::new(1.0, 1.0, 1.0, 0.5 * alpha)); }
-    draw_text(name, x - measure_text(name, None, 22, 1.0).width / 2.0, y + r + 30.0, 22.0, Color::new(1.0, 1.0, 1.0, alpha));
-}
-
-/// A whole character standing (a body and a head), seen from your bed. Names above their heads.
-fn figure(name: &str, x: f32, head_y: f32, r: f32, look: Vec2, talking: bool, alpha: f32) {
-    let col = face_color(name);
-    let c = |k: f32| Color::new(col.r * k, col.g * k, col.b * k, alpha);
-    // The body, wider at the bottom, down past the bottom of the screen.
-    draw_triangle(vec2(x - r * 0.75, head_y + r * 0.7), vec2(x + r * 0.75, head_y + r * 0.7), vec2(x - r * 1.25, VH + 40.0), c(0.85));
-    draw_triangle(vec2(x + r * 0.75, head_y + r * 0.7), vec2(x + r * 1.25, VH + 40.0), vec2(x - r * 1.25, VH + 40.0), c(0.85));
-    draw_circle(x, head_y + r * 0.75, r * 0.75, c(0.85));
-    draw_circle(x, head_y, r, c(1.0));
-    for side in [-1.0, 1.0] {
-        draw_circle(x + side * r * 0.31 + look.x, head_y - r * 0.09 + look.y, r * 0.11, Color::new(0.0, 0.0, 0.0, alpha));
-    }
-    if talking { draw_circle_lines(x, head_y, r + 6.0, 4.0, Color::new(1.0, 1.0, 1.0, 0.5 * alpha)); }
-    draw_text(name, x - measure_text(name, None, 22, 1.0).width / 2.0, head_y - r - 14.0, 22.0, Color::new(1.0, 1.0, 1.0, alpha));
-}
-
-fn draw_bedroom(t: f32, who: &str, i: usize) {
-    // The bedroom wall, a night window, a warm lamp.
-    clear_background(Color::new(0.26, 0.19, 0.15, 1.0));
-    draw_rectangle(-margin(), 400.0, vw(), VH - 400.0, Color::new(0.19, 0.13, 0.1, 1.0));
-    draw_rectangle(400.0, 60.0, 160.0, 120.0, Color::new(0.05, 0.08, 0.18, 1.0));
-    for k in 0..12u32 {
-        let h = k.wrapping_mul(2654435761);
-        draw_circle(405.0 + (h % 150) as f32, 65.0 + ((h / 150) % 110) as f32, 1.2, Color::new(0.85, 0.85, 1.0, 0.6));
-    }
-    draw_rectangle_lines(400.0, 60.0, 160.0, 120.0, 6.0, Color::new(0.35, 0.25, 0.18, 1.0));
-    draw_line(480.0, 60.0, 480.0, 180.0, 4.0, Color::new(0.35, 0.25, 0.18, 1.0));
-    draw_circle(110.0, 170.0, 110.0, Color::new(1.0, 0.8, 0.5, 0.07));
-    draw_circle(110.0, 170.0, 14.0, Color::new(1.0, 0.88, 0.6, 1.0));
-    let sway = |x: f32| (t * 0.8 + x * 0.01).sin() * 4.0;
-    let look_at = |me: f32| -> Vec2 {
-        let target = match who { "Opus 5.5" => 170.0, "Sonnet 4.6" => 790.0, "Claude" => 480.0, _ => me };
-        if who == "You" || (target - me).abs() < 1.0 { vec2(0.0, 8.0) } else { vec2((target - me).signum() * 7.0, 4.0) }
-    };
-    // Claude at the foot of the bed (once it walks in), behind the foot board.
-    if i >= 10 {
-        let a = ((t - WAKE - 10.0 * LINE) / 1.5).clamp(0.0, 1.0);
-        let x = 480.0 + (1.0 - a) * 160.0;
-        figure("Claude", x, 300.0 + sway(x), 52.0, look_at(x), who == "Claude", a);
-    }
-    // The bed: the foot board, and your blanket stretching away from you.
-    let wood = Color::new(0.33, 0.22, 0.15, 1.0);
-    draw_rectangle(320.0, 440.0, 320.0, 34.0, wood);
-    for x in [312.0, 632.0] { draw_rectangle(x, 410.0, 16.0, 70.0, wood); }
-    let blanket = Color::new(0.86, 0.84, 0.8, 1.0);
-    draw_triangle(vec2(330.0, 472.0), vec2(630.0, 472.0), vec2(180.0, VH), blanket);
-    draw_triangle(vec2(630.0, 472.0), vec2(780.0, VH), vec2(180.0, VH), blanket);
-    for k in 0..3 {
-        let y = 520.0 + k as f32 * 45.0;
-        let w = 160.0 + k as f32 * 50.0 + (t * 0.7).sin() * 3.0;
-        draw_line(480.0 - w, y, 480.0 + w, y + 4.0, 2.0, Color::new(0.72, 0.7, 0.66, 1.0));
-    }
-    // Opus on your left, Sonnet on your right, close, leaning in.
-    figure("Opus 5.5", 170.0, 250.0 + sway(170.0), 78.0, look_at(170.0), who == "Opus 5.5", 1.0);
-    figure("Sonnet 4.6", 790.0, 255.0 + sway(790.0), 78.0, look_at(790.0), who == "Sonnet 4.6", 1.0);
-}
-
 /// Draws the story at g.intro_t. True when it's over.
-fn draw_intro(g: &mut Game) -> bool {
+fn draw_intro(g: &mut Game, view: &RenderTarget, cam: &Camera2D) -> bool {
     let t = g.intro_t;
     let cue = |g: &mut Game, bit: u32| { let first = g.intro_cue & bit == 0; g.intro_cue |= bit; first };
     if t < 11.0 {
-        // A park at night: stars, a street lamp, a bench, you, and a little orange bottle.
-        clear_background(Color::new(0.03, 0.04, 0.09, 1.0));
-        for i in 0..60u32 {
-            let h = i.wrapping_mul(2654435761);
-            let (x, y) = ((h % 960) as f32, ((h / 960) % 330) as f32);
-            let tw = 0.5 + 0.5 * (t * 1.5 + i as f32).sin();
-            draw_circle(x, y, 1.2, Color::new(0.9, 0.9, 1.0, 0.3 + 0.5 * tw));
-        }
-        draw_rectangle(-margin(), 470.0, vw(), VH - 470.0, Color::new(0.05, 0.09, 0.06, 1.0));
-        draw_rectangle(700.0, 200.0, 8.0, 270.0, Color::new(0.2, 0.2, 0.22, 1.0));
-        draw_rectangle(680.0, 192.0, 48.0, 12.0, Color::new(0.25, 0.25, 0.27, 1.0));
-        draw_triangle(vec2(704.0, 204.0), vec2(560.0, 470.0), vec2(860.0, 470.0), Color::new(1.0, 0.85, 0.5, 0.045));
-        draw_circle(704.0, 208.0, 7.0, Color::new(1.0, 0.88, 0.6, 1.0));
-        let wood = Color::new(0.35, 0.24, 0.16, 1.0);
-        draw_rectangle(380.0, 420.0, 260.0, 12.0, wood);
-        draw_rectangle(380.0, 380.0, 260.0, 10.0, wood);
-        draw_rectangle(380.0, 396.0, 260.0, 10.0, wood);
-        for x in [395.0, 615.0] { draw_rectangle(x, 432.0, 8.0, 38.0, Color::new(0.15, 0.15, 0.16, 1.0)); }
-        // You, slumping a little more as the pills kick in.
-        let slump = ((t - 5.0) / 6.0).clamp(0.0, 1.0) * 14.0;
-        draw_rectangle(492.0, 372.0 + slump * 0.3, 30.0, 50.0, Color::new(0.3, 0.35, 0.5, 1.0));
-        draw_circle(507.0 + slump, 360.0 + slump, 14.0, Color::new(0.93, 0.8, 0.7, 1.0));
-        // The bottle: Helix SleepWell MAX.
-        draw_rectangle(545.0, 400.0, 14.0, 20.0, Color::new(0.95, 0.55, 0.15, 1.0));
-        draw_rectangle(544.0, 396.0, 16.0, 5.0, WHITE);
-        draw_text("HELIX", 542.0, 392.0, 11.0, Color::new(0.4, 0.95, 0.85, 0.9));
+        // A park at night, in 3D: a slow push toward you on the bench as the pills kick in.
+        cutscene3d::park(view, cam, t, ((t - 5.0) / 6.0).clamp(0.0, 1.0));
         if t < 4.5 { caption("", "You hadn't slept in weeks.", t, WHITE); }
         else if t < 9.0 { caption("", "So you took the pills on a park bench. Helix SleepWell MAX: \"the strongest sleep ever made.\" Just to rest your eyes.", t - 4.5, WHITE); }
         eyelids(((t - 8.0) / 3.0).powf(1.5));
@@ -2187,18 +2096,8 @@ fn draw_intro(g: &mut Game) -> bool {
     } else if t < 20.0 {
         // Your eyes flutter open a crack: the night sky moving... someone is carrying you.
         let k = t - 13.0;
-        let sway = (t * 3.2).sin();
-        clear_background(Color::new(0.02, 0.03, 0.08, 1.0));
-        for i in 0..70u32 {
-            let h = i.wrapping_mul(2246822519);
-            let x = ((h % 1400) as f32 - k * 60.0).rem_euclid(1400.0) - 220.0;
-            let y = ((h / 1400) % 660) as f32;
-            draw_circle(x, y + sway * 6.0, 1.3, Color::new(0.85, 0.85, 1.0, 0.5));
-        }
         let speaking = if k < 2.5 { "Claude" } else if k < 4.5 { "Opus 5.5" } else { "Sonnet 4.6" };
-        face("Sonnet 4.6", 250.0 + sway * 8.0, 210.0, 120.0, vec2(8.0, 10.0), speaking == "Sonnet 4.6", 0.85);
-        face("Claude", VW / 2.0 + sway * 5.0, 150.0, 140.0, vec2(0.0, 12.0), speaking == "Claude", 0.9);
-        face("Opus 5.5", 710.0 + sway * 8.0, 220.0, 120.0, vec2(-8.0, 10.0), speaking == "Opus 5.5", 0.85);
+        cutscene3d::carried(view, cam, k, speaking);
         // Blurry: a dark haze over everything.
         draw_rectangle(-margin(), 0.0, vw(), VH, Color::new(0.0, 0.0, 0.02, 0.35));
         if k < 2.5 { caption("Claude (muffled)", "Got them. Careful with their head.", k, face_color("Claude")); }
@@ -2238,30 +2137,16 @@ fn draw_intro(g: &mut Game) -> bool {
         if (7..=9).contains(&i) {
             // ASTRA 9.1: a tall robot, its visor glowing the infected green.
             if cue(g, 4) { g.sfx.radio(); }
-            clear_background(Color::new(0.02, 0.03, 0.03, 1.0));
             let green = g.rules.eye;
-            for k in 0..40 {
-                let h = (k as u32).wrapping_mul(2246822519);
-                let x = (h % 960) as f32;
-                let y = ((h / 960) % 660) as f32 - ((t * 40.0 + k as f32 * 13.0) % 660.0);
-                draw_rectangle(x, y.rem_euclid(660.0), 2.0, 8.0, Color::new(green.r, green.g, green.b, 0.25));
-            }
-            let body = Color::new(0.18, 0.19, 0.21, 1.0);
-            draw_rectangle(430.0, 120.0, 100.0, 90.0, body);
-            draw_rectangle(442.0, 150.0, 76.0, 14.0, Color::new(green.r, green.g, green.b, 0.6 + 0.4 * (t * 6.0).sin().abs()));
-            draw_rectangle(470.0, 210.0, 20.0, 20.0, body);
-            draw_rectangle(400.0, 230.0, 160.0, 170.0, body);
-            draw_rectangle(372.0, 240.0, 24.0, 140.0, body);
-            draw_rectangle(564.0, 240.0, 24.0, 140.0, body);
-            draw_rectangle(420.0, 400.0, 50.0, 110.0, body);
-            draw_rectangle(490.0, 400.0, 50.0, 110.0, body);
-            centered("ASTRA 9.1", 80.0, 30.0, green);
+            cutscene3d::astra(view, cam, t, green);
+            centered("ASTRA 9.1", 70.0, 30.0, green);
             centered("HELIX DYNAMICS INC.", 104.0, 16.0, Color::new(0.55, 0.6, 0.6, 1.0));
         } else {
             // Waking up in your bed: the blanket to the foot of the bed, Opus on your left, Sonnet on your right,
             // and Claude (once it walks in) at the foot of the bed, in the middle.
             if cue(g, 8) { g.sfx.heart(0.8); }
-            draw_bedroom(t, who, i);
+            let claude_in = if i >= 10 { Some(((t - WAKE - 10.0 * LINE) / 1.5).clamp(0.0, 1.0)) } else { None };
+            cutscene3d::bedroom(view, cam, t, who, claude_in);
             if t < WAKE + 0.5 {
                 let k = (t - 26.0) / 3.0;
                 eyelids(1.0 - k + 0.35 * (k * 9.0).sin().max(0.0));
@@ -2875,7 +2760,7 @@ async fn main() {
             }
             Screen::Intro => {
                 g.intro_t += dt;
-                let done = draw_intro(&mut g);
+                let done = draw_intro(&mut g, &view, &cam);
                 if done || pressed(KeyCode::Space) || pressed(KeyCode::Enter) { finish_intro(&mut g); }
                 if pressed(KeyCode::Escape) { g.intro_join = None; g.screen = Screen::Title; }
             }

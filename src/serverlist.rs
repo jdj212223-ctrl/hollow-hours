@@ -2,7 +2,8 @@
 //! Addresses: a server on the official site has one like "officialsmp"; a self-hosted one is its own host
 //! ("hh.example.com"); old room codes still work. Tab switches to Browse (the public list) to find new ones.
 //!
-//!   Up/Down choose · Enter join · A add · E edit · D delete · R refresh · Tab browse · N make a server · Esc back
+//!   Up/Down or W/S choose · Enter join · N new · E edit · Delete twice = remove · R refresh · Tab browse ·
+//!   M make a server · Esc back   (no action sits on A or D: walking muscle memory can't delete anything)
 
 use super::*;
 use std::collections::HashMap;
@@ -31,6 +32,8 @@ pub struct List {
     browse: bool,
     pub edit: Option<Edit>,
     msg: String,
+    /// Delete was pressed once on this entry: press again to remove it.
+    confirm_delete: Option<usize>,
 }
 
 fn file() -> std::path::PathBuf { platform::data_dir().join("servers.json") }
@@ -135,7 +138,7 @@ pub fn screen(g: &mut Game) {
     let n = rows.len();
     g.servers.sel = g.servers.sel.min(n.saturating_sub(1));
     if n == 0 {
-        draw_text(if g.servers.browse { "No public servers right now." } else { "No saved servers. A = add one (type its address)." }, 60.0, 160.0, 22.0, soft);
+        draw_text(if g.servers.browse { "No public servers right now." } else { "No saved servers. N = add one (type its address)." }, 60.0, 160.0, 22.0, soft);
     }
     let first = g.servers.sel.saturating_sub(6);
     for (i, (name, addr, status, col)) in rows.iter().enumerate().skip(first).take(7) {
@@ -145,13 +148,16 @@ pub fn screen(g: &mut Game) {
         draw_text(addr, 66.0, y + 44.0, 17.0, soft);
         draw_text(status, VW - 70.0 - measure_text(status, None, 18, 1.0).width, y + 22.0, 18.0, *col);
     }
-    draw_text(if g.servers.browse { "Up/Down · Enter join · S save to My servers · R refresh · Tab my servers · Esc back" }
-        else { "Up/Down · Enter join · A add · E edit · D delete · R refresh · Tab browse · N make a server · Esc back" }, 60.0, VH - 60.0, 18.0, soft);
+    draw_text(if g.servers.browse { "W/S or arrows · Enter join · F save to My servers · R refresh · Tab my servers · Esc back" }
+        else { "W/S or arrows · Enter join · N new · E edit · Delete (twice) remove · R refresh · Tab browse · M make one · Esc back" }, 60.0, VH - 60.0, 18.0, soft);
     let msg = if g.servers.msg.is_empty() { g.status.clone() } else { g.servers.msg.clone() };
     draw_text(&msg, 60.0, VH - 30.0, 18.0, Color::new(1.0, 0.75, 0.4, 1.0));
 
-    if pressed(KeyCode::Down) && n > 0 { g.servers.sel = (g.servers.sel + 1) % n; }
-    if pressed(KeyCode::Up) && n > 0 { g.servers.sel = (g.servers.sel + n - 1) % n; }
+    let (down, up) = (pressed(KeyCode::Down) || pressed(KeyCode::S), pressed(KeyCode::Up) || pressed(KeyCode::W));
+    if (down || up) && n > 0 {
+        g.servers.sel = if down { (g.servers.sel + 1) % n } else { (g.servers.sel + n - 1) % n };
+        g.servers.confirm_delete = None;
+    }
     if pressed(KeyCode::Tab) {
         g.servers.browse = !g.servers.browse;
         g.servers.sel = 0;
@@ -159,13 +165,13 @@ pub fn screen(g: &mut Game) {
     }
     if pressed(KeyCode::R) { if g.servers.browse { refresh_servers(g); } else { refresh(g); } }
     if pressed(KeyCode::Escape) { g.servers.msg.clear(); g.screen = Screen::Title; return; }
-    if pressed(KeyCode::N) {
+    if pressed(KeyCode::M) {
         if g.account.is_some() { g.room_input = format!("{}'s server", g.my_name); while get_char_pressed().is_some() {} g.screen = Screen::MakeServer; }
         else { g.servers.msg = "Log in first (L on the title screen).".into(); }
     }
     let sel = g.servers.sel;
     if g.servers.browse {
-        if pressed(KeyCode::S) {
+        if pressed(KeyCode::F) {
             if let Some(s) = g.server_list.get(sel).cloned() {
                 let address = s["slug"].as_str().or(s["code"].as_str()).unwrap_or("").to_string();
                 if !g.servers.entries.iter().any(|e| e.address == address) {
@@ -183,12 +189,18 @@ pub fn screen(g: &mut Game) {
         }
         return;
     }
-    if pressed(KeyCode::A) { open_edit(g, None); return; }
+    if pressed(KeyCode::N) { open_edit(g, None); return; }
     if pressed(KeyCode::E) && n > 0 { open_edit(g, Some(sel)); return; }
-    if pressed(KeyCode::D) && n > 0 {
-        let gone = g.servers.entries.remove(sel);
-        g.servers.save();
-        g.servers.msg = format!("Removed {} (A adds it back: {}).", gone.name, gone.address);
+    if (pressed(KeyCode::Delete) || pressed(KeyCode::Backspace)) && n > 0 {
+        if g.servers.confirm_delete == Some(sel) {
+            let gone = g.servers.entries.remove(sel);
+            g.servers.save();
+            g.servers.confirm_delete = None;
+            g.servers.msg = format!("Removed {} (N adds it back: {}).", gone.name, gone.address);
+        } else {
+            g.servers.confirm_delete = Some(sel);
+            g.servers.msg = format!("Press Delete again to remove {}.", g.servers.entries[sel].name);
+        }
     }
     if pressed(KeyCode::Enter) && n > 0 {
         let e = g.servers.entries[sel].clone();

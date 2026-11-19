@@ -2326,7 +2326,7 @@ async fn main() {
                 if pressed(KeyCode::I) { begin_intro(&mut g, None); }
                 if pressed(KeyCode::M) { g.screen = Screen::Consent; }
                 if pressed(KeyCode::O) { settings::open(&mut g, false); }
-                if pressed(KeyCode::S) { serverlist::refresh(&mut g); refresh_servers(&mut g); g.screen = Screen::Servers; }
+                if pressed(KeyCode::B) { serverlist::refresh(&mut g); refresh_servers(&mut g); g.screen = Screen::Servers; }
                 if pressed(KeyCode::L) {
                     if g.account.is_some() {
                         g.account = None;
@@ -3408,7 +3408,7 @@ fn draw_title(g: &Game) {
         "  3  Many phobias: pick what scares you (and switch off what you can't handle)".into(),
         "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
         "  I  watch the story (ASTRA 9.1, one year later)      O  SETTINGS (sound, voice, accessibility, keys)".into(),
-        "  J  INFECTION ONLINE: play with friends (type the same room code)   S  server list   (needs a login)".into(),
+        "  J  INFECTION ONLINE: join by address (officialsmp)   B  your server list   (needs a login)".into(),
         match &g.account {
             Some(a) if pad::touch_mode() => format!("  Logged in as {}.  Real Claude: turn on K on your computer (same account)", a.name),
             Some(a) => format!("  Logged in as {} (L to log out)   K  lend Claude to your phone: {}", a.name,

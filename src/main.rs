@@ -33,6 +33,7 @@ mod disguise;
 mod tts;
 mod pad;
 mod cutscene3d;
+mod passage;
 
 use serde_json::json;
 
@@ -671,6 +672,10 @@ struct Game {
     grabbed: bool,
     /// The mouse was captured before a chat or menu: capture it again when you're back in the game.
     regrab: bool,
+    /// Going up/down stairs or through a door right now (no teleporting).
+    pass: Option<passage::Pass>,
+    /// Just came out of stairs or a door.
+    arrive: Option<passage::Arrive>,
     last_mouse: Vec2,
     /// The Mac Studio on the desk.
     mac: mac::Mac,
@@ -2335,6 +2340,8 @@ async fn main() {
         pitch: 0.0,
         grabbed: false,
         regrab: false,
+        pass: None,
+        arrive: None,
         last_mouse: Vec2::ZERO,
         mac: mac::Mac::default(),
         fullscreen: false,
@@ -2424,6 +2431,21 @@ async fn main() {
         g.pitch = -0.5;
         g.raw = 2;
         g.fry_t = 6.0;
+    } else if let Some(spot) = demo.as_deref().filter(|d| ["stairs", "basement", "door"].contains(&d.trim_end_matches("-go"))) {
+        // HOLLOW_DEMO=stairs / basement / door (add -go to walk through): in front of the stairs up, the stairs down,
+        // or the door to the park.
+        start_infection(&mut g);
+        let (at, yaw) = match spot.trim_end_matches("-go") {
+            "stairs" => (vec2(10.3, 16.5), 0.0),
+            "basement" => (vec2(26.0, 16.5), 0.0),
+            _ => (vec2(2.6, 10.5), std::f32::consts::PI),
+        };
+        g.pos = at * T;
+        g.yaw = yaw;
+        g.pitch = if spot.starts_with("basement") { -0.35 } else { 0.05 };
+        if spot.ends_with("-go") {
+            g.ai = Some(AiMove { dir: vec2(yaw.cos(), yaw.sin()), goto: None, sneak: false, t: 3.0 });
+        }
     } else if demo.as_deref() == Some("intro") {
         begin_intro(&mut g, None);
     } else if demo.as_deref() == Some("market") {
@@ -3009,6 +3031,7 @@ fn update(g: &mut Game, dt: f32) {
     } else if g.voice.talking.is_some() {
         g.voice.set_talking(None);
     }
+    if g.screen == Screen::Play { passage::update(g, dt); } else { g.pass = None; }
     if g.screen == Screen::Play && !g.hidden && !g.lost_control {
         let mut d = Vec2::ZERO;
         if g.view3d {
@@ -3058,6 +3081,7 @@ fn update(g: &mut Game, dt: f32) {
             if d != Vec2::ZERO && g.rest_t > 0.4 { wake_up(g, "You get up."); }
             d = Vec2::ZERO;
         }
+        if g.pass.is_some() { d = Vec2::ZERO; }
         // The drone: Q launches it or calls it back; while it flies, your keys fly it and you stand still.
         if pressed(KeyCode::Q) && g.infection { drone::toggle(g); }
         if g.down_t > 0.0 { d = Vec2::ZERO; } // knocked flat after a dropkick
@@ -3089,23 +3113,10 @@ fn update(g: &mut Game, dt: f32) {
             g.sfx.step(!g.sneaking);
             g.step_t = if g.sneaking { 0.55 } else if g.sprinting { 0.2 } else { 0.32 };
         }
-        let here = tile(g.map, (g.pos.x / T) as i32, (g.pos.y / T) as i32);
-        if let Some((m, at)) = door(here, g.map) {
-            let (from_map, from_pos) = (g.map, g.pos);
-            g.map = m;
-            g.pos = at * T;
-            learn::followed_through_door(g, from_map, from_pos, m, at);
-            // Walk in facing the middle of the new place.
-            let to = vec2(MW as f32 / 2.0, MH as f32 / 2.0) - at;
-            g.yaw = to.y.atan2(to.x);
-            g.log.push(format!("You walk into {}.", map_name(m)));
-            if map_name(m) == "The Helix Lab" && g.infection {
-                g.log.push("The air hums. In the middle of the room: a tall glass pod. Empty.".into());
-                meta_event(g, MetaEvent::Lab);
-            }
-            if map_name(m) == "The Marketplace" && g.infection {
-                g.log.push("Fluorescent lights hum. Somewhere a robot voice says: \"Welcome to Helix Market.\"".into());
-            }
+        // Stairs and doors: you climb / step through them (see passage.rs), no popping to the other side.
+        let (tx, ty) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
+        if g.pass.is_none() {
+            if let Some((m, at)) = door(tile(g.map, tx, ty), g.map) { passage::start(g, tx, ty, m, at); }
         }
         // The stove: E fries one raw food (if you have some and the pan is free).
         if g.resting {
@@ -3461,6 +3472,24 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
                 draw_rectangle(px, py, T, T, col);
                 if drained && c != '#' && (x + y) % 2 == 0 { draw_rectangle(px, py, T, T, Color::new(1.0, 1.0, 1.0, 0.05)); }
                 if c == 'L' { draw_circle(px + T / 2.0, py + T / 2.0, 7.0, Color::new(1.0, 0.85, 0.5, 1.0)); }
+                if c.is_ascii_uppercase() {
+                    match passage::tile_kind(g.map, x as i32, y as i32) {
+                        Some(passage::Kind::Stairs { up }) => {
+                            // Stairs: steps getting lighter (up) or darker (down).
+                            draw_rectangle(px, py, T, T, Color::new(0.4, 0.28, 0.18, 1.0));
+                            for k in 0..4 {
+                                let v = if up { 0.6 + k as f32 * 0.12 } else { 0.9 - k as f32 * 0.2 };
+                                draw_rectangle(px + 2.0, py + 2.0 + k as f32 * 7.0, T - 4.0, 5.0, Color::new(0.5 * v, 0.36 * v, 0.24 * v, 1.0));
+                            }
+                        }
+                        Some(passage::Kind::Door) => {
+                            let open = passage::door_open(g, x as i32, y as i32);
+                            draw_rectangle(px, py, T, T, Color::new(0.38 * (1.0 - open * 0.6), 0.25 * (1.0 - open * 0.6), 0.16 * (1.0 - open * 0.6), 1.0));
+                            draw_circle(px + T * 0.72, py + T / 2.0, 3.0, Color::new(0.85, 0.72, 0.35, 1.0));
+                        }
+                        _ => {}
+                    }
+                }
             if c == 't' { draw_rectangle(px + 5.0, py + 6.0, T - 10.0, 12.0, Color::new(0.3, 0.95, 0.5, 0.8)); }
             if c == '=' { for k in [8.0, 22.0] { draw_rectangle(px, py + k, T, 3.0, Color::new(0.55, 0.55, 0.58, 1.0)); } }
             if c == '*' { draw_circle(px + T / 2.0, py + T / 2.0, T * 0.55, Color::new(0.15, 0.38, 0.17, 1.0)); }
@@ -3644,6 +3673,9 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
             }
         }
     }
+    // Going through a door / up the stairs: a short blink between places.
+    let f = passage::fade(g);
+    if f > 0.0 { draw_rectangle(-margin(), 0.0, vw(), sh, Color::new(0.0, 0.0, 0.0, f)); }
     // Captions (accessibility): what you'd hear, as text.
     let caps = g.sfx.recent_captions();
     for (k, c) in caps.iter().rev().enumerate() {

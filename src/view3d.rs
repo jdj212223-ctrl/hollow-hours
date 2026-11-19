@@ -16,7 +16,7 @@ pub fn camera(g: &Game, target: Option<RenderTarget>) -> Camera3D {
     let bob = if calm { 0.0 } else { (g.clock * 9.0).sin() * 0.035 * g.noise };
     let shake = if g.fear > 0.75 && !calm { rand::gen_range(-0.015, 0.015) } else { 0.0 };
     let eye = if g.drone.is_some() { 1.55 + 0.03 * (g.clock * 7.0).sin() } else if g.hidden { 0.45 } else { EYE } + bob + shake;
-    let pos = vec3(p.x, eye, p.y);
+    let pos = vec3(p.x, eye + super::passage::lift(g), p.y);
     let look = vec3(g.yaw.cos() * g.pitch.cos(), g.pitch.sin(), g.yaw.sin() * g.pitch.cos());
     Camera3D {
         position: pos,
@@ -114,11 +114,16 @@ pub fn render(g: &Game, view: &RenderTarget) {
                 }
                 _ => {
                     let f = if c == ',' { Color::new(floor.r * 1.1, floor.g * 1.05, floor.b * 0.9, 1.0) } else { floor };
-                    let f = if c.is_ascii_uppercase() { Color::new(0.9, 0.82, 0.45, 1.0) } else { mul(f, checker) };
-                    draw_plane(center, vec2(0.5, 0.5), None, fog.at(f, center));
+                    let way = if c.is_ascii_uppercase() { super::passage::tile_kind(m, x as i32, y as i32) } else { None };
+                    let f = if way == Some(super::passage::Kind::Path) { Color::new(0.9, 0.82, 0.45, 1.0) } else { mul(f, checker) };
+                    // A stairwell down has no floor (its steps go below).
+                    if way != Some(super::passage::Kind::Stairs { up: false }) {
+                        draw_plane(center, vec2(0.5, 0.5), None, fog.at(f, center));
+                    }
                 }
             }
-            if inside && c != '#' {
+            let stair_up = c.is_ascii_uppercase() && super::passage::tile_kind(m, x as i32, y as i32) == Some(super::passage::Kind::Stairs { up: true });
+            if inside && c != '#' && !stair_up {
                 draw_plane(center + vec3(0.0, WALL_H, 0.0), vec2(0.5, 0.5), None, fog.at(mul(wall, 0.55), center + vec3(0.0, WALL_H, 0.0)));
             }
             match c {
@@ -177,8 +182,20 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     eyes(head, 0.14, cam.position, BLACK, 0.025);
                 }
                 c if c.is_ascii_uppercase() => {
-                    // A doorway: a faint column of warm light.
-                    draw_cube(center + vec3(0.0, WALL_H / 2.0, 0.0), vec3(0.98, WALL_H, 0.98), None, Color::new(1.0, 0.85, 0.45, 0.12));
+                    use super::passage::{self, Kind};
+                    let (xi, yi) = (x as i32, y as i32);
+                    let side = passage::facing(m, xi, yi);
+                    match passage::tile_kind(m, xi, yi) {
+                        Some(Kind::Stairs { up }) => passage::draw_stairs(center, side, up, wall, |c, p| fog.at(c, p)),
+                        Some(Kind::Door) => {
+                            let outside = if inside { Color::new(0.05, 0.08, 0.16, 1.0) } else { Color::new(0.45, 0.32, 0.22, 1.0) };
+                            passage::draw_door(center, side, passage::door_open(g, xi, yi), wall, outside, |c, p| fog.at(c, p));
+                        }
+                        _ => {
+                            // An open path onward: a faint column of warm light.
+                            draw_cube(center + vec3(0.0, WALL_H / 2.0, 0.0), vec3(0.98, WALL_H, 0.98), None, Color::new(1.0, 0.85, 0.45, 0.12));
+                        }
+                    }
                 }
                 _ => {}
             }

@@ -1,4 +1,3 @@
-// A copy of server/src/console.js (keep them the same).
 // Server console commands, shared by the website's Console page (rooms on the official server) and the terminal of
 // a self-hosted server (selfhost/console.mjs is a copy of this file). Plain text in, lines of text out.
 //
@@ -13,6 +12,7 @@
 //   mutes                   who's muted
 //   say <message>           a message from the server to everyone in the game
 //   stop [reason]           disconnect everyone
+//   wipe confirm            disconnect everyone AND clear bans, mutes and the log (a fresh server)
 
 export const HELP = [
   "help                   this list",
@@ -26,6 +26,7 @@ export const HELP = [
   "mutes                  who's muted",
   "say <message>          a message from the server to everyone",
   "stop [reason]          disconnect everyone",
+  "wipe confirm           a full reset: disconnect everyone, clear bans, mutes and the log",
 ];
 
 /**
@@ -99,6 +100,17 @@ export function runCommand(line, s) {
       if (!arg) return ["say what?"];
       s.say(arg.slice(0, 200));
       return [`[server] ${arg.slice(0, 200)}`];
+    case "wipe": case "reset": {
+      if (arg.trim().toLowerCase() !== "confirm") {
+        return ["This disconnects everyone and clears every ban, mute and the whole log.", `Sure? Type: ${cmd} confirm`];
+      }
+      const n = players.length;
+      s.stop("the server was reset");
+      for (const k of Object.keys(s.bans)) delete s.bans[k];
+      for (const k of Object.keys(s.mutes)) delete s.mutes[k];
+      s.wipe?.();
+      return [`Server reset: disconnected ${n}, bans, mutes and the log cleared.`];
+    }
     case "stop": {
       const n = players.length;
       s.stop(arg.slice(0, 120) || "the server was stopped");

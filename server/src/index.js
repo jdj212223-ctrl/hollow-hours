@@ -99,7 +99,9 @@ export class Room {
     }
     const body = await req.json().catch(() => ({}));
     const line = String(body.command || "");
+    let wiped = false;
     const out = runCommand(line, {
+      wipe: () => { wiped = true; },
       players, bans: this.bans, mutes: this.mutes,
       kick: (uid, reason) => {
         for (const ws of this.sockets()) if (ws.deserializeAttachment()?.uid === uid) {
@@ -115,7 +117,8 @@ export class Room {
     });
     await this.ctx.storage.put("bans", this.bans);
     await this.ctx.storage.put("mutes", this.mutes);
-    if (line.trim()) await this.logLine(`> ${line.trim().slice(0, 200)}`);
+    if (wiped) await this.ctx.storage.put("log", []);
+    else if (line.trim()) await this.logLine(`> ${line.trim().slice(0, 200)}`);
     for (const l of out) await this.logLine(l);
     const code = (await this.ctx.storage.get("code")) || null;
     if (code) await this.seen(code);

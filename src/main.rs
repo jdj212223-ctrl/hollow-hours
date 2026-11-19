@@ -3282,6 +3282,8 @@ fn update(g: &mut Game, dt: f32) {
         // The stove: E fries one raw food (if you have some and the pan is free).
         if g.resting {
             if pressed(KeyCode::E) && g.rest_t > 0.4 { wake_up(g, "You get up."); }
+        } else if pressed(KeyCode::E) && g.infection && disguise::robot_to_pay(g).is_some() {
+            disguise::pay_robot(g);
         } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_tile(g, 'y') {
             g.resting = true;
             g.rest_t = 0.0;
@@ -3843,7 +3845,9 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     for c in g.chars.iter().filter(|c| c.map == g.map && c.bubble_t > 0.0) {
         if let Some(p) = at(c.pos, 1.3) { bubble(&c.bubble, &c.via, p.x, p.y); }
     }
-    let prompt = if let Some(i) = nearest(g, 2.2) { Some(format!("E: talk to {}", g.chars[i].name)) }
+    let prompt = if let (true, Some(i)) = (g.infection, disguise::robot_to_pay(g)) { Some(format!("E: pay {} H$ {}{}", g.chars[i].name, disguise::PAY, if g.disguise_t > 0.0 && !g.intel_from.contains(&g.chars[i].name) { " (receipt = intel)" } else { "" })) }
+        else if disguise::lab_ready(g) { Some("E: synthesize the ASTRA Cure (stay 15 s)".to_string()) }
+        else if let Some(i) = nearest(g, 2.2) { Some(format!("E: talk to {}", g.chars[i].name)) }
         else if near_stove(g) { Some(if g.fry_t > 0.0 { format!("Frying... {:.0} s (don't walk away)", g.fry_t.ceil()) } else if let Some(c) = czech::best(&g.pantry) { format!("E: cook {}", czech::label(&c)) } else { "The stove (no ingredients: the Marketplace, or a grocery bag from the Helix Store)".to_string() }) }
         else if near_mac(g) { Some("E: use the Mac Studio".to_string()) }
         else if near_tile(g, 'y') { Some(if g.resting { "Resting (move or E to get up)".to_string() } else { "E: rest in your bed".to_string() }) }

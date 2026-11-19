@@ -239,3 +239,42 @@ fn synthesis(g: &mut Game, dt: f32) {
     g.sfx.pickup();
     g.sfx.sting();
 }
+
+/// "you have not paid." You can, now: a Helix robot next to you (E, H$ 5).
+pub const PAY: u32 = 5;
+
+pub fn robot_to_pay(g: &Game) -> Option<usize> {
+    (0..g.chars.len()).filter(|&i| {
+        let c = &g.chars[i];
+        c.infected && combat::is_robot(c) && c.map == g.map && c.pos.distance(g.pos) < 1.8 * T
+    }).min_by(|&a, &b| g.chars[a].pos.distance(g.pos).total_cmp(&g.chars[b].pos.distance(g.pos)))
+}
+
+/// Paying a robot: it stops chasing you for a while ("processing payment"), and if you're disguised it prints a
+/// receipt with part of a Helix access code on it (intel, once per robot).
+pub fn pay_robot(g: &mut Game) {
+    let Some(i) = robot_to_pay(g) else { return };
+    let name = g.chars[i].name;
+    if g.credits < PAY {
+        g.log.push(format!("{name}: \"insufficient funds.\" (you need H$ {PAY}, you have H$ {})", g.credits));
+        return;
+    }
+    g.credits -= PAY;
+    let c = &mut g.chars[i];
+    c.crazy = 0.0;
+    c.stun = c.stun.max(20.0);
+    c.bubble = "thank you for shopping at helix.".into();
+    c.via = String::new();
+    c.bubble_t = 4.0;
+    g.sfx.pickup();
+    let receipt = g.disguise_t > 0.0 && !g.intel_from.contains(&name);
+    if receipt {
+        g.intel_from.push(name);
+        g.intel += 1;
+        g.log.push(format!("You pay {name} H$ {PAY}. It prints a receipt... with part of a Helix access code on it. INTEL {}/{}.",
+            g.intel.min(INTEL_NEEDED), INTEL_NEEDED));
+        if g.intel == INTEL_NEEDED { g.log.push("That's enough to get into the Helix Lab's cure files. Go to a terminal in the Lab (E).".into()); }
+    } else {
+        g.log.push(format!("You pay {name} H$ {PAY}. \"payment accepted.\" It stands still, processing. (20 s)"));
+    }
+}

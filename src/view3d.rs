@@ -201,14 +201,15 @@ pub fn render(g: &Game, view: &RenderTarget) {
         // flickers: stripes, a photosensitivity risk).
         let grow = 1.0 + (k % 13) as f32 * 0.012;
         let disguised = c.mimic && c.crazy <= 0.0;
-        let body = if c.infected && !disguised { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
+        let painted = c.disguise_t > 0.0; // a Claude in disguise: green paint, green eyes, but its halo stays
+        let body = if (c.infected && !disguised) || painted { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
         let sway = if c.infected { 0.04 * (t * 3.0 + base.x).sin() } else { 0.0 };
         draw_cylinder(base, 0.2 * grow, 0.26 * grow, 0.8 * grow, None, fog.at(body, base));
         let head = base + vec3(sway, 1.02 * grow, 0.0);
         draw_sphere(head, 0.22 * grow, None, fog.at(mul(body, 1.1), head));
         // The Mimic's eyes give it away only for a blink now and then.
         let flicker = disguised && (t * 3.1 + base.x).sin() > 0.985;
-        let eye = if disguised && !flicker { BLACK } else if c.infected { if c.stun > 0.0 { GRAY } else { g.rules.eye } } else if c.crazy > 0.0 { RED } else { BLACK };
+        let eye = if painted { g.rules.eye } else if disguised && !flicker { BLACK } else if c.infected { if c.stun > 0.0 { GRAY } else { g.rules.eye } } else if c.crazy > 0.0 { RED } else { BLACK };
         eyes(head, 0.22, cam.position, eye, 0.045);
         if c.kind {
             // A small halo over the kind ones.

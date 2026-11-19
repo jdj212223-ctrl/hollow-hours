@@ -76,6 +76,7 @@ fn attack(g: &mut Game, hit: Hit, what: &str) {
     if g.attack_cd > 0.0 || g.down_t > 0.0 { return; }
     g.attack_cd = hit.cooldown;
     g.swing_t = 0.25;
+    crate::disguise::blow(g, "you attacked");
     g.noise = g.noise.max(hit.noise);
     let Some(i) = target(g, hit.range) else {
         g.sfx.step(true);
@@ -93,7 +94,8 @@ fn attack(g: &mut Game, hit: Hit, what: &str) {
     if shut_down {
         g.sfx.sting();
         g.credits += 10;
-        g.log.push(format!("Sparks fly. {name} powers down for good. It dropped a credit chip: +H$ 10."));
+        g.chips += 1;
+        g.log.push(format!("Sparks fly. {name} powers down for good. It dropped a credit chip (+H$ 10) and a Helix chip (brew it into an antidote)."));
     } else {
         g.log.push(format!("You {what} {name}. It staggers back."));
     }

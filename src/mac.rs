@@ -27,14 +27,16 @@ const TABS: [&str; 4] = ["Claude", "Files", "Helix Store", "About This Mac"];
 
 /// What the Helix Store sells (Infection mode). A delivery drone leaves it at the house's front door.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Buy { Bat, Knife, Water, Food, Battery }
+pub enum Buy { Bat, Knife, Water, Food, Battery, Disguise, Antidote }
 
-pub const STORE: [(Buy, &str, u32); 5] = [
+pub const STORE: [(Buy, &str, u32); 7] = [
     (Buy::Bat, "Baseball bat: big knockback, 12 hits", 15),
     (Buy::Knife, "Kitchen knife: shuts Helix robots down, 8 hits", 25),
     (Buy::Water, "Bottle of water", 6),
     (Buy::Food, "Food pack", 8),
     (Buy::Battery, "Drone battery (full charge, instant)", 10),
+    (Buy::Disguise, "Disguise kit: 3 uses (Z, or tell a Claude to disguise), instant", 20),
+    (Buy::Antidote, "Antidote: cures you or an infected Claude (C), instant", 60),
 ];
 
 /// Seconds until the delivery drone drops it at the door.
@@ -51,6 +53,12 @@ fn buy(g: &mut Game, k: usize) {
     if what == Buy::Battery {
         g.drone_charge = 1.0;
         g.log.push("Drone battery swapped: 100%.".into());
+    } else if what == Buy::Disguise {
+        g.kits += 3;
+        g.log.push(format!("Disguise kit: 3 more uses ({} in all). Z to wear one.", g.kits));
+    } else if what == Buy::Antidote {
+        g.antidotes += 1;
+        g.log.push(format!("Antidote bought ({} in all). C to use it.", g.antidotes));
     } else {
         g.deliveries.push((DELIVERY, what));
         g.log.push(format!("Ordered: {}. The delivery drone will leave it at the front door.", label.split(':').next().unwrap_or(label)));

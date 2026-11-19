@@ -7,11 +7,12 @@ use super::*;
 use std::cell::RefCell;
 
 /// Actions you can rebind: (name, the key the game checks for).
-pub const ACTIONS: [(&str, KeyCode); 16] = [
+pub const ACTIONS: [(&str, KeyCode); 18] = [
     ("Walk forward", KeyCode::W), ("Walk back", KeyCode::S), ("Walk left", KeyCode::A), ("Walk right", KeyCode::D),
     ("Sprint", KeyCode::Space), ("Sneak", KeyCode::LeftShift), ("Hide", KeyCode::H), ("Use / talk", KeyCode::E),
     ("Hit", KeyCode::F), ("Kick", KeyCode::G), ("Drone", KeyCode::Q), ("2D / 3D map", KeyCode::Tab),
     ("Voice chat (hold)", KeyCode::V), ("Radio (hold)", KeyCode::R), ("PANIC", KeyCode::P), ("Sound on/off", KeyCode::M),
+    ("Disguise", KeyCode::Z), ("Antidote", KeyCode::C),
 ];
 
 /// Keys you can bind (Escape always stays Escape).

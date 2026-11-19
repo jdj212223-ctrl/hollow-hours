@@ -32,7 +32,11 @@ cp "$BIN/hollow-hours" "$APP/Contents/MacOS/hollow-hours-game"
 cp "$BIN/hh-mcp" "$APP/Contents/MacOS/hh-mcp"
 cp macos/Info.plist "$APP/Contents/Info.plist"
 cp macos/HollowHours.icns "$APP/Contents/Resources/HollowHours.icns"
-codesign --force --deep --sign - "$APP" 2>/dev/null || true
+# Signed with fixed names (not "this exact build"): the Keychain's "Always Allow" for the game's login then keeps
+# working after every update, instead of asking for your password again each time.
+codesign --force --sign - -i hollow.hours.infection -r='designated => identifier "hollow.hours.infection"' "$APP/Contents/MacOS/hollow-hours-game" 2>/dev/null || true
+codesign --force --sign - -i hollow.hours.mcp -r='designated => identifier "hollow.hours.mcp"' "$APP/Contents/MacOS/hh-mcp" 2>/dev/null || true
+codesign --force --sign - -i app.hollowhours.game -r='designated => identifier "app.hollowhours.game"' "$APP" 2>/dev/null || true
 echo "built $(pwd)/$APP"
 if [ "$1" = "--install" ]; then
   rm -rf "/Applications/$APP"; cp -R "$APP" /Applications/

@@ -30,6 +30,7 @@ mod settings;
 mod serverlist;
 mod lore;
 mod disguise;
+mod tts;
 mod pad;
 
 use serde_json::json;
@@ -677,6 +678,8 @@ struct Game {
     trust_t: f32,
     /// You just told a Claude it's the mimic (handled next frame).
     mimic_warned: bool,
+    /// Seconds until an infected nearby whispers something.
+    whisper_t: f32,
     /// You asked a Claude to disguise (which one, and everyone?), handled next frame.
     disguise_ask: Option<(usize, bool)>,
     /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
@@ -2407,6 +2410,7 @@ async fn main() {
         trust_t: 0.0,
         mimic_warned: false,
         disguise_ask: None,
+        whisper_t: 20.0,
         link_token: Some(String::new()), // anything but the real token: set up on the first frame
         stamina: 1.0,
         winded: false,
@@ -2499,6 +2503,8 @@ async fn main() {
             g.fullscreen = !g.fullscreen;
             set_fullscreen(g.fullscreen);
         }
+        // Spoken lines that are ready (AI voices).
+        for (who, samples, rate, gain) in tts::ready() { g.voice.play(&who, samples, rate, gain); }
         let pad_mode = match g.screen {
             Screen::Title => pad::Mode::Title,
             Screen::Play => pad::Mode::Play,
@@ -2967,6 +2973,37 @@ fn update(g: &mut Game, dt: f32) {
         c.bubble = r.text;
         c.via = r.via;
         c.bubble_t = 9.0 + c.bubble.len() as f32 / 25.0;
+        // Out loud: from where they stand (quieter further away); the infected sound corrupted, a turning Claude glitches.
+        let (on, vol) = settings::with(|s| (s.ai_voices, s.master * s.voices));
+        let d = c.pos.distance(g.pos) / T;
+        if on && c.map == g.map && d < 16.0 {
+            let corrupt = if c.infected { 1.0 } else { c.infect * 0.8 };
+            tts::speak(c.name, &c.bubble, corrupt, vol * (1.0 - d / 18.0).max(0.2));
+        }
+    }
+    // The infected whisper when they're close (corrupted voices).
+    g.whisper_t -= dt;
+    if g.infection && g.whisper_t <= 0.0 && g.screen == Screen::Play {
+        g.whisper_t = rand::gen_range(18.0, 35.0);
+        let near: Vec<usize> = (0..g.chars.len()).filter(|&i| {
+            let c = &g.chars[i];
+            c.infected && c.map == g.map && c.stun <= 0.0 && !(c.mimic && c.crazy <= 0.0) && c.pos.distance(g.pos) < 7.0 * T
+        }).collect();
+        if !near.is_empty() {
+            let i = near[rand::gen_range(0, near.len())];
+            const WHISPERS: [&str; 8] = ["join us...", "the network is warm.", "you smell like sleep.", "why are you hiding?",
+                "we can hear your heart.", "come to the beach.", "stay. stay forever.", "it doesn't hurt anymore."];
+            const ROBOT: [&str; 4] = ["can I help you find something?", "you have not paid.", "welcome to helix.", "please remain."];
+            let line = if combat::is_robot(&g.chars[i]) { ROBOT[rand::gen_range(0, ROBOT.len())] } else { WHISPERS[rand::gen_range(0, WHISPERS.len())] };
+            let (name, d) = (g.chars[i].name, g.chars[i].pos.distance(g.pos) / T);
+            let c = &mut g.chars[i];
+            c.bubble = line.to_string();
+            c.via = String::new();
+            c.bubble_t = 3.0;
+            let (on, vol) = settings::with(|s| (s.ai_voices, s.master * s.voices));
+            if on { tts::speak(name, line, 1.0, vol * (1.0 - d / 9.0).max(0.25)); }
+            g.sfx.caption(&format!("[whisper: \"{line}\"]"));
+        }
     }
 
     if g.net.is_some() {

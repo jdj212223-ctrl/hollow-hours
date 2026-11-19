@@ -16,6 +16,8 @@ pub const RANGE: f32 = 12.0;
 
 struct Speaker {
     q: VecDeque<f32>,
+    /// Samples per second of this speaker's sound (voice chat 8000, AI voices whatever the speech engine made).
+    rate: f32,
     gain: f32,
     radio: bool,
     phase: f32,
@@ -148,7 +150,7 @@ impl Voice {
             for frame in out.chunks_mut(ch) {
                 let mut mix = 0.0;
                 for s in sp.values_mut() {
-                    s.phase += RATE as f32 / rate;
+                    s.phase += s.rate / rate;
                     while s.phase >= 1.0 {
                         s.phase -= 1.0;
                         s.cur = s.q.pop_front().unwrap_or(0.0);
@@ -196,12 +198,25 @@ impl Voice {
         self.open_out();
         let samples = decode(&b64_decode(data));
         if let Ok(mut sp) = self.speakers.lock() {
-            let s = sp.entry(from.to_string()).or_insert(Speaker { q: VecDeque::new(), gain, radio, phase: 0.0, cur: 0.0, noise: 0x1234_5678 });
+            let s = sp.entry(from.to_string()).or_insert(Speaker { q: VecDeque::new(), rate: RATE as f32, gain, radio, phase: 0.0, cur: 0.0, noise: 0x1234_5678 });
             s.gain = gain;
             s.radio = radio;
             s.q.extend(samples);
             // Never fall more than half a second behind.
             let max = RATE as usize / 2;
+            if s.q.len() > max { let extra = s.q.len() - max; s.q.drain(..extra); }
+        }
+    }
+
+    /// An AI character's spoken line (see tts.rs): played on its own channel, at its own sample rate.
+    pub fn play(&mut self, who: &str, samples: Vec<f32>, rate: u32, gain: f32) {
+        self.open_out();
+        if let Ok(mut sp) = self.speakers.lock() {
+            let s = sp.entry(format!("ai:{who}")).or_insert(Speaker { q: VecDeque::new(), rate: rate as f32, gain, radio: false, phase: 0.0, cur: 0.0, noise: 7 });
+            s.rate = rate as f32;
+            s.gain = gain;
+            s.q.extend(samples);
+            let max = rate as usize * 30;
             if s.q.len() > max { let extra = s.q.len() - max; s.q.drain(..extra); }
         }
     }

@@ -45,6 +45,8 @@ pub struct Settings {
     /// Your microphone (voice chat and the radio): off until you turn it on.
     pub mic_on: bool,
     pub hear_voice: bool,
+    /// The AIs read their lines aloud (the computer's own speech; the infected sound corrupted).
+    pub ai_voices: bool,
     pub captions: bool,
     pub big_text: bool,
     pub reduce_motion: bool,
@@ -62,7 +64,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { master: 1.0, ambience: 0.8, effects: 1.0, voices: 1.0, mic_on: false, hear_voice: true, captions: false,
+        Settings { master: 1.0, ambience: 0.8, effects: 1.0, voices: 1.0, mic_on: false, hear_voice: true, ai_voices: true, captions: false,
             big_text: false, reduce_motion: false, high_contrast: false, jumpscares: true, toggle_sprint: false,
             toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, binds: Default::default() }
     }
@@ -130,11 +132,12 @@ fn rows(tab: usize, s: &Settings) -> Vec<Row> {
             Slider("Master volume", s.master, |s, v| s.master = v),
             Slider("Ambience (hum, wind, sizzle, drone)", s.ambience, |s, v| s.ambience = v),
             Slider("Effects (steps, growls, stings)", s.effects, |s, v| s.effects = v),
-            Slider("Other players' voices", s.voices, |s, v| s.voices = v),
+            Slider("Voices (other players and the AIs)", s.voices, |s, v| s.voices = v),
         ],
         1 => vec![
             Toggle("My microphone", s.mic_on, |s, v| s.mic_on = v, "Off: nobody can hear you, even if you press V or R. On: they hear you only while you HOLD V (nearby) or R (radio)."),
             Toggle("Hear other players", s.hear_voice, |s, v| s.hear_voice = v, "Turn off to play online without hearing anyone's voice."),
+            Toggle("AI voices", s.ai_voices, |s, v| s.ai_voices = v, "The characters read their lines aloud with your computer's own speech (offline). The infected sound corrupted."),
             Text("Your voice only ever goes to the players in your room, while you hold the key. Nothing is recorded or stored.".into()),
         ],
         2 => vec![

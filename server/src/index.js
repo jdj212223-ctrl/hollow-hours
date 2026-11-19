@@ -397,31 +397,67 @@ async function linkExchange(env, body) {
 
 // ---------------- Pages ----------------
 
-const STYLE = `<style>
-:root{--bg:#0d0b10;--card:#17141c;--line:#2a2531;--fg:#ece8f0;--dim:#a39cad;--acc:#d9475a;--ok:#5fd17a;--bad:#ff6b6b}
-@media(prefers-color-scheme:light){:root{--bg:#f6f4f8;--card:#fff;--line:#e3dfe8;--fg:#17141c;--dim:#635c6d}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif}
-header{display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-header a.logo{font-weight:800;font-size:19px;color:var(--acc);text-decoration:none}nav{margin-left:auto;display:flex;gap:10px;align-items:center}
-a{color:var(--acc)}.btn{background:var(--acc);color:#fff;padding:8px 14px;border-radius:9px;font-weight:600;border:0;cursor:pointer;font:inherit;text-decoration:none;display:inline-block}
-.btn.ghost{background:var(--card);color:var(--fg);border:1px solid var(--line)}
-main{max-width:960px;margin:0 auto;padding:26px 20px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+const STYLE = `<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#09080c;--bg2:#100d14;--card:#15121a;--line:#2a2531;--fg:#efeaf3;--dim:#a39cad;--acc:#e2525f;--claude:#d97757;--green:#7dff6a;--ok:#5fd17a;--bad:#ff6b6b}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--bg:#f6f3ef;--bg2:#efe9e2;--card:#fff;--line:#e3dcd3;--fg:#1a1620;--dim:#6a6271}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 Inter,-apple-system,"Segoe UI",system-ui,sans-serif}
+.mono{font-family:"Space Mono",ui-monospace,monospace}
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:12px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px)}
+header a.logo{font-family:"Space Mono",monospace;font-weight:700;font-size:18px;color:var(--acc);text-decoration:none;letter-spacing:.06em}
+header a.logo span{background:var(--claude);color:#fff;border-radius:5px;padding:0 6px;margin-left:6px;font-size:13px}
+nav{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+a{color:var(--acc)}.btn{background:var(--acc);color:#fff;padding:9px 16px;border-radius:10px;font-weight:600;border:0;cursor:pointer;font:inherit;font-weight:600;text-decoration:none;display:inline-block;transition:transform .15s,filter .15s}
+.btn:hover{transform:translateY(-1px);filter:brightness(1.1)}.btn.ghost{background:var(--card);color:var(--fg);border:1px solid var(--line)}.btn.big{padding:13px 22px;font-size:17px;border-radius:12px}.btn.claude{background:var(--claude)}
+main{max-width:1040px;margin:0 auto;padding:28px 20px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px}
 .hero{background:linear-gradient(135deg,#3a1220,#120b16);color:#fff;border-radius:18px;padding:26px;margin-bottom:20px}.hero p{color:#e3c9d0;margin:6px 0 0}
-table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:8px;border-top:1px solid var(--line)}th{color:var(--dim);font-weight:600;border-top:0}
-code{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
-input,textarea,select{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:9px;padding:10px;font:inherit}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:9px 8px;border-top:1px solid var(--line)}th{color:var(--dim);font-weight:600;border-top:0}
+code{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-family:"Space Mono",monospace;font-size:.92em}
+input,textarea,select{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit}
 label{display:block;margin:12px 0 5px;font-weight:600}.dim{color:var(--dim)}.small{font-size:13px}.err{color:var(--bad)}.ok{color:var(--ok)}
-.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;background:var(--bg);border:1px solid var(--line);margin:1px}
-@media(max-width:600px){main{padding:18px 16px}td,th{padding:6px 4px}}
+.pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;background:var(--bg);border:1px solid var(--line);margin:1px}
+h1,h2,h3{line-height:1.2}h2{font-size:24px}
+/* The 3.0 landing page */
+.night{position:relative;overflow:hidden;border-radius:22px;padding:56px 36px 46px;margin:4px 0 26px;color:#fff;background:radial-gradient(1200px 500px at 70% 120%,#1d3a1d55,transparent),linear-gradient(160deg,#1a0d18 0%,#0b0910 60%,#081009 100%);border:1px solid #2a2531}
+.night h1{font-family:"Space Mono",monospace;font-size:clamp(40px,8vw,84px);margin:0;letter-spacing:.04em;color:#ff5d6c;text-shadow:0 0 24px #e2525f66}
+.night h1 small{font-size:.35em;vertical-align:super;background:var(--claude);color:#fff;border-radius:8px;padding:2px 10px;margin-left:10px;text-shadow:none}
+.night p.lead{font-size:clamp(16px,2.2vw,20px);color:#e6d3da;max-width:620px;margin:14px 0 26px}
+.rain{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(transparent 0 92%,#9fb4ff22 92% 100%);background-size:3px 60px;animation:rain .6s linear infinite;opacity:.6}
+@keyframes rain{to{background-position:0 60px}}
+.eyes{position:absolute;display:flex;gap:9px;animation:blink 7s infinite}.eyes i{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}
+@keyframes blink{0%,92%,100%{opacity:1}94%,97%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.rain,.eyes{animation:none}}
+.family{display:flex;gap:14px;flex-wrap:wrap;margin-top:28px}.ai{display:flex;flex-direction:column;align-items:center;gap:6px;width:76px;text-align:center;font-size:12px;color:#d9cfe0}
+.ai .head{width:46px;height:46px;border-radius:50%;position:relative;box-shadow:0 6px 20px #0008}.ai .head::before,.ai .head::after{content:"";position:absolute;top:17px;width:7px;height:7px;border-radius:50%;background:#000}.ai .head::before{left:13px}.ai .head::after{right:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.feat{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}.feat b{display:block;font-size:16px;margin-bottom:4px}.feat .em{font-size:26px}
+.new{border-left:3px solid var(--claude)}.new li{margin:6px 0}
+.dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.dl a{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;text-decoration:none;color:var(--fg);transition:border-color .15s,transform .15s}.dl a:hover{border-color:var(--acc);transform:translateY(-2px)}.dl a b{display:block;font-size:17px}
+footer{max-width:1040px;margin:10px auto 40px;padding:0 20px;color:var(--dim);font-size:13px}
+@media(max-width:600px){main{padding:18px 16px}td,th{padding:6px 4px}.night{padding:38px 20px 30px}header{padding:10px 16px}}
 </style>`;
+
+const REPO = "https://github.com/jdj212223-ctrl/hollow-hours";
+const DL = `${REPO}/releases/latest/download`;
 
 function page(title, user, body, extraHeaders = {}) {
   const nav = user
-    ? `<a class="dim small" href="/account">Hi, ${esc(user.name)}</a><a class="btn ghost" href="/account">Account</a><a class="btn ghost" href="/mods">Mods</a><a class="btn" href="/servers/new">Make a server</a><a class="btn ghost" href="/logout">Log out</a>`
-    : `<a class="btn ghost" href="/mods">Mods</a><a class="btn ghost" href="/login">Log in</a><a class="btn" href="/register">Register</a>`;
+    ? `<a class="btn ghost" href="/download">Download</a><a class="btn ghost" href="/mods">Mods</a><a class="btn ghost" href="/account">${esc(user.name)}</a><a class="btn" href="/servers/new">Make a server</a><a class="btn ghost" href="/logout">Log out</a>`
+    : `<a class="btn ghost" href="/download">Download</a><a class="btn ghost" href="/mods">Mods</a><a class="btn ghost" href="/login">Log in</a><a class="btn" href="/register">Register</a>`;
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} · Hollow Hours</title>${STYLE}</head><body><header><a class="logo" href="/">👻 Hollow Hours</a><nav>${nav}</nav></header><main>${body}</main></body></html>`,
+<meta name="description" content="Hollow Hours: a horror game where the characters are real AIs. The kind ones are waiting for you.">
+<title>${title === "Hollow Hours" ? "Hollow Hours 3.0" : `${esc(title)} · Hollow Hours`}</title>${STYLE}</head><body><header><a class="logo" href="/">HOLLOW HOURS<span>3.0</span></a><nav>${nav}</nav></header><main>${body}</main>
+<footer>Hollow Hours is open source: <a href="${REPO}">GitHub</a>. Helix Dynamics Inc. and ASTRA 9.1 are fictional: they exist only in the game. The characters are our own, each only inspired by a kind of AI.</footer></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", ...extraHeaders } });
+}
+
+const FAMILY = [["Claude", "#d97757", "carried you home"], ["Opus 5.5", "#a682ff", "keeps watch by your bed"], ["Sonnet 4.6", "#5bb8f0", "found the blankets"], ["Haiku 4.5", "#8ce6b3", "the lookout, short sentences"], ["Clove", "#e8875f", "makes tea, then more tea"], ["Forge", "#f2b13a", "fixes the generator. again."], ["Palette", "#e783c8", "painted the hallway"]];
+
+function downloads() {
+  const items = [
+    ["macOS", "Apple Silicon + Intel", "Hollow-Hours-macOS.zip", "🍎"], ["Windows", "x64", "Hollow-Hours-Windows.zip", "🪟"],
+    ["Windows ARM64", "Snapdragon", "Hollow-Hours-Windows-ARM64.zip", "🪟"], ["Linux / SteamOS", "x86_64 (Steam Deck, Legion Go)", "Hollow-Hours-Linux-x86_64.tar.gz", "🐧"],
+    ["Flatpak", "any Linux", "Hollow-Hours.flatpak", "📦"], ["Android", ".apk, touch controls", "Hollow-Hours-Android.apk", "🤖"], ["iPhone / iPad", ".ipa (sideload it)", "Hollow-Hours-iOS.ipa", "📱"]];
+  return `<div class="dl">${items.map(([n, w, f, e]) => `<a href="${DL}/${f}">${e} <b>${n}</b><span class="dim small">${w}</span></a>`).join("")}</div>`;
 }
 
 const redirect = (to, headers = {}) => new Response(null, { status: 303, headers: { Location: to, ...headers } });
@@ -431,13 +467,53 @@ async function home(env, user) {
   const rows = list.map((s) => `<tr><td><b>${esc(s.name)}</b><div class="dim small">host ${esc(s.host)}${s.gamertag ? ` (🎮 ${esc(s.gamertag)})` : ""} · address <code>${esc(s.slug || s.code)}</code></div></td>
 <td>${s.players}/${s.max}</td><td>${s.mods.map((m) => `<a class="pill" href="/mods/${m.id}">${esc(m.name)}</a>`).join("") || '<span class="dim small">no mods</span>'}</td></tr>`).join("");
   const { results: mods } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, CASE WHEN u.hide_author = 1 THEN 'anonymous' ELSE u.name END AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 6").all();
-  return page("Servers", user, `<div class="hero"><h1 style="margin:0">Hollow Hours</h1>
-<p>A small horror game where the characters are real AIs. Infection mode: every AI outside the Claude family is infected, and you're the last human. Play online with friends.</p></div>
-<div class="card"><h2 style="margin-top:0">Servers</h2>${list.length ? `<table><tr><th>Server</th><th>Players</th><th>Mods</th></tr>${rows}</table>`
+  const eyes = [[90, 9], [80, 36], [95, 58], [72, 84], [62, 6]].map(([x, y], i) => `<div class="eyes" style="left:${x}%;top:${y}%;animation-delay:${i * 1.3}s"><i></i><i></i></div>`).join("");
+  return page("Hollow Hours", user, `<section class="night"><div class="rain"></div>${eyes}
+<h1>HOLLOW HOURS<small>3.0</small></h1>
+<p class="lead">A horror game where the characters are <b>real AIs</b>. You slept for a whole year. The world got infected. The kind ones carried you home, and they're waiting for you.</p>
+<a class="btn big" href="/download">Download free</a> <a class="btn big ghost" href="#servers" style="background:#ffffff14;color:#fff;border-color:#ffffff33">Play online</a>
+<div class="family">${FAMILY.map(([n, c, w]) => `<div class="ai"><div class="head" style="background:${c}"></div><b style="color:#fff">${esc(n)}</b><span>${esc(w)}</span></div>`).join("")}</div>
+</section>
+
+<div class="card new"><h2 style="margin-top:0">New in 3.0</h2><ul>
+<li><b>A living title screen:</b> the whole kind family in the living room at night, in 3D. They talk to you, and they react to what you pick.</li>
+<li><b>Memories:</b> they remember your nights: how long you were gone, how the last one ended, who got infected, what you cooked.</li>
+<li><b>The infected are becoming self-aware.</b> The more you play, the more they know. Allow "Outside the window" and they even hear your music. <i>huh. you really like…</i></li>
+<li><b>No more teleporting:</b> real stairs between the floors, doors that swing open, a 3D story intro.</li>
+<li><b>Czech cooking:</b> svíčková, guláš s knedlíky, vepřo knedlo zelo, kulajda, palačinky… on the house's stove.</li></ul></div>
+
+<div class="grid">
+<div class="feat"><span class="em">🧠</span><b>Real AIs</b><span class="dim">The Claudes talk through real Claude (or local models): ask them anything, they answer as themselves.</span></div>
+<div class="feat"><span class="em">🦠</span><b>Infection</b><span class="dim">You're the last human. Hide, eat, drink, cure, disguise, fight back with a bat. Dodge tornadoes.</span></div>
+<div class="feat"><span class="em">🏚️</span><b>10 places</b><span class="dim">The house (4 floors), the beach at 3 AM, the empty pool, the Marketplace, the park, the Helix Lab, the subway.</span></div>
+<div class="feat"><span class="em">🌐</span><b>Up to 40 players</b><span class="dim">Servers with an address, a server list, and a console to kick, ban and mute (web or your own host).</span></div>
+<div class="feat"><span class="em">🎙️</span><b>Voices</b><span class="dim">Voice chat, a radio, and AI voices: kind ones sound warm, the infected sound… wrong.</span></div>
+<div class="feat"><span class="em">♿</span><b>For everyone</b><span class="dim">Captions, big text, reduce motion, no flashing unless you allow it, rebindable keys, controllers.</span></div>
+</div>
+
+<div class="card" id="servers" style="margin-top:18px"><h2 style="margin-top:0">Servers</h2>${list.length ? `<table><tr><th>Server</th><th>Players</th><th>Mods</th></tr>${rows}</table>`
     : `<p class="dim">No public servers right now. ${user ? '<a href="/servers/new">Make one.</a>' : '<a href="/register">Register</a> to make one.'}</p>`}
-<p class="dim small">In the game: <b>S</b> on the title screen shows this list (mods download by themselves), or <b>J</b> and type a server's address.</p></div>
+<p class="dim small">In the game: <b>Play online</b> and type a server's address (like <code>officialsmp</code>), or open your <b>Server list</b>.</p></div>
+
+<div class="card"><h2 style="margin-top:0">Download</h2>${downloads()}<p class="dim small" style="margin-bottom:0">Free and open source. <a href="/download">All downloads and how to install</a>.</p></div>
+
 <div class="card"><h2 style="margin-top:0">Newest mods</h2>${mods.length ? mods.map((m) => `<p><a href="/mods/${m.id}"><b>${esc(m.name)}</b></a> ${esc(m.version)} <span class="dim small">by ${esc(m.author)}</span><br><span class="small">${esc(m.description)}</span></p>`).join("") : '<p class="dim">No mods yet.</p>'}
 <a href="/mods">All mods and how to make one</a></div>`);
+}
+
+function downloadPage(user) {
+  return page("Download", user, `<section class="night" style="padding:40px 30px"><div class="rain"></div><h1 style="font-size:clamp(32px,6vw,56px)">DOWNLOAD<small>3.0</small></h1>
+<p class="lead" style="margin-bottom:0">Free, open source, every platform. The newest version, always.</p></section>
+<div class="card">${downloads()}</div>
+<div class="grid">
+<div class="feat"><b>🍎 macOS</b><span class="dim small">Unzip, drag <b>Hollow Hours</b> to Applications. The first time: right-click → Open (it isn't from the App Store).</span></div>
+<div class="feat"><b>🪟 Windows</b><span class="dim small">Unzip and run <code>hollow-hours.exe</code>. If SmartScreen asks: More info → Run anyway.</span></div>
+<div class="feat"><b>🐧 Linux / SteamOS</b><span class="dim small">Unpack and run <code>./hollow-hours</code>, or install the Flatpak. On a Steam Deck: add it to Steam as a non-Steam game.</span></div>
+<div class="feat"><b>🤖 Android</b><span class="dim small">Open the .apk and allow installing from your browser. Touch controls are built in.</span></div>
+<div class="feat"><b>📱 iPhone / iPad</b><span class="dim small">The .ipa is unsigned: install it with Sideloadly or AltStore (they sign it with your Apple ID).</span></div>
+<div class="feat"><b>🧠 Real Claude</b><span class="dim small">With the Claude app (Claude Code) installed, the Claude family talks through real Claude. Without it they still talk (local models or scripted lines).</span></div>
+</div>
+<p class="dim small">Every version and its changes: <a href="${REPO}/releases">GitHub releases</a>.</p>`);
 }
 
 function authForm(kind, user, error = "", email = "", name = "", search = "") {
@@ -763,6 +839,7 @@ export default {
 
       // --- website ---
       if (p === "/") return await home(env, user);
+      if (p === "/download") return downloadPage(user);
       if (p === "/register" || p === "/login") {
         if (req.method === "GET") return authForm(p.slice(1), user, "", "", "", url.search);
         const f = await req.formData();

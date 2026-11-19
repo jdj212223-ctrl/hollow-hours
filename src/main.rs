@@ -681,6 +681,9 @@ struct Game {
     title_t: f32,
     title_sel: usize,
     title_hover: Option<usize>,
+    /// How long the highlight has stayed on one entry, and whether they've reacted to it yet.
+    title_rest: f32,
+    title_reacted: bool,
     title_say: Option<(String, String, f32)>,
     /// What's playing on this computer (only with Outside the window allowed).
     music: music::Music,
@@ -2370,6 +2373,8 @@ async fn main() {
         title_t: 0.0,
         title_sel: 0,
         title_hover: None,
+        title_rest: 0.0,
+        title_reacted: true,
         title_say: None,
         music: music::Music::default(),
         pass: None,

@@ -208,6 +208,13 @@ impl Voice {
         }
     }
 
+    /// Cuts off every AI voice that's playing right now.
+    pub fn stop_ai(&mut self) {
+        if let Ok(mut sp) = self.speakers.lock() {
+            for (k, s) in sp.iter_mut() { if k.starts_with("ai:") { s.q.clear(); } }
+        }
+    }
+
     /// An AI character's spoken line (see tts.rs): played on its own channel, at its own sample rate.
     pub fn play(&mut self, who: &str, samples: Vec<f32>, rate: u32, gain: f32) {
         self.open_out();

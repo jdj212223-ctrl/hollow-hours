@@ -23,6 +23,7 @@ impl Voice {
     }
     pub fn stop(&mut self) { self.heard.clear(); }
     pub fn play(&mut self, _who: &str, _samples: Vec<f32>, _rate: u32, _gain: f32) {}
+    pub fn stop_ai(&mut self) {}
     pub fn is_talking(&self, id: &str, now: f64) -> Option<bool> {
         self.heard.get(id).filter(|(t, _)| now - t < 0.4).map(|(_, r)| *r)
     }

@@ -73,6 +73,8 @@ fn idle_line(who: &str) -> &'static str {
 /// Starts one of them talking (and speaking, if AI voices are on).
 fn talk(g: &mut Game, who: &str, line: &str) {
     if family(g).iter().any(|(n, _)| n == who) {
+        // One voice at a time: cut off whoever was still talking (and anything still being made).
+        hush(g);
         g.title_say = Some((who.to_string(), line.to_string(), 0.0));
         let (on, vol) = settings::with(|s| (s.ai_voices, s.master * s.voices));
         if on { tts::speak(who, line, 0.0, vol); }
@@ -124,17 +126,33 @@ pub fn update(g: &mut Game, dt: f32) -> Option<char> {
         }
     }
     if g.title_sel >= n { g.title_sel = 0; }
+    // They react once you stop on an entry for a moment (scrolling past entries stays quiet).
     if g.title_sel != before {
+        g.title_rest = 0.0;
+        g.title_reacted = false;
+    } else {
+        g.title_rest += dt;
+    }
+    if !g.title_reacted && g.title_rest > 0.45 && g.title_t > 0.5 {
+        g.title_reacted = true;
         let (who, line) = reaction(m[g.title_sel].0);
         talk(g, who, line);
     }
-    if clicked.is_some() { return clicked; }
+    let mut pick = clicked;
     for (k, c) in KEYS {
-        if pressed(k) {
-            return Some(if c == '\n' { m[g.title_sel].0 } else { c });
+        if pick.is_none() && pressed(k) {
+            pick = Some(if c == '\n' { m[g.title_sel].0 } else { c });
         }
     }
-    None
+    // Leaving the title: they go quiet.
+    if pick.is_some() { hush(g); g.title_say = None; }
+    pick
+}
+
+/// Silences the title's voices: what's playing and what's still waiting.
+pub fn hush(g: &mut Game) {
+    tts::hush();
+    g.voice.stop_ai();
 }
 
 fn title_mouse() -> Vec2 {

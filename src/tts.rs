@@ -8,21 +8,30 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 
 /// A line to say: who (also the mixer's channel), the text, how corrupted (0..1), how loud.
-struct Job { who: String, text: String, corrupt: f32, gain: f32 }
+struct Job { who: String, text: String, corrupt: f32, gain: f32, gen: u64 }
+
+/// Bumped by hush(): lines from before it are dropped (not made, not played).
+static GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn gen() -> u64 { GEN.load(std::sync::atomic::Ordering::Relaxed) }
+
+/// Cancels every line that's waiting or being made (call it with Voice::stop_ai to cut off what's playing).
+pub fn hush() { GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
 /// A finished line: who, samples, sample rate, how loud.
 pub type Ready = (String, Vec<f32>, u32, f32);
+type Made = (String, Vec<f32>, u32, f32, u64);
 
-fn queue() -> &'static (Mutex<Sender<Job>>, Mutex<Receiver<Ready>>) {
-    static Q: OnceLock<(Mutex<Sender<Job>>, Mutex<Receiver<Ready>>)> = OnceLock::new();
+fn queue() -> &'static (Mutex<Sender<Job>>, Mutex<Receiver<Made>>) {
+    static Q: OnceLock<(Mutex<Sender<Job>>, Mutex<Receiver<Made>>)> = OnceLock::new();
     Q.get_or_init(|| {
         let (jobs_tx, jobs_rx) = channel::<Job>();
-        let (done_tx, done_rx) = channel::<Ready>();
+        let (done_tx, done_rx) = channel::<Made>();
         // One worker: lines are spoken in order, and only one speech program runs at a time.
         std::thread::spawn(move || {
             for job in jobs_rx {
+                if job.gen != gen() { continue; }
                 if let Some((samples, rate)) = synth(&job.who, &job.text) {
                     let samples = if job.corrupt > 0.02 { corrupt(&samples, rate, job.corrupt) } else { samples };
-                    if done_tx.send((job.who, samples, rate, job.gain)).is_err() { break; }
+                    if done_tx.send((job.who, samples, rate, job.gain, job.gen)).is_err() { break; }
                 }
             }
         });
@@ -36,13 +45,14 @@ pub fn speak(who: &str, text: &str, corrupt: f32, gain: f32) {
     let text: String = text.chars().filter(|c| !c.is_control()).take(300).collect();
     if text.trim().is_empty() { return; }
     if let Ok(tx) = queue().0.lock() {
-        let _ = tx.send(Job { who: who.to_string(), text, corrupt: corrupt.clamp(0.0, 1.0), gain });
+        let _ = tx.send(Job { who: who.to_string(), text, corrupt: corrupt.clamp(0.0, 1.0), gain, gen: gen() });
     }
 }
 
 /// Lines that are ready to play.
 pub fn ready() -> Vec<Ready> {
-    queue().1.lock().map(|rx| rx.try_iter().collect()).unwrap_or_default()
+    let now = gen();
+    queue().1.lock().map(|rx| rx.try_iter().filter(|m| m.4 == now).map(|(w, s, r, g, _)| (w, s, r, g)).collect()).unwrap_or_default()
 }
 
 /// Each character's voice: (macOS voice, words per minute, female?).

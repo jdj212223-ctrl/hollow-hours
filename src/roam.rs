@@ -22,7 +22,7 @@ impl Task {
 }
 
 fn walkable(m: usize, x: i32, y: i32) -> bool {
-    !matches!(tile(m, x, y), '#' | 'b' | '~' | 'm' | 's' | '*' | 'n' | 't' | 'o' | '=' | 'y' | 'g')
+    !matches!(tile(m, x, y), '#' | 'b' | '~' | 'm' | 's' | '*' | 'n' | 't' | 'o' | '=' | 'y' | 'g' | 'w')
 }
 
 fn tile_of(p: Vec2) -> (i32, i32) { ((p.x / T) as i32, (p.y / T) as i32) }

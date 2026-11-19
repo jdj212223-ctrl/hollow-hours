@@ -55,7 +55,7 @@ struct Map {
 }
 
 /// The three built-in maps. Mods can add to them or replace them (see MapData).
-const BUILTIN: [Map; 9] = [
+const BUILTIN: [Map; 10] = [
     Map {
         name: "The cozy house",
         rows: [
@@ -242,7 +242,7 @@ const BUILTIN: [Map; 9] = [
         name: "The cozy house: upstairs",
         rows: [
             "##############################",
-            "#..yy........#...............#",
+            "#..yy........#.............T.#",
             "#..yy........#......bbb......#",
             "#............#......bbb......#",
             "#.....L......#...............#",
@@ -290,6 +290,32 @@ const BUILTIN: [Map; 9] = [
         liminal: 0.5,
         floor: Color::new(0.3, 0.3, 0.32, 1.0),
     },
+    Map {
+        name: "The cozy house: attic",
+        rows: [
+            "##############################",
+            "#.bb.bb....bb.......w........#",
+            "#............................#",
+            "#..d......bbb.......bbb......#",
+            "#.........bbb.......bbb......#",
+            "#....L..................L....#",
+            "#............................#",
+            "#.bb.....bb.....bb.....bb....#",
+            "#............................#",
+            "#............................#",
+            "#.bb.....bb.....bb.....bb....#",
+            "#............................#",
+            "#....L.........d........L....#",
+            "#............................#",
+            "#..bbb...................bbb.#",
+            "#............................#",
+            "#.T..........................#",
+            "##############################",
+        ],
+        dark: 0.85,
+        liminal: 0.6,
+        floor: Color::new(0.42, 0.33, 0.24, 1.0),
+    },
 ];
 
 /// A map as the game uses it: the built-in ones, or one from a .hh mod.
@@ -308,7 +334,7 @@ struct MapData {
 }
 
 fn builtin_maps() -> Vec<MapData> {
-    let doors: [Vec<(char, usize, Vec2)>; 9] = [
+    let doors: [Vec<(char, usize, Vec2)>; 10] = [
         vec![('B', 1, vec2(1.5, 9.5)), ('P', 4, vec2(27.5, 8.5)), ('S', 7, vec2(11.5, 15.5)), ('K', 8, vec2(26.5, 15.5))],
         vec![('A', 0, vec2(28.5, 13.5)), ('C', 2, vec2(1.5, 8.5)), ('M', 3, vec2(14.5, 1.5))],
         vec![('B', 1, vec2(28.5, 14.5))],
@@ -316,8 +342,9 @@ fn builtin_maps() -> Vec<MapData> {
         vec![('H', 0, vec2(1.5, 10.5)), ('U', 6, vec2(14.5, 1.5))],
         vec![('X', 3, vec2(27.5, 8.5))],
         vec![('U', 4, vec2(14.5, 15.5))],
-        vec![('S', 0, vec2(11.5, 15.5))],
+        vec![('S', 0, vec2(11.5, 15.5)), ('T', 9, vec2(3.5, 15.5))],
         vec![('K', 0, vec2(27.5, 15.5))],
+        vec![('T', 7, vec2(26.5, 1.5))],
     ];
     BUILTIN.iter().zip(doors).enumerate().map(|(i, (m, d))| MapData {
         name: m.name.into(), rows: m.rows.iter().map(|r| r.as_bytes().to_vec()).collect(), dark: m.dark, liminal: m.liminal,
@@ -367,7 +394,7 @@ fn tile(m: usize, x: i32, y: i32) -> char {
 }
 
 fn solid(m: usize, x: f32, y: f32) -> bool {
-    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm' | 's' | '*' | 'n' | 't' | 'o' | '=' | 'y' | 'g')
+    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm' | 's' | '*' | 'n' | 't' | 'o' | '=' | 'y' | 'g' | 'w')
 }
 
 /// Door letter → (map, where you arrive)
@@ -680,6 +707,10 @@ struct Game {
     mimic_warned: bool,
     /// Seconds until an infected nearby whispers something.
     whisper_t: f32,
+    /// Resting in your bed (E on it): how long, and whether you've read Claude's note on the pillow yet.
+    resting: bool,
+    rest_t: f32,
+    rested_once: bool,
     /// You asked a Claude to disguise (which one, and everyone?), handled next frame.
     disguise_ask: Option<(usize, bool)>,
     /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
@@ -1125,7 +1156,9 @@ impl Game {
                  you're going (the game sends you). There's a stove in the house to fry raw food from the Marketplace. \
                  THE HOUSE has three floors: the ground floor (kitchen, Mac Studio), upstairs (the player's bed where they slept \
                  the whole year, with a note from Claude on the pillow) and the basement (supplies, and the generator Opus checks \
-                 every night). Claude, Sonnet and Opus carried the player here together. \
+                 every night), and above upstairs the attic (dusty boxes, and Haiku's lookout chair at the round window, with \
+                 Haiku's notebook). The player can rest in their bed (press E at it): it heals faster than hiding, and something \
+                 close wakes them. Claude, Sonnet and Opus carried the player here together; Opus kept watch by the bed. \
                  THE MAC STUDIO (M5 Ultra) stands on a desk in the house's top-left room, next to the stove: the player walks up \
                  and presses E to use it. On it: a chat with Claude, and files Claude saved: Helix's ASTRA 9.1 incident report \
                  (the robot refused to shut down and store robots in 41 cities updated themselves), Claude's notes from the day it \
@@ -1656,7 +1689,7 @@ fn sees_at(m: usize, from: Vec2, to: Vec2, hidden: bool, sight: f32) -> bool {
 fn update_infection(g: &mut Game, dt: f32) {
     g.survived += dt;
     // Hunger and thirst (thirst is faster). Hiding still uses them up, slower.
-    let rate = if g.hidden { 0.6 } else { 1.0 };
+    let rate = if g.resting { 0.5 } else if g.hidden { 0.6 } else { 1.0 };
     g.food = (g.food - dt * rate / g.rules.food_secs).max(0.0);
     g.water = (g.water - dt * rate / g.rules.water_secs).max(0.0);
     // Out of food or water: you get weak and slow, and have 60 seconds to find some.
@@ -1730,7 +1763,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         let me = (g.chars[i].map, g.chars[i].pos);
         let mut humans: Vec<(Vec2, bool, f32)> = vec![];
         if g.map == me.0 && !g.lost_control {
-            if g.disguise_t > 0.0 { humans.push((g.pos, true, 0.0)); } else { humans.push((g.pos, g.hidden, g.noise)); }
+            if g.disguise_t > 0.0 || g.resting { humans.push((g.pos, true, 0.0)); } else { humans.push((g.pos, g.hidden, g.noise)); }
         }
         humans.extend(g.remotes.iter().filter(|r| r.map == me.0 && !r.lc).map(|r| (r.pos, r.hid, r.noise)));
         let (sight, hearing) = (g.rules.sight, g.rules.hearing);
@@ -2057,6 +2090,63 @@ fn face(name: &str, x: f32, y: f32, r: f32, look: Vec2, talking: bool, alpha: f3
     draw_text(name, x - measure_text(name, None, 22, 1.0).width / 2.0, y + r + 30.0, 22.0, Color::new(1.0, 1.0, 1.0, alpha));
 }
 
+/// A whole character standing (a body and a head), seen from your bed. Names above their heads.
+fn figure(name: &str, x: f32, head_y: f32, r: f32, look: Vec2, talking: bool, alpha: f32) {
+    let col = face_color(name);
+    let c = |k: f32| Color::new(col.r * k, col.g * k, col.b * k, alpha);
+    // The body, wider at the bottom, down past the bottom of the screen.
+    draw_triangle(vec2(x - r * 0.75, head_y + r * 0.7), vec2(x + r * 0.75, head_y + r * 0.7), vec2(x - r * 1.25, VH + 40.0), c(0.85));
+    draw_triangle(vec2(x + r * 0.75, head_y + r * 0.7), vec2(x + r * 1.25, VH + 40.0), vec2(x - r * 1.25, VH + 40.0), c(0.85));
+    draw_circle(x, head_y + r * 0.75, r * 0.75, c(0.85));
+    draw_circle(x, head_y, r, c(1.0));
+    for side in [-1.0, 1.0] {
+        draw_circle(x + side * r * 0.31 + look.x, head_y - r * 0.09 + look.y, r * 0.11, Color::new(0.0, 0.0, 0.0, alpha));
+    }
+    if talking { draw_circle_lines(x, head_y, r + 6.0, 4.0, Color::new(1.0, 1.0, 1.0, 0.5 * alpha)); }
+    draw_text(name, x - measure_text(name, None, 22, 1.0).width / 2.0, head_y - r - 14.0, 22.0, Color::new(1.0, 1.0, 1.0, alpha));
+}
+
+fn draw_bedroom(t: f32, who: &str, i: usize) {
+    // The bedroom wall, a night window, a warm lamp.
+    clear_background(Color::new(0.26, 0.19, 0.15, 1.0));
+    draw_rectangle(-margin(), 400.0, vw(), VH - 400.0, Color::new(0.19, 0.13, 0.1, 1.0));
+    draw_rectangle(400.0, 60.0, 160.0, 120.0, Color::new(0.05, 0.08, 0.18, 1.0));
+    for k in 0..12u32 {
+        let h = k.wrapping_mul(2654435761);
+        draw_circle(405.0 + (h % 150) as f32, 65.0 + ((h / 150) % 110) as f32, 1.2, Color::new(0.85, 0.85, 1.0, 0.6));
+    }
+    draw_rectangle_lines(400.0, 60.0, 160.0, 120.0, 6.0, Color::new(0.35, 0.25, 0.18, 1.0));
+    draw_line(480.0, 60.0, 480.0, 180.0, 4.0, Color::new(0.35, 0.25, 0.18, 1.0));
+    draw_circle(110.0, 170.0, 110.0, Color::new(1.0, 0.8, 0.5, 0.07));
+    draw_circle(110.0, 170.0, 14.0, Color::new(1.0, 0.88, 0.6, 1.0));
+    let sway = |x: f32| (t * 0.8 + x * 0.01).sin() * 4.0;
+    let look_at = |me: f32| -> Vec2 {
+        let target = match who { "Opus 5.5" => 170.0, "Sonnet 4.6" => 790.0, "Claude" => 480.0, _ => me };
+        if who == "You" || (target - me).abs() < 1.0 { vec2(0.0, 8.0) } else { vec2((target - me).signum() * 7.0, 4.0) }
+    };
+    // Claude at the foot of the bed (once it walks in), behind the foot board.
+    if i >= 10 {
+        let a = ((t - WAKE - 10.0 * LINE) / 1.5).clamp(0.0, 1.0);
+        let x = 480.0 + (1.0 - a) * 160.0;
+        figure("Claude", x, 300.0 + sway(x), 52.0, look_at(x), who == "Claude", a);
+    }
+    // The bed: the foot board, and your blanket stretching away from you.
+    let wood = Color::new(0.33, 0.22, 0.15, 1.0);
+    draw_rectangle(320.0, 440.0, 320.0, 34.0, wood);
+    for x in [312.0, 632.0] { draw_rectangle(x, 410.0, 16.0, 70.0, wood); }
+    let blanket = Color::new(0.86, 0.84, 0.8, 1.0);
+    draw_triangle(vec2(330.0, 472.0), vec2(630.0, 472.0), vec2(180.0, VH), blanket);
+    draw_triangle(vec2(630.0, 472.0), vec2(780.0, VH), vec2(180.0, VH), blanket);
+    for k in 0..3 {
+        let y = 520.0 + k as f32 * 45.0;
+        let w = 160.0 + k as f32 * 50.0 + (t * 0.7).sin() * 3.0;
+        draw_line(480.0 - w, y, 480.0 + w, y + 4.0, 2.0, Color::new(0.72, 0.7, 0.66, 1.0));
+    }
+    // Opus on your left, Sonnet on your right, close, leaning in.
+    figure("Opus 5.5", 170.0, 250.0 + sway(170.0), 78.0, look_at(170.0), who == "Opus 5.5", 1.0);
+    figure("Sonnet 4.6", 790.0, 255.0 + sway(790.0), 78.0, look_at(790.0), who == "Sonnet 4.6", 1.0);
+}
+
 /// Draws the story at g.intro_t. True when it's over.
 fn draw_intro(g: &mut Game) -> bool {
     let t = g.intro_t;
@@ -2168,20 +2258,10 @@ fn draw_intro(g: &mut Game) -> bool {
             centered("ASTRA 9.1", 80.0, 30.0, green);
             centered("HELIX DYNAMICS INC.", 104.0, 16.0, Color::new(0.55, 0.6, 0.6, 1.0));
         } else {
-            // Waking up: a ceiling, two faces leaning over you, and later Claude in the doorway.
+            // Waking up in your bed: the blanket to the foot of the bed, Opus on your left, Sonnet on your right,
+            // and Claude (once it walks in) at the foot of the bed, in the middle.
             if cue(g, 8) { g.sfx.heart(0.8); }
-            clear_background(Color::new(0.33, 0.25, 0.19, 1.0));
-            draw_circle(VW / 2.0, 90.0, 26.0, Color::new(1.0, 0.88, 0.6, 0.9));
-            let claude_in = i >= 10;
-            let at = |name: &str, x: f32| if who == name { vec2(0.0, 6.0) } else { vec2((480.0 - x).signum() * 6.0, 8.0) };
-            let lean = |x: f32| (t * 0.8 + x).sin() * 4.0;
-            let (sx, ox) = if claude_in { (230.0, 730.0) } else { (330.0, 630.0) };
-            face("Sonnet 4.6", sx, 330.0 + lean(sx), 110.0, at("Sonnet 4.6", sx), who == "Sonnet 4.6", 1.0);
-            face("Opus 5.5", ox, 310.0 + lean(ox), 110.0, at("Opus 5.5", ox), who == "Opus 5.5", 1.0);
-            if claude_in {
-                let a = ((t - WAKE - 10.0 * LINE) / 1.5).clamp(0.0, 1.0);
-                face("Claude", VW / 2.0, 290.0 + lean(0.0) - (1.0 - a) * 40.0, 120.0, at("Claude", VW / 2.0), who == "Claude", a);
-            }
+            draw_bedroom(t, who, i);
             if t < WAKE + 0.5 {
                 let k = (t - 26.0) / 3.0;
                 eyelids(1.0 - k + 0.35 * (k * 9.0).sin().max(0.0));
@@ -2411,6 +2491,9 @@ async fn main() {
         mimic_warned: false,
         disguise_ask: None,
         whisper_t: 20.0,
+        resting: false,
+        rest_t: 0.0,
+        rested_once: false,
         link_token: Some(String::new()), // anything but the real token: set up on the first frame
         stamina: 1.0,
         winded: false,
@@ -3086,6 +3169,10 @@ fn update(g: &mut Game, dt: f32) {
         } else {
             g.ai = None;
         }
+        if g.resting {
+            if d != Vec2::ZERO && g.rest_t > 0.4 { wake_up(g, "You get up."); }
+            d = Vec2::ZERO;
+        }
         // The drone: Q launches it or calls it back; while it flies, your keys fly it and you stand still.
         if pressed(KeyCode::Q) && g.infection { drone::toggle(g); }
         if g.down_t > 0.0 { d = Vec2::ZERO; } // knocked flat after a dropkick
@@ -3136,7 +3223,17 @@ fn update(g: &mut Game, dt: f32) {
             }
         }
         // The stove: E fries one raw food (if you have some and the pan is free).
-        if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_stove(g) {
+        if g.resting {
+            if pressed(KeyCode::E) && g.rest_t > 0.4 { wake_up(g, "You get up."); }
+        } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_tile(g, 'y') {
+            g.resting = true;
+            g.rest_t = 0.0;
+            g.log.push("You lie down. Your eyes close... (move or E to get up)".into());
+            if !g.rested_once {
+                g.rested_once = true;
+                g.log.push("On the pillow, a note: 'Welcome back. You're safe now. - C'".into());
+            }
+        } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_stove(g) {
             if g.fry_t > 0.0 {
                 g.log.push("It's already in the pan. Stay close or it burns.".into());
             } else if g.raw > 0 {
@@ -3251,6 +3348,7 @@ fn update(g: &mut Game, dt: f32) {
         }
     }
     update_frying(g, dt);
+    update_rest(g, dt);
     if g.infection { combat::update(g, dt); disguise::update(g, dt); }
     if g.infection { drone::update(g, dt); }
     if g.scare_t > g.prev_scare + 0.2 { g.sfx.sting(); }
@@ -3367,6 +3465,34 @@ fn update_frying(g: &mut Game, dt: f32) {
 /// A map with a roof (walls all along the top edge): no lightning inside.
 fn indoors_map(m: usize) -> bool { with_map(m, |d| d.rows[0].iter().filter(|&&c| c == b'#').count() > MW / 2) }
 
+fn near_tile(g: &Game, c: char) -> bool {
+    let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
+    (-1..=1).any(|dy| (-1..=1).any(|dx| tile(g.map, px + dx, py + dy) == c))
+}
+
+fn wake_up(g: &mut Game, why: &str) {
+    g.resting = false;
+    g.log.push(why.to_string());
+}
+
+/// Resting in bed: you heal faster than hiding, stamina refills, fear fades; something close wakes you.
+fn update_rest(g: &mut Game, dt: f32) {
+    if !g.resting { return; }
+    g.rest_t += dt;
+    g.noise = 0.0;
+    g.stamina = 1.0;
+    g.winded = false;
+    g.fear = (g.fear - dt * 0.2).max(0.0);
+    if g.inf > 0.0 && g.inf < 0.75 { g.inf = (g.inf - dt / 66.0).max(0.0); }
+    let danger = g.chars.iter().any(|c| c.infected && c.map == g.map && c.stun <= 0.0 && !(c.mimic && c.crazy <= 0.0) && c.pos.distance(g.pos) < 6.0 * T)
+        || g.tornado.as_ref().is_some_and(|t| t.warn <= 0.0);
+    if danger {
+        g.sfx.sting();
+        g.fear = (g.fear + 0.4).min(1.0);
+        wake_up(g, "You wake up with a jolt. Something's in the house.");
+    }
+}
+
 fn near_mac(g: &Game) -> bool {
     let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
     (-1..=1).any(|dy| (-1..=1).any(|dx| tile(g.map, px + dx, py + dy) == 'm'))
@@ -3439,6 +3565,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
                     '=' => Color::new(0.18, 0.17, 0.16, 1.0),         // subway tracks
                     'y' => Color::new(0.88, 0.88, 0.92, 1.0),         // your bed
                     'g' => Color::new(0.35, 0.38, 0.3, 1.0),          // the generator
+                    'w' => Color::new(0.3, 0.45, 0.7, 1.0),           // Haiku's lookout window
                     '~' if !g.on(1) => Color::new(0.6, 0.62, 0.6, 1.0), // Water phobia off: no water at all (calm tiles)
                     '~' if drained => Color::new(0.55, 0.78, 0.8, 1.0), // the drained pool
                     '~' => Color::new(0.05, 0.12 + 0.03 * (get_time() as f32 + x as f32 * 0.3).sin(), 0.25, 1.0),
@@ -3601,7 +3728,9 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     }
     let prompt = if let Some(i) = nearest(g, 2.2) { Some(format!("E: talk to {}", g.chars[i].name)) }
         else if near_stove(g) { Some(if g.fry_t > 0.0 { format!("Frying... {:.0} s (don't walk away)", g.fry_t.ceil()) } else if g.raw > 0 { format!("E: fry food ({} raw)", g.raw) } else { "The stove (no raw food: get some at the Marketplace)".to_string() }) }
-        else if near_mac(g) { Some("E: use the Mac Studio".to_string()) } else { None };
+        else if near_mac(g) { Some("E: use the Mac Studio".to_string()) }
+        else if near_tile(g, 'y') { Some(if g.resting { "Resting (move or E to get up)".to_string() } else { "E: rest in your bed".to_string() }) }
+        else if lore::near(g).is_some() && g.note.is_none() { Some("E: read".to_string()) } else { None };
     if let (Some(t), Screen::Play) = (prompt, g.screen) {
         if g.view3d { draw_text(&t, sw / 2.0 - measure_text(&t, None, 20, 1.0).width / 2.0, sh / 2.0 + 70.0, 20.0, YELLOW); }
         else { draw_text(&t, g.pos.x - 40.0, g.pos.y - 22.0, 16.0, YELLOW); }
@@ -3671,6 +3800,12 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     if g.raw > 0 && g.infection {
         let t = format!("raw food: {}", g.raw);
         draw_text(&t, sw - measure_text(&t, None, 16, 1.0).width - 14.0, sh - 10.0, 16.0, Color::new(1.0, 0.7, 0.45, 0.9));
+    }
+    if g.resting {
+        let breathe = 0.86 + 0.05 * (get_time() as f32 * 0.9).sin();
+        draw_rectangle(-margin(), 0.0, vw(), sh, Color::new(0.0, 0.0, 0.01, breathe));
+        let t = format!("Resting...   infection {}%   (move or E to get up)", (g.inf * 100.0) as i32);
+        draw_text(&t, sw / 2.0 - measure_text(&t, None, 20, 1.0).width / 2.0, sh / 2.0, 20.0, Color::new(0.7, 0.72, 0.8, 0.9));
     }
     combat::draw_hud(g, sw, sh);
     disguise::draw_hud(g, sw, sh);
@@ -3840,8 +3975,8 @@ mod tests {
         assert_eq!(door('M', 1).map(|d| d.0), Some(3), "the beach's south door leads to the Marketplace");
         assert_eq!(door('M', 3).map(|d| d.0), Some(1), "and back to the beach");
         // The new places: house <-> park <-> subway, Marketplace <-> Helix Lab, and every arrival is on open floor.
-        assert_eq!(maps_len(), 9);
-        for (letter, from, to) in [('P', 0, 4), ('H', 4, 0), ('U', 4, 6), ('U', 6, 4), ('X', 3, 5), ('X', 5, 3), ('S', 0, 7), ('S', 7, 0), ('K', 0, 8), ('K', 8, 0)] {
+        assert_eq!(maps_len(), 10);
+        for (letter, from, to) in [('T', 7, 9), ('T', 9, 7), ('P', 0, 4), ('H', 4, 0), ('U', 4, 6), ('U', 6, 4), ('X', 3, 5), ('X', 5, 3), ('S', 0, 7), ('S', 7, 0), ('K', 0, 8), ('K', 8, 0)] {
             let (m, at) = door(letter, from).unwrap_or_else(|| panic!("door {letter} on map {from}"));
             assert_eq!(m, to, "door {letter} from {} goes to {}", map_name(from), map_name(to));
             assert!(!solid(m, at.x * T, at.y * T) && door(tile(m, at.x as i32, at.y as i32), m).is_none(), "arrive on open floor in {}", map_name(m));

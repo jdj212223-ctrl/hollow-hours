@@ -134,6 +134,12 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     draw_cube(center + vec3(0.0, 0.47, 0.0), vec3(0.96, 0.08, 0.96), None, fog.at(Color::new(0.88, 0.88, 0.92, 1.0), center));
                     if (x + y) % 2 == 0 { draw_cube(center + vec3(0.0, 0.55, -0.3), vec3(0.6, 0.1, 0.3), None, fog.at(WHITE, center)); }
                 }
+                'w' => {
+                    // Haiku's lookout: a chair facing a round window full of night.
+                    draw_cube(center + vec3(0.0, 0.25, 0.2), vec3(0.5, 0.5, 0.5), None, fog.at(Color::new(0.4, 0.3, 0.2, 1.0), center));
+                    draw_cube(center + vec3(0.0, 0.6, 0.42), vec3(0.5, 0.6, 0.06), None, fog.at(Color::new(0.4, 0.3, 0.2, 1.0), center));
+                    draw_sphere(center + vec3(0.0, 1.15, -0.45), 0.42, None, Color::new(0.12, 0.2, 0.45, 0.9));
+                }
                 'g' => {
                     // The generator: a humming green-grey box with a little light.
                     draw_cube(center + vec3(0.0, 0.5, 0.0), vec3(0.96, 1.0, 0.96), None, fog.at(Color::new(0.33, 0.36, 0.3, 1.0), center));

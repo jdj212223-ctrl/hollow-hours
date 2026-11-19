@@ -246,7 +246,7 @@ refresh(); setInterval(refresh, 2000);
 
 async function servers(env) {
   const { results } = await env.DB.prepare(
-    "SELECT s.code, s.name, s.players, s.max, s.mods, s.address, CASE WHEN u.hide_host = 1 THEN 'a player' ELSE u.name END AS host, CASE WHEN u.hide_host = 1 THEN NULL ELSE u.gamertag END AS gamertag FROM servers s JOIN users u ON u.id = s.owner " +
+    "SELECT s.code, s.slug, s.name, s.players, s.max, s.mods, s.address, CASE WHEN u.hide_host = 1 THEN 'a player' ELSE u.name END AS host, CASE WHEN u.hide_host = 1 THEN NULL ELSE u.gamertag END AS gamertag FROM servers s JOIN users u ON u.id = s.owner " +
     "WHERE s.public = 1 AND (s.seen > ? OR s.created > ?) ORDER BY s.players DESC, s.created DESC LIMIT 100").bind(now() - ALIVE, now() - 600).all();
   const ids = [...new Set(results.flatMap((r) => { try { return JSON.parse(r.mods); } catch { return []; } }))];
   const names = {};
@@ -257,9 +257,45 @@ async function servers(env) {
   return results.map((r) => {
     let mods = [];
     try { mods = JSON.parse(r.mods); } catch {}
-    return { code: r.code, name: r.name, host: r.host, players: r.players, max: r.max, mods: mods.map((id) => ({ id, name: names[id] ?? id })),
+    return { code: r.code, slug: r.slug || r.code, name: r.name, host: r.host, players: r.players, max: r.max, mods: mods.map((id) => ({ id, name: names[id] ?? id })),
       address: r.address || null, external: !!r.address };
   });
+}
+
+/** A server address on the official site ("officialsmp"): 3-24 lowercase letters, numbers and -. */
+const validSlug = (a) => /^[a-z0-9][a-z0-9-]{2,23}$/.test(a);
+const slugify = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 20) || "server";
+
+/** A free address for a new server: the one asked for, or one made from its name (with a number if taken). */
+async function freeSlug(env, wanted, name) {
+  let base = wanted ? String(wanted).trim().toLowerCase() : slugify(name);
+  if (wanted && !validSlug(base)) return { error: "Address: 3-24 lowercase letters, numbers and -, starting with a letter or number." };
+  if (base.length < 3) base = (base + "-hh").slice(0, 20);
+  for (let i = 0; i < 50; i++) {
+    const s = i === 0 ? base : `${base.slice(0, 20)}-${i + 1}`;
+    if (!(await env.DB.prepare("SELECT 1 FROM servers WHERE lower(slug) = ?").bind(s).first())) return { slug: s };
+    if (wanted) return { error: `The address "${s}" is taken. Try another.` };
+  }
+  return { error: "Couldn't find a free address." };
+}
+
+/** Finds a server by its address, its old room code, or (hosted elsewhere) its wss:// address. */
+async function resolveServer(env, a) {
+  a = String(a || "").trim();
+  if (!a || a.length > 200) return null;
+  const low = a.toLowerCase().replace(/^hh:\/\//, "");
+  const r = await env.DB.prepare("SELECT s.code, s.slug, s.name, s.players, s.max, s.mods, s.address, s.seen, s.created, CASE WHEN u.hide_host = 1 THEN 'a player' ELSE u.name END AS host FROM servers s JOIN users u ON u.id = s.owner WHERE lower(s.slug) = ? OR s.code = ? OR lower(s.address) = ? OR lower(s.address) = ?")
+    .bind(low, a.toUpperCase(), low, "wss://" + low).first();
+  if (!r) return null;
+  let mods = [];
+  try { mods = JSON.parse(r.mods); } catch {}
+  const named = [];
+  for (const id of mods) {
+    const m = await env.DB.prepare("SELECT name, version FROM mods WHERE id = ?").bind(id).first();
+    named.push({ id, name: m ? `${m.name} ${m.version}` : id });
+  }
+  return { code: r.code, address: r.slug || r.code, external: r.address || null, name: r.name, host: r.host, players: r.players, max: r.max,
+    online: r.seen > now() - ALIVE || r.created > now() - 600, mods: named };
 }
 
 async function makeServer(env, user, body) {
@@ -273,6 +309,8 @@ async function makeServer(env, user, body) {
   const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const code = [...crypto.getRandomValues(new Uint8Array(6))].map((b) => letters[b % letters.length]).join("");
   const pub = body.public === false || body.public === "off" || body.public === "0" ? 0 : 1;
+  const slug = await freeSlug(env, body.slug, name);
+  if (slug.error) return { error: slug.error };
   // Hosted somewhere else? Then it gets a secret for its heartbeat (shown once, only its hash is kept).
   let address = null, secret = null;
   if (body.address) {
@@ -280,9 +318,9 @@ async function makeServer(env, user, body) {
     if (!address) return { error: "Server address: wss://your-host (ws:// only for localhost while testing)." };
     secret = hex(crypto.getRandomValues(new Uint8Array(24)));
   }
-  await env.DB.prepare("INSERT INTO servers (code, name, owner, public, max, mods, created, seen, address, secret_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(code, name, user.id, pub, max, JSON.stringify(mods), now(), now(), address, secret ? await sha256(secret) : null).run();
-  return { code, name, public: !!pub, max, mods, address, secret };
+  await env.DB.prepare("INSERT INTO servers (code, name, owner, public, max, mods, created, seen, address, secret_hash, slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(code, name, user.id, pub, max, JSON.stringify(mods), now(), now(), address, secret ? await sha256(secret) : null, slug.slug).run();
+  return { code, slug: slug.slug, name, public: !!pub, max, mods, address, secret };
 }
 
 async function uploadMod(env, user, file) {
@@ -389,14 +427,14 @@ const redirect = (to, headers = {}) => new Response(null, { status: 303, headers
 
 async function home(env, user) {
   const list = await servers(env);
-  const rows = list.map((s) => `<tr><td><b>${esc(s.name)}</b><div class="dim small">host ${esc(s.host)}${s.gamertag ? ` (🎮 ${esc(s.gamertag)})` : ""} · code <code>${esc(s.code)}</code></div></td>
+  const rows = list.map((s) => `<tr><td><b>${esc(s.name)}</b><div class="dim small">host ${esc(s.host)}${s.gamertag ? ` (🎮 ${esc(s.gamertag)})` : ""} · address <code>${esc(s.slug || s.code)}</code></div></td>
 <td>${s.players}/${s.max}</td><td>${s.mods.map((m) => `<a class="pill" href="/mods/${m.id}">${esc(m.name)}</a>`).join("") || '<span class="dim small">no mods</span>'}</td></tr>`).join("");
   const { results: mods } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, CASE WHEN u.hide_author = 1 THEN 'anonymous' ELSE u.name END AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 6").all();
   return page("Servers", user, `<div class="hero"><h1 style="margin:0">Hollow Hours</h1>
 <p>A small horror game where the characters are real AIs. Infection mode: every AI outside the Claude family is infected, and you're the last human. Play online with friends.</p></div>
 <div class="card"><h2 style="margin-top:0">Servers</h2>${list.length ? `<table><tr><th>Server</th><th>Players</th><th>Mods</th></tr>${rows}</table>`
     : `<p class="dim">No public servers right now. ${user ? '<a href="/servers/new">Make one.</a>' : '<a href="/register">Register</a> to make one.'}</p>`}
-<p class="dim small">In the game: <b>S</b> on the title screen shows this list (mods download by themselves), or <b>J</b> and type a code.</p></div>
+<p class="dim small">In the game: <b>S</b> on the title screen shows this list (mods download by themselves), or <b>J</b> and type a server's address.</p></div>
 <div class="card"><h2 style="margin-top:0">Newest mods</h2>${mods.length ? mods.map((m) => `<p><a href="/mods/${m.id}"><b>${esc(m.name)}</b></a> ${esc(m.version)} <span class="dim small">by ${esc(m.author)}</span><br><span class="small">${esc(m.description)}</span></p>`).join("") : '<p class="dim">No mods yet.</p>'}
 <a href="/mods">All mods and how to make one</a></div>`);
 }
@@ -418,6 +456,7 @@ async function newServerPage(env, user, error = "") {
   const { results: mods } = await env.DB.prepare("SELECT id, name, version FROM mods ORDER BY created DESC LIMIT 50").all();
   return page("Make a server", user, `<div class="card" style="max-width:520px;margin:0 auto"><h2 style="margin-top:0">Make a server</h2>${error ? `<p class="err">${esc(error)}</p>` : ""}
 <form method="post" action="/servers/new"><label>Name</label><input name="name" required minlength="3" maxlength="32">
+<label>Address <span class="dim small">(what players type to join, like <code>officialsmp</code>; leave empty to make one from the name)</span></label><input name="slug" maxlength="24" pattern="[a-z0-9][a-z0-9-]{2,23}" autocomplete="off" placeholder="my-server">
 <label>Max players</label><select name="max">${[2, 4, 6, 8, 10, 12, 16, 20, 24, 30, 40].map((n) => `<option ${n === 20 ? "selected" : ""}>${n}</option>`).join("")}</select>
 <label><input type="checkbox" name="public" checked style="width:auto"> Show it in the server list</label>
 <label>Hosted somewhere else? <span class="dim small">(optional: your own server's address, e.g. wss://hh.example.com)</span></label><input name="address" placeholder="leave empty to host it here">
@@ -471,7 +510,7 @@ ${c.intro ? `<p><i>${esc(c.intro)}</i></p>` : ""}${rules ? `<h3>Rules</h3><p>${r
 async function accountPage(env, user, msg = "") {
   const u = await env.DB.prepare("SELECT name, email, created, hide_host, hide_author, gamertag FROM users WHERE id = ?").bind(user.id).first();
   const { results: mods } = await env.DB.prepare("SELECT id, name, version FROM mods WHERE author = ? ORDER BY created DESC").bind(user.id).all();
-  const { results: srv } = await env.DB.prepare("SELECT code, name, players, max, address FROM servers WHERE owner = ? ORDER BY created DESC").bind(user.id).all();
+  const { results: srv } = await env.DB.prepare("SELECT code, slug, name, players, max, address FROM servers WHERE owner = ? ORDER BY created DESC").bind(user.id).all();
   const sessions = (await env.DB.prepare("SELECT count(*) AS n FROM sessions WHERE user_id = ? AND expires > ?").bind(user.id, now()).first()).n;
   const form = (action, inner, confirm = "") => `<form method="post" action="/account" style="display:inline"${confirm ? ` onsubmit="return confirm('${confirm}')"` : ""}><input type="hidden" name="action" value="${action}">${inner}</form>`;
   const masked = u.email.replace(/^(.{2}).*(@.*)$/, "$1***$2");
@@ -496,7 +535,7 @@ ${form("privacy", `<label class="small" style="font-weight:400"><input type="che
 
 <div class="card"><h3 style="margin-top:0">Your mods</h3>${mods.length ? `<table>${mods.map((m) => `<tr><td><a href="/mods/${m.id}">${esc(m.name)}</a> ${esc(m.version)}</td><td style="text-align:right">${form("delete_mod", `<input type="hidden" name="id" value="${m.id}"><button class="btn ghost" type="submit">Delete</button>`, "Delete this mod? Servers using it will run without it.")}</td></tr>`).join("")}</table>` : '<p class="dim">None yet. <a href="/mods">Upload one.</a></p>'}</div>
 
-<div class="card"><h3 style="margin-top:0">Your servers</h3>${srv.length ? `<table>${srv.map((x) => `<tr><td><b>${esc(x.name)}</b> <code>${x.code}</code>${x.address ? ` <span class="pill">own server: ${esc(x.address)}</span>` : ""}<div class="dim small">${x.players}/${x.max} playing</div></td><td style="text-align:right">${x.address ? "" : `<a class="btn ghost" href="/servers/${x.code}/console">Console</a> `}${form("delete_server", `<input type="hidden" name="code" value="${x.code}"><button class="btn ghost" type="submit">Delete</button>`, "Delete this server? Its code stops working.")}</td></tr>`).join("")}</table>` : '<p class="dim">None yet. <a href="/servers/new">Make one.</a></p>'}</div>
+<div class="card"><h3 style="margin-top:0">Your servers</h3>${srv.length ? `<table>${srv.map((x) => `<tr><td><b>${esc(x.name)}</b> <code>${esc(x.slug || x.code)}</code>${x.address ? ` <span class="pill">own server: ${esc(x.address)}</span>` : ""}<div class="dim small">${x.players}/${x.max} playing</div></td><td style="text-align:right">${x.address ? "" : `<a class="btn ghost" href="/servers/${x.code}/console">Console</a> `}${form("delete_server", `<input type="hidden" name="code" value="${x.code}"><button class="btn ghost" type="submit">Delete</button>`, "Delete this server? Its code stops working.")}</td></tr>`).join("")}</table>` : '<p class="dim">None yet. <a href="/servers/new">Make one.</a></p>'}</div>
 
 <div class="card"><h3 style="margin-top:0">Password and sessions</h3>
 ${form("password", `<label>Current password</label><input type="password" name="current" required autocomplete="current-password"><label>New password <span class="dim small">(at least 8 characters)</span></label><input type="password" name="new" required minlength="8" autocomplete="new-password"><p><button class="btn ghost" type="submit">Change password</button></p>`)}
@@ -683,6 +722,7 @@ export default {
         return json({ name: user.name, gamertag: gt?.gamertag ?? null, gamertag_verified: false });
       }
       if (p === "/api/servers" && req.method === "GET") return json(await servers(env));
+      if (p === "/api/resolve") { const r = await resolveServer(env, url.searchParams.get("a")); return r ? json(r) : json({ error: "no server with that address" }, 404); }
       if (p === "/api/servers" && req.method === "POST") { if (!user) return json({ error: "log in first" }, 401); const r = await makeServer(env, user, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
       if (p === "/api/link/redeem" && req.method === "POST") { const r = await linkRedeem(env, await req.json().catch(() => ({}))); return json(r, r.error ? 400 : 200); }
       if (p === "/account") {
@@ -733,10 +773,10 @@ export default {
         if (req.method === "GET") return await newServerPage(env, user);
         if (!user) return redirect("/login");
         const f = await req.formData();
-        const r = await makeServer(env, user, { name: f.get("name"), max: f.get("max"), public: f.get("public") === "on", mods: f.getAll("mods"), address: f.get("address") });
+        const r = await makeServer(env, user, { name: f.get("name"), slug: f.get("slug") || "", max: f.get("max"), public: f.get("public") === "on", mods: f.getAll("mods"), address: f.get("address") });
         if (r.error) return await newServerPage(env, user, r.error);
-        return page("Server made", user, `<div class="card"><h2 style="margin-top:0">${esc(r.name)} is ready</h2><p>Room code: <code style="font-size:22px">${r.code}</code></p>
-<p>In the game: <b>S</b> on the title screen and pick it, or <b>J</b> and type <code>${r.code}</code>. Share the code with friends.${r.public ? "" : " It's private: only people with the code can join."}</p>
+        return page("Server made", user, `<div class="card"><h2 style="margin-top:0">${esc(r.name)} is ready</h2><p>Address: <code style="font-size:22px">${esc(r.slug)}</code></p>
+<p>In the game: <b>S</b> on the title screen, then <b>A</b> (add server) and type <code>${esc(r.slug)}</code>, or <b>J</b> and type it. Share the address with friends.${r.public ? "" : " It's private: only people with the address can join."}</p>
 ${r.address ? `<h3>Your own server</h3><p>Hosted at <code>${esc(r.address)}</code>. Start the Hollow Hours server program there with these (the secret is shown <b>only now</b>, keep it private):</p>
 <pre style="white-space:pre-wrap" class="small"><code>HH_CODE=${r.code}
 HH_SECRET=${r.secret}

@@ -45,3 +45,6 @@ CREATE TABLE IF NOT EXISTS link_codes (code_hash TEXT PRIMARY KEY, user_id INTEG
 
 -- v6: Xbox gamertag typed by the player (unverified until Microsoft sign-in exists)
 -- ALTER TABLE users ADD COLUMN gamertag TEXT;
+
+-- v7: server addresses ("officialsmp") instead of codes
+-- ALTER TABLE servers ADD COLUMN slug TEXT; CREATE UNIQUE INDEX servers_slug ON servers (lower(slug));

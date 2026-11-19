@@ -27,6 +27,7 @@ mod learn;
 mod combat;
 mod mimic;
 mod settings;
+mod serverlist;
 mod pad;
 
 use serde_json::json;
@@ -535,6 +536,8 @@ struct Game {
     /// The highlighted choice in the pause menu (0 = back to the game, 1 = settings, 2 = quit to the title).
     pause_sel: usize,
     settings_ui: settings::Ui,
+    /// Your saved servers (they stay between games) and their status.
+    servers: serverlist::List,
     /// Sprint / sneak when they're set to toggle instead of hold (Settings > Accessibility).
     sprint_on: bool,
     sneak_on: bool,
@@ -2131,6 +2134,7 @@ async fn main() {
         server_max: 20,
         pause_sel: 0,
         settings_ui: Default::default(),
+        servers: serverlist::List::load(),
         sprint_on: false,
         sneak_on: false,
         flash_t: 0.0,
@@ -2252,6 +2256,7 @@ async fn main() {
             Screen::Title => pad::Mode::Title,
             Screen::Play => pad::Mode::Play,
             Screen::Typing(_) | Screen::Login | Screen::JoinRoom | Screen::MakeServer => pad::Mode::Typing,
+            Screen::Servers if g.servers.edit.is_some() => pad::Mode::Typing,
             Screen::Mac => pad::Mode::Mac,
             Screen::Consent => pad::Mode::Consent,
             _ => pad::Mode::Menu,
@@ -2321,7 +2326,7 @@ async fn main() {
                 if pressed(KeyCode::I) { begin_intro(&mut g, None); }
                 if pressed(KeyCode::M) { g.screen = Screen::Consent; }
                 if pressed(KeyCode::O) { settings::open(&mut g, false); }
-                if pressed(KeyCode::S) { refresh_servers(&mut g); g.screen = Screen::Servers; }
+                if pressed(KeyCode::S) { serverlist::refresh(&mut g); refresh_servers(&mut g); g.screen = Screen::Servers; }
                 if pressed(KeyCode::L) {
                     if g.account.is_some() {
                         g.account = None;
@@ -2428,49 +2433,7 @@ async fn main() {
                     }
                 }
             }
-            Screen::Servers => {
-                draw_text("Servers", 60.0, 100.0, 44.0, WHITE);
-                if g.server_list.is_empty() { draw_text("No public servers right now. N = make one.", 60.0, 160.0, 22.0, Color::new(0.7, 0.72, 0.8, 1.0)); }
-                for (i, sv) in g.server_list.iter().take(8).enumerate() {
-                    let mods: Vec<&str> = sv["mods"].as_array().map(|a| a.iter().filter_map(|m| m["name"].as_str()).collect()).unwrap_or_default();
-                    draw_text(&format!("{}  {}{}   {}/{}   host {}{}", i + 1, sv["name"].as_str().unwrap_or("?"),
-                        if sv["external"].as_bool() == Some(true) { " (own server)" } else { "" }, sv["players"], sv["max"], sv["host"].as_str().unwrap_or("?"),
-                        if mods.is_empty() { String::new() } else { format!("   mods: {}", mods.join(", ")) }), 60.0, 160.0 + i as f32 * 34.0, 22.0, Color::new(0.85, 0.87, 0.95, 1.0));
-                }
-                draw_text(&format!("1-8 join · R refresh · N make a server{} · Esc back", if g.account.is_none() { " (log in first: L)" } else { "" }), 60.0, 460.0, 20.0, Color::new(0.65, 0.68, 0.78, 1.0));
-                draw_text(&g.status.clone(), 60.0, 495.0, 20.0, Color::new(1.0, 0.75, 0.4, 1.0));
-                let keys = [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4, KeyCode::Key5, KeyCode::Key6, KeyCode::Key7, KeyCode::Key8];
-                for (i, k) in keys.iter().enumerate() {
-                    if pressed(*k) {
-                        if g.account.is_none() { g.status = "Log in first (Esc, then L): servers check who you are.".into(); continue; }
-                        if let Some(sv) = g.server_list.get(i).cloned() {
-                            let mods: Vec<String> = sv["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
-                            apply_mods(&mut g, &mods);
-                            let token = g.account.as_ref().map(|a| a.token.clone()).unwrap_or_default();
-                            let code = sv["code"].as_str().unwrap_or("").to_string();
-                            if let Some(addr) = sv["address"].as_str() {
-                                // Hosted somewhere else: our login never goes there, only a 60-second ticket for that address.
-                                let ticket = ureq::post(&format!("{}/api/ticket", site())).set("Authorization", &format!("Bearer {token}"))
-                                    .timeout(std::time::Duration::from_secs(8)).send_json(json!({"address": addr})).ok()
-                                    .and_then(|r| r.into_json::<serde_json::Value>().ok()).and_then(|v| v["ticket"].as_str().map(String::from));
-                                match ticket {
-                                    Some(t) => g.net = Some(net::Net::join_at(addr, &code, &format!("Ticket {t}"))),
-                                    None => { g.status = "Couldn't get a ticket for that server (log in again?)".into(); continue; }
-                                }
-                            } else {
-                                g.net = Some(net::Net::join(&code, &token));
-                            }
-                            start_infection(&mut g);
-                        }
-                    }
-                }
-                if pressed(KeyCode::R) { refresh_servers(&mut g); }
-                if pressed(KeyCode::N) {
-                    if g.account.is_some() { g.room_input = format!("{}'s server", g.my_name); while get_char_pressed().is_some() {} g.screen = Screen::MakeServer; }
-                    else { g.status = "Log in first (L on the title screen).".into(); }
-                }
-                if pressed(KeyCode::Escape) { g.screen = Screen::Title; }
-            }
+            Screen::Servers => serverlist::screen(&mut g),
             Screen::MakeServer => {
                 draw_text("Make a server", 60.0, 110.0, 40.0, WHITE);
                 draw_text(&format!("Name: {}_", g.room_input), 60.0, 190.0, 30.0, YELLOW);
@@ -2498,7 +2461,12 @@ async fn main() {
                                 apply_mods(&mut g, &[]);
                                 g.net = Some(net::Net::join(code, &token));
                                 start_infection(&mut g);
-                                g.log.push(format!("Your server is up. Room code: {code}"));
+                                let address = v["slug"].as_str().unwrap_or(code).to_string();
+                                g.log.push(format!("Your server is up. Its address: {address} (friends add it in their server list)."));
+                                if !g.servers.entries.iter().any(|e| e.address == address) {
+                                    g.servers.entries.push(serverlist::Saved { name: v["name"].as_str().unwrap_or("My server").to_string(), address });
+                                    let _ = std::fs::write(platform::data_dir().join("servers.json"), serde_json::to_string_pretty(&g.servers.entries).unwrap_or_default());
+                                }
                             }
                         }
                         Err(ureq::Error::Status(_, r)) => g.status = r.into_json::<serde_json::Value>().ok().and_then(|v| v["error"].as_str().map(String::from)).unwrap_or("Couldn't make it.".into()),
@@ -2508,25 +2476,34 @@ async fn main() {
             }
             Screen::JoinRoom => {
                 draw_text("Multiplayer: Infection with friends", 60.0, 120.0, 40.0, Color::new(0.45, 0.95, 0.4, 1.0));
-                for (i, l) in ["Type a room code (4-8 letters or numbers) and press Enter.", "Everyone who types the same code plays together. The first one in is the host.",
-                    "", &format!("Room: {}_", g.room_input), "", "Esc = back"].iter().enumerate() {
+                for (i, l) in ["Type a server's address (like officialsmp, or hh.example.com) and press Enter.", "Or any room code (4-8 letters or numbers): everyone who types the same one plays together.",
+                    "", &format!("Address: {}_", g.room_input), "", &g.status.clone(), "Esc = back   ·   S on the title = your saved servers"].iter().enumerate() {
                     draw_text(l, 60.0, 190.0 + i as f32 * 32.0, if i == 3 { 34.0 } else { 22.0 }, Color::new(0.82, 0.84, 0.9, 1.0));
                 }
                 let mut chars = typed();
                 if let Some(t) = pasted() { chars.extend(t.chars()); }
                 for ch in chars {
-                    if ch.is_ascii_alphanumeric() && g.room_input.len() < 8 { g.room_input.push(ch.to_ascii_uppercase()); }
+                    if (ch.is_ascii_alphanumeric() || ".-:/_".contains(ch)) && g.room_input.len() < 80 { g.room_input.push(ch); }
                 }
                 if pressed(KeyCode::Backspace) { g.room_input.pop(); }
-                if pressed(KeyCode::Enter) && g.room_input.len() >= 4 {
-                    // The room tells us its mods; look them up on the website first so everyone plays the same game.
-                    let code = g.room_input.clone();
-                    let mods: Vec<String> = refresh_servers_quiet(&mut g).into_iter().find(|s| s["code"] == code.as_str())
-                        .map(|s| s["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect())
-                        .unwrap_or_default();
-                    apply_mods(&mut g, &mods);
-                    let code = g.room_input.clone();
-                    begin_intro(&mut g, Some(code));
+                if pressed(KeyCode::Enter) && g.room_input.trim().len() >= 3 {
+                    let typed = g.room_input.trim().to_string();
+                    match serverlist::resolve(&typed) {
+                        // A server on the official site: the story intro, then in (with its mods).
+                        Some(v) if !v["external"].is_string() => {
+                            let mods: Vec<String> = v["mods"].as_array().cloned().unwrap_or_default().iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+                            apply_mods(&mut g, &mods);
+                            begin_intro(&mut g, v["code"].as_str().map(String::from));
+                        }
+                        // Hosted somewhere else (needs a ticket).
+                        Some(v) => if let Err(e) = serverlist::join(&mut g, &v) { g.status = e; },
+                        // Not a server: a plain room code makes a private room with friends.
+                        None if (4..=8).contains(&typed.len()) && typed.chars().all(|c| c.is_ascii_alphanumeric()) => {
+                            apply_mods(&mut g, &[]);
+                            begin_intro(&mut g, Some(typed.to_uppercase()));
+                        }
+                        None => g.status = format!("There's no server at \"{typed}\"."),
+                    }
                 }
                 if pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }

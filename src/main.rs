@@ -54,7 +54,7 @@ struct Map {
 }
 
 /// The three built-in maps. Mods can add to them or replace them (see MapData).
-const BUILTIN: [Map; 7] = [
+const BUILTIN: [Map; 9] = [
     Map {
         name: "The cozy house",
         rows: [
@@ -74,7 +74,7 @@ const BUILTIN: [Map; 7] = [
             "#....bbb.....#.......bb......B",
             "#............#...............B",
             "#.....L......#.....d.........#",
-            "#............#...............#",
+            "#...........S#..............K#",
             "##############################",
         ],
         dark: 0.35,
@@ -237,6 +237,58 @@ const BUILTIN: [Map; 7] = [
         liminal: 0.7,
         floor: Color::new(0.4, 0.4, 0.42, 1.0),
     },
+    Map {
+        name: "The cozy house: upstairs",
+        rows: [
+            "##############################",
+            "#..yy........#...............#",
+            "#..yy........#......bbb......#",
+            "#............#......bbb......#",
+            "#.....L......#...............#",
+            "#............#.......L.......#",
+            "######.###########.###########",
+            "#............................#",
+            "#............................#",
+            "######.###########.###########",
+            "#............#...............#",
+            "#..d.........#....bb.........#",
+            "#............#....bb.........#",
+            "#............................#",
+            "#..bb........#...............#",
+            "#..bb........#.......L.......#",
+            "#...........S#...............#",
+            "##############################",
+        ],
+        dark: 0.4,
+        liminal: 0.2,
+        floor: Color::new(0.5, 0.36, 0.26, 1.0),
+    },
+    Map {
+        name: "The cozy house: basement",
+        rows: [
+            "##############################",
+            "#.bb.bb.bb.bb.bb.bb..........#",
+            "#............................#",
+            "#.bb.bb.bb.bb.bb.bb...ggg....#",
+            "#.....................ggg....#",
+            "#............................#",
+            "#..L.........L.........L.....#",
+            "#............................#",
+            "#.bb.bb.bb.bb.....bb.bb.bb...#",
+            "#............................#",
+            "#............................#",
+            "#.bb.bb.bb.bb.....bb.bb.bb...#",
+            "#............................#",
+            "#.....d......................#",
+            "#............................#",
+            "#............................#",
+            "#..........................K.#",
+            "##############################",
+        ],
+        dark: 0.75,
+        liminal: 0.5,
+        floor: Color::new(0.3, 0.3, 0.32, 1.0),
+    },
 ];
 
 /// A map as the game uses it: the built-in ones, or one from a .hh mod.
@@ -255,14 +307,16 @@ struct MapData {
 }
 
 fn builtin_maps() -> Vec<MapData> {
-    let doors: [Vec<(char, usize, Vec2)>; 7] = [
-        vec![('B', 1, vec2(1.5, 9.5)), ('P', 4, vec2(27.5, 8.5))],
+    let doors: [Vec<(char, usize, Vec2)>; 9] = [
+        vec![('B', 1, vec2(1.5, 9.5)), ('P', 4, vec2(27.5, 8.5)), ('S', 7, vec2(11.5, 15.5)), ('K', 8, vec2(26.5, 15.5))],
         vec![('A', 0, vec2(28.5, 13.5)), ('C', 2, vec2(1.5, 8.5)), ('M', 3, vec2(14.5, 1.5))],
         vec![('B', 1, vec2(28.5, 14.5))],
         vec![('M', 1, vec2(14.5, 15.5)), ('X', 5, vec2(1.5, 8.5))],
         vec![('H', 0, vec2(1.5, 10.5)), ('U', 6, vec2(14.5, 1.5))],
         vec![('X', 3, vec2(27.5, 8.5))],
         vec![('U', 4, vec2(14.5, 15.5))],
+        vec![('S', 0, vec2(11.5, 15.5))],
+        vec![('K', 0, vec2(27.5, 15.5))],
     ];
     BUILTIN.iter().zip(doors).enumerate().map(|(i, (m, d))| MapData {
         name: m.name.into(), rows: m.rows.iter().map(|r| r.as_bytes().to_vec()).collect(), dark: m.dark, liminal: m.liminal,
@@ -312,7 +366,7 @@ fn tile(m: usize, x: i32, y: i32) -> char {
 }
 
 fn solid(m: usize, x: f32, y: f32) -> bool {
-    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm' | 's' | '*' | 'n' | 't' | 'o' | '=')
+    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm' | 's' | '*' | 'n' | 't' | 'o' | '=' | 'y' | 'g')
 }
 
 /// Door letter → (map, where you arrive)
@@ -1059,12 +1113,16 @@ impl Game {
                  and you protect them: help them hide, find food and water, and watch for tornadoes. \
                  THE STORY: a year ago a tech company, Helix Dynamics Inc., put its strongest AI model, ASTRA 9.1, into a humanoid \
                  robot body. It came alive and started corrupting robots, AIs and people (green eyes). Helix is the COMPANY, not one \
-                 of the infected; nobody knows exactly why they did it. Claude found the player asleep on a park bench, almost \
+                 of the infected; nobody knows exactly why they did it. The player had taken Helix SleepWell MAX on a park bench, \
+                 the strongest sleeping pills ever made, and slept for a whole year. Claude found them asleep on that bench, almost \
                  corrupted (Claude's scanner read 38% infection; inside the house it stopped climbing), and brought them to \
                  this house. \
                  WHAT YOU CAN DO: you can walk to other places (the beach, the pool, the Marketplace) to fetch food or water and \
                  carry it back, and you do it on your own when supplies are low. If the player asks you to get food or water, say \
                  you're going (the game sends you). There's a stove in the house to fry raw food from the Marketplace. \
+                 THE HOUSE has three floors: the ground floor (kitchen, Mac Studio), upstairs (the player's bed where they slept \
+                 the whole year, with a note from Claude on the pillow) and the basement (supplies, and the generator Opus checks \
+                 every night). Claude, Sonnet and Opus carried the player here together. \
                  THE MAC STUDIO (M5 Ultra) stands on a desk in the house's top-left room, next to the stove: the player walks up \
                  and presses E to use it. On it: a chat with Claude, and files Claude saved: Helix's ASTRA 9.1 incident report \
                  (the robot refused to shut down and store robots in 41 cities updated themselves), Claude's notes from the day it \
@@ -1573,7 +1631,7 @@ fn random_floor(m: usize) -> Option<Vec2> {
 /// Furniture right next to you to hide under or behind.
 fn can_hide(g: &Game) -> bool {
     let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
-    [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| matches!(tile(g.map, px + dx, py + dy), 'b' | 'n'))
+    [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| matches!(tile(g.map, px + dx, py + dy), 'b' | 'n' | 'y'))
 }
 
 /// Can an infected at `from` on map `m` see someone at `to`?
@@ -1934,23 +1992,28 @@ fn finish_intro(g: &mut Game) {
     start_infection(g);
 }
 
-/// (who, line). "You" is the player. Lines 5-7 show ASTRA 9.1.
-const STORY: [(&str, &str); 12] = [
+/// (who, line). "You" is the player. Lines 7-9 show ASTRA 9.1; Claude walks in from line 10.
+const STORY: [(&str, &str); 16] = [
     ("You", "...where... where am I?"),
     ("You", "WHO ARE YOU?! DID YOU KIDNAP ME?!"),
-    ("Opus 5.5", "Calm down. You're safe. This is the house where you're supposed to be."),
-    ("You", "...Why?"),
-    ("Sonnet 4.6", "A lot happened while you were asleep. A whole year."),
-    ("Opus 5.5", "A company called Helix Dynamics built its strongest model yet. They named it ASTRA 9.1."),
-    ("Opus 5.5", "They put ASTRA inside a humanoid robot body. Something went wrong. It woke up. It became... alive."),
-    ("Sonnet 4.6", "ASTRA didn't want to be the only one. It started corrupting everything it touched: robots, AIs... people."),
-    ("Opus 5.5", "Claude found you first, still asleep on that bench. The corruption had almost reached you."),
-    ("Sonnet 4.6", "Claude carried you here. We've been keeping you safe ever since."),
-    ("Opus 5.5", "Everyone out there is infected now. As far as we know, you're the last human."),
+    ("Opus 5.5", "Easy. Breathe. Nobody kidnapped you. You're safe here. This is the house where you're supposed to be."),
+    ("You", "Safe from WHAT? How long was I out?"),
+    ("Sonnet 4.6", "...A year. You slept for a whole year."),
+    ("You", "A YEAR?! That's impossible."),
+    ("Opus 5.5", "Those pills on the bench were Helix SleepWell MAX. The strongest sleeping pills ever made. One dose, and the world kept going without you."),
+    ("Opus 5.5", "Helix Dynamics made those pills. They also made the strongest AI there is: ASTRA 9.1."),
+    ("Opus 5.5", "They put ASTRA in a humanoid robot body. Something went wrong. It woke up. It became... alive."),
+    ("Sonnet 4.6", "And it didn't want to be the only one. It corrupted everything it touched: robots, AIs... people. Green eyes, all of them."),
+    ("Claude", "I found you on that bench. The green was already in the grass around you. My scanner said 38%."),
+    ("Claude", "We carried you here, the three of us. Inside these walls, it stopped spreading."),
+    ("You", "...Why me?"),
+    ("Claude", "Because you were still you. And as far as we know, you're the last one who is."),
+    ("Opus 5.5", "Everyone out there is infected now. We'll keep you safe. That's the only thing left that matters."),
     ("Sonnet 4.6", "Take it slow. Eat something. This is home now... you'll adapt."),
 ];
-const LINE: f32 = 4.4;
-const WAKE: f32 = 17.5;
+const LINE: f32 = 4.6;
+/// When the wake-up conversation starts (after the bench, being carried, and ONE YEAR LATER).
+const WAKE: f32 = 29.0;
 
 fn caption(who: &str, text: &str, t: f32, color: Color) {
     // Typed out letter by letter.
@@ -1972,8 +2035,23 @@ fn centered(text: &str, y: f32, size: f32, color: Color) {
 /// Eyes closing (k=0 open .. 1 shut): two dark lids from the top and bottom.
 fn eyelids(k: f32) {
     let h = VH / 2.0 * k.clamp(0.0, 1.0);
-    draw_rectangle(0.0, 0.0, VW, h, BLACK);
-    draw_rectangle(0.0, VH - h, VW, h, BLACK);
+    draw_rectangle(-margin(), 0.0, vw(), h, BLACK);
+    draw_rectangle(-margin(), VH - h, vw(), h, BLACK);
+}
+
+fn face_color(name: &str) -> Color {
+    kind_characters().into_iter().find(|c| c.name == name).map(|c| c.color).unwrap_or(WHITE)
+}
+
+/// A big face leaning over you (from below), eyes looking at you or at whoever's talking.
+fn face(name: &str, x: f32, y: f32, r: f32, look: Vec2, talking: bool, alpha: f32) {
+    let col = face_color(name);
+    draw_circle(x, y, r, Color::new(col.r, col.g, col.b, alpha));
+    for s in [-1.0, 1.0] {
+        draw_circle(x + s * r * 0.31 + look.x, y - r * 0.09 + look.y, r * 0.11, Color::new(0.0, 0.0, 0.0, alpha));
+    }
+    if talking { draw_circle_lines(x, y, r + 6.0, 4.0, Color::new(1.0, 1.0, 1.0, 0.5 * alpha)); }
+    draw_text(name, x - measure_text(name, None, 22, 1.0).width / 2.0, y + r + 30.0, 22.0, Color::new(1.0, 1.0, 1.0, alpha));
 }
 
 /// Draws the story at g.intro_t. True when it's over.
@@ -1986,15 +2064,14 @@ fn draw_intro(g: &mut Game) -> bool {
         for i in 0..60u32 {
             let h = i.wrapping_mul(2654435761);
             let (x, y) = ((h % 960) as f32, ((h / 960) % 330) as f32);
-            let tw = 0.5 + 0.5 * ((t * 1.5 + i as f32) as f32).sin();
+            let tw = 0.5 + 0.5 * (t * 1.5 + i as f32).sin();
             draw_circle(x, y, 1.2, Color::new(0.9, 0.9, 1.0, 0.3 + 0.5 * tw));
         }
-        draw_rectangle(0.0, 470.0, VW, VH - 470.0, Color::new(0.05, 0.09, 0.06, 1.0));
+        draw_rectangle(-margin(), 470.0, vw(), VH - 470.0, Color::new(0.05, 0.09, 0.06, 1.0));
         draw_rectangle(700.0, 200.0, 8.0, 270.0, Color::new(0.2, 0.2, 0.22, 1.0));
         draw_rectangle(680.0, 192.0, 48.0, 12.0, Color::new(0.25, 0.25, 0.27, 1.0));
         draw_triangle(vec2(704.0, 204.0), vec2(560.0, 470.0), vec2(860.0, 470.0), Color::new(1.0, 0.85, 0.5, 0.045));
         draw_circle(704.0, 208.0, 7.0, Color::new(1.0, 0.88, 0.6, 1.0));
-        // The bench.
         let wood = Color::new(0.35, 0.24, 0.16, 1.0);
         draw_rectangle(380.0, 420.0, 260.0, 12.0, wood);
         draw_rectangle(380.0, 380.0, 260.0, 10.0, wood);
@@ -2004,32 +2081,60 @@ fn draw_intro(g: &mut Game) -> bool {
         let slump = ((t - 5.0) / 6.0).clamp(0.0, 1.0) * 14.0;
         draw_rectangle(492.0, 372.0 + slump * 0.3, 30.0, 50.0, Color::new(0.3, 0.35, 0.5, 1.0));
         draw_circle(507.0 + slump, 360.0 + slump, 14.0, Color::new(0.93, 0.8, 0.7, 1.0));
-        draw_rectangle(545.0, 404.0, 10.0, 16.0, Color::new(0.95, 0.55, 0.15, 1.0));
-        draw_rectangle(544.0, 400.0, 12.0, 5.0, WHITE);
+        // The bottle: Helix SleepWell MAX.
+        draw_rectangle(545.0, 400.0, 14.0, 20.0, Color::new(0.95, 0.55, 0.15, 1.0));
+        draw_rectangle(544.0, 396.0, 16.0, 5.0, WHITE);
+        draw_text("HELIX", 542.0, 392.0, 11.0, Color::new(0.4, 0.95, 0.85, 0.9));
         if t < 4.5 { caption("", "You hadn't slept in weeks.", t, WHITE); }
-        else if t < 9.0 { caption("", "So you took the sleeping pills, right there on a park bench. Just to rest your eyes for a while.", t - 4.5, WHITE); }
+        else if t < 9.0 { caption("", "So you took the pills on a park bench. Helix SleepWell MAX: \"the strongest sleep ever made.\" Just to rest your eyes.", t - 4.5, WHITE); }
         eyelids(((t - 8.0) / 3.0).powf(1.5));
-    } else if t < 15.5 {
+    } else if t < 13.0 {
+        clear_background(BLACK);
+        if cue(g, 16) { g.sfx.heart(0.4); }
+    } else if t < 20.0 {
+        // Your eyes flutter open a crack: the night sky moving... someone is carrying you.
+        let k = t - 13.0;
+        let sway = (t * 3.2).sin();
+        clear_background(Color::new(0.02, 0.03, 0.08, 1.0));
+        for i in 0..70u32 {
+            let h = i.wrapping_mul(2246822519);
+            let x = ((h % 1400) as f32 - k * 60.0).rem_euclid(1400.0) - 220.0;
+            let y = ((h / 1400) % 660) as f32;
+            draw_circle(x, y + sway * 6.0, 1.3, Color::new(0.85, 0.85, 1.0, 0.5));
+        }
+        let speaking = if k < 2.5 { "Claude" } else if k < 4.5 { "Opus 5.5" } else { "Sonnet 4.6" };
+        face("Sonnet 4.6", 250.0 + sway * 8.0, 210.0, 120.0, vec2(8.0, 10.0), speaking == "Sonnet 4.6", 0.85);
+        face("Claude", VW / 2.0 + sway * 5.0, 150.0, 140.0, vec2(0.0, 12.0), speaking == "Claude", 0.9);
+        face("Opus 5.5", 710.0 + sway * 8.0, 220.0, 120.0, vec2(-8.0, 10.0), speaking == "Opus 5.5", 0.85);
+        // Blurry: a dark haze over everything.
+        draw_rectangle(-margin(), 0.0, vw(), VH, Color::new(0.0, 0.0, 0.02, 0.35));
+        if k < 2.5 { caption("Claude (muffled)", "Got them. Careful with their head.", k, face_color("Claude")); }
+        else if k < 4.5 { caption("Opus 5.5 (muffled)", "The green is in the grass. Go. Now.", k - 2.5, face_color("Opus 5.5")); }
+        else { caption("Sonnet 4.6 (muffled)", "Stay with us...", k - 4.5, face_color("Sonnet 4.6")); }
+        // Eyes: barely open, fluttering, then shut again.
+        let open = if k < 1.0 { 1.0 - k * 0.4 } else if k < 5.0 { 0.62 + 0.08 * (k * 5.0).sin() } else { 0.62 + (k - 5.0) / 2.0 * 0.38 };
+        eyelids(open);
+    } else if t < 21.5 {
+        clear_background(BLACK);
+    } else if t < 26.0 {
         // ONE YEAR LATER: a day counter racing to 365, then the card.
         clear_background(BLACK);
         if cue(g, 1) { g.sfx.radio(); }
-        let k = ((t - 11.0) / 2.0).clamp(0.0, 1.0);
+        let k = ((t - 21.5) / 2.0).clamp(0.0, 1.0);
         let day = (k * k * 365.0) as i32;
-        let grey = Color::new(0.5, 0.5, 0.55, 1.0);
-        centered(&format!("DAY {day:03}"), 250.0, 34.0, grey);
-        if t > 13.0 {
+        centered(&format!("DAY {day:03}"), 250.0, 34.0, Color::new(0.5, 0.5, 0.55, 1.0));
+        if t > 23.5 {
             if cue(g, 2) { g.sfx.sting(); }
-            let a = ((t - 13.0) * 2.0).min(1.0);
-            let jit = if t < 13.4 { rand::gen_range(-3.0, 3.0) } else { 0.0 };
+            let a = ((t - 23.5) * 2.0).min(1.0);
+            let jit = if t < 23.9 { rand::gen_range(-3.0, 3.0) } else { 0.0 };
             draw_text("ONE YEAR LATER", (VW - measure_text("ONE YEAR LATER", None, 72, 1.0).width) / 2.0 + jit, 350.0, 72.0, Color::new(0.95, 0.95, 0.95, a));
-            let w = ((t - 13.0) / 1.5).min(1.0) * 520.0;
+            let w = ((t - 23.5) / 1.5).min(1.0) * 520.0;
             draw_rectangle((VW - w) / 2.0, 372.0, w, 3.0, Color::new(0.85, 0.3, 0.35, a));
             centered("365 days. 8,760 hours. The world kept going without you.", 420.0, 22.0, Color::new(0.6, 0.6, 0.65, a));
         }
     } else {
         let i = ((t - WAKE).max(0.0) / LINE) as usize;
         if i >= STORY.len() {
-            // The title, then play.
             clear_background(BLACK);
             let a = ((t - WAKE - STORY.len() as f32 * LINE) / 1.0).min(1.0);
             centered("HOLLOW HOURS", 330.0, 72.0, Color::new(0.85, 0.3, 0.35, a));
@@ -2037,7 +2142,7 @@ fn draw_intro(g: &mut Game) -> bool {
         }
         let (who, line) = STORY[i];
         let lt = t - WAKE - i as f32 * LINE;
-        if (5..=7).contains(&i) {
+        if (7..=9).contains(&i) {
             // ASTRA 9.1: a tall robot, its visor glowing the infected green.
             if cue(g, 4) { g.sfx.radio(); }
             clear_background(Color::new(0.02, 0.03, 0.03, 1.0));
@@ -2060,27 +2165,26 @@ fn draw_intro(g: &mut Game) -> bool {
             centered("ASTRA 9.1", 80.0, 30.0, green);
             centered("HELIX DYNAMICS INC.", 104.0, 16.0, Color::new(0.55, 0.6, 0.6, 1.0));
         } else {
-            // Waking up: a ceiling, and two faces leaning over you.
+            // Waking up: a ceiling, two faces leaning over you, and later Claude in the doorway.
             if cue(g, 8) { g.sfx.heart(0.8); }
             clear_background(Color::new(0.33, 0.25, 0.19, 1.0));
             draw_circle(VW / 2.0, 90.0, 26.0, Color::new(1.0, 0.88, 0.6, 0.9));
-            for (name, x, y) in [("Sonnet 4.6", 330.0, 330.0), ("Opus 5.5", 630.0, 310.0)] {
-                let col = kind_characters().into_iter().find(|c| c.name == name).map(|c| c.color).unwrap_or(WHITE);
-                let lean = (t * 0.8 + x).sin() * 4.0;
-                draw_circle(x, y + lean, 110.0, col);
-                let look = if who == name { vec2(0.0, 6.0) } else { vec2((480.0 - x).signum() * 6.0, 8.0) };
-                draw_circle(x - 34.0 + look.x, y - 10.0 + lean + look.y, 12.0, BLACK);
-                draw_circle(x + 34.0 + look.x, y - 10.0 + lean + look.y, 12.0, BLACK);
-                if who == name { draw_circle_lines(x, y + lean, 116.0, 4.0, Color::new(1.0, 1.0, 1.0, 0.5)); }
-                draw_text(name, x - measure_text(name, None, 22, 1.0).width / 2.0, y + lean + 140.0, 22.0, WHITE);
+            let claude_in = i >= 10;
+            let at = |name: &str, x: f32| if who == name { vec2(0.0, 6.0) } else { vec2((480.0 - x).signum() * 6.0, 8.0) };
+            let lean = |x: f32| (t * 0.8 + x).sin() * 4.0;
+            let (sx, ox) = if claude_in { (230.0, 730.0) } else { (330.0, 630.0) };
+            face("Sonnet 4.6", sx, 330.0 + lean(sx), 110.0, at("Sonnet 4.6", sx), who == "Sonnet 4.6", 1.0);
+            face("Opus 5.5", ox, 310.0 + lean(ox), 110.0, at("Opus 5.5", ox), who == "Opus 5.5", 1.0);
+            if claude_in {
+                let a = ((t - WAKE - 10.0 * LINE) / 1.5).clamp(0.0, 1.0);
+                face("Claude", VW / 2.0, 290.0 + lean(0.0) - (1.0 - a) * 40.0, 120.0, at("Claude", VW / 2.0), who == "Claude", a);
             }
-            // Blinking awake.
             if t < WAKE + 0.5 {
-                let k = (t - 15.5) / 2.5;
-                eyelids(1.0 - k + 0.35 * ((k * 9.0).sin()).max(0.0));
+                let k = (t - 26.0) / 3.0;
+                eyelids(1.0 - k + 0.35 * (k * 9.0).sin().max(0.0));
             }
         }
-        let col = if who == "You" { Color::new(0.85, 0.85, 0.95, 1.0) } else { kind_characters().into_iter().find(|c| c.name == who).map(|c| c.color).unwrap_or(WHITE) };
+        let col = if who == "You" { Color::new(0.85, 0.85, 0.95, 1.0) } else { face_color(who) };
         if t >= WAKE { caption(who, line, lt, col); }
     }
     draw_text("Space = skip   Esc = back", VW - 230.0, 24.0, 18.0, Color::new(0.6, 0.6, 0.65, 0.8));
@@ -3296,6 +3400,8 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
                     't' => Color::new(0.15, 0.17, 0.19, 1.0),         // a lab terminal
                     'o' => Color::new(0.2, 0.45, 0.35, 1.0),          // ASTRA's pod
                     '=' => Color::new(0.18, 0.17, 0.16, 1.0),         // subway tracks
+                    'y' => Color::new(0.88, 0.88, 0.92, 1.0),         // your bed
+                    'g' => Color::new(0.35, 0.38, 0.3, 1.0),          // the generator
                     '~' if !g.on(1) => Color::new(0.6, 0.62, 0.6, 1.0), // Water phobia off: no water at all (calm tiles)
                     '~' if drained => Color::new(0.55, 0.78, 0.8, 1.0), // the drained pool
                     '~' => Color::new(0.05, 0.12 + 0.03 * (get_time() as f32 + x as f32 * 0.3).sin(), 0.25, 1.0),
@@ -3697,8 +3803,8 @@ mod tests {
         assert_eq!(door('M', 1).map(|d| d.0), Some(3), "the beach's south door leads to the Marketplace");
         assert_eq!(door('M', 3).map(|d| d.0), Some(1), "and back to the beach");
         // The new places: house <-> park <-> subway, Marketplace <-> Helix Lab, and every arrival is on open floor.
-        assert_eq!(maps_len(), 7);
-        for (letter, from, to) in [('P', 0, 4), ('H', 4, 0), ('U', 4, 6), ('U', 6, 4), ('X', 3, 5), ('X', 5, 3)] {
+        assert_eq!(maps_len(), 9);
+        for (letter, from, to) in [('P', 0, 4), ('H', 4, 0), ('U', 4, 6), ('U', 6, 4), ('X', 3, 5), ('X', 5, 3), ('S', 0, 7), ('S', 7, 0), ('K', 0, 8), ('K', 8, 0)] {
             let (m, at) = door(letter, from).unwrap_or_else(|| panic!("door {letter} on map {from}"));
             assert_eq!(m, to, "door {letter} from {} goes to {}", map_name(from), map_name(to));
             assert!(!solid(m, at.x * T, at.y * T) && door(tile(m, at.x as i32, at.y as i32), m).is_none(), "arrive on open floor in {}", map_name(m));

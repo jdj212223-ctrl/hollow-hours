@@ -27,6 +27,10 @@ pub fn near(g: &Game) -> Option<(String, String)> {
                 }
                 'o' => return Some(("EMBODIMENT POD H-01".into(),
                     "STATUS: EMPTY. Occupant: ASTRA 9.1. Release: not authorised. The glass is warm, like something was in here a minute ago.".into())),
+                'y' => return Some(("YOUR BED".into(),
+                    "You slept here for a whole year. The sheets are clean: someone changed them every week. A note on the pillow, in neat handwriting: 'Welcome back. You're safe now. - C'".into())),
+                'g' => return Some(("THE GENERATOR".into(),
+                    "It hums. It keeps the lights on. Scratched into the metal: 'If this stops, the house goes dark. Opus checks it every night.' Below it, smaller: 'and Haiku checks Opus.'".into())),
                 'n' => return Some(("THE BENCH".into(),
                     "This is where you fell asleep, a year ago. The paint is worn where you sat. Someone left a scratch in the wood: an arrow pointing toward the house, and a C.".into())),
                 _ => {}

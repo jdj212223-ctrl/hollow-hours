@@ -50,7 +50,7 @@ pub fn update(g: &mut Game, dt: f32) {
     }
     for c in g.chars.iter_mut() { if c.disguise_t > 0.0 { c.disguise_t = (c.disguise_t - dt).max(0.0); } }
     // Resting: hiding inside the house slowly lowers your infection.
-    if g.hidden && map_name(g.map) == "The cozy house" && g.inf > 0.0 && g.inf < 0.75 && !g.lost_control {
+    if g.hidden && map_name(g.map).starts_with("The cozy house") && g.inf > 0.0 && g.inf < 0.75 && !g.lost_control {
         g.inf = (g.inf - dt / 300.0).max(0.0);
     }
     // Curing a Claude: stay close until it's done.

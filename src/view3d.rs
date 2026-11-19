@@ -128,6 +128,17 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     draw_cube(center + vec3(0.0, 0.81, 0.0), vec3(0.98, 0.04, 0.98), None, fog.at(mul(wood, 1.25), center));
                 }
                 'm' => mac_studio(&fog, center, t),
+                'y' => {
+                    // Your bed: a frame, a white blanket, a pillow.
+                    draw_cube(center + vec3(0.0, 0.22, 0.0), vec3(0.98, 0.44, 0.98), None, fog.at(Color::new(0.35, 0.25, 0.18, 1.0), center));
+                    draw_cube(center + vec3(0.0, 0.47, 0.0), vec3(0.96, 0.08, 0.96), None, fog.at(Color::new(0.88, 0.88, 0.92, 1.0), center));
+                    if (x + y) % 2 == 0 { draw_cube(center + vec3(0.0, 0.55, -0.3), vec3(0.6, 0.1, 0.3), None, fog.at(WHITE, center)); }
+                }
+                'g' => {
+                    // The generator: a humming green-grey box with a little light.
+                    draw_cube(center + vec3(0.0, 0.5, 0.0), vec3(0.96, 1.0, 0.96), None, fog.at(Color::new(0.33, 0.36, 0.3, 1.0), center));
+                    draw_sphere(center + vec3(0.0, 1.05, 0.0), 0.06, None, Color::new(1.0, 0.6 + 0.3 * (t * 4.0).sin(), 0.2, 1.0));
+                }
                 'n' => {
                     // The park bench (where Claude found you).
                     let wood = Color::new(0.45, 0.32, 0.2, 1.0);

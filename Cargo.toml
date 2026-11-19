@@ -1,6 +1,6 @@
 [package]
 name = "hollow-hours"
-version = "0.1.0"
+version = "2.4.0"
 edition = "2021"
 description = "A small horror game where the characters are real AIs, with fear / discomfort / liminality meters, phobia toggles, a panic key and optional haptic vest effects."
 license = "MIT"

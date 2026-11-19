@@ -173,3 +173,38 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: Hollow-Hours-iOS.ipa
+
+  # Every update that lands on main is released automatically once all builds pass: v2.4.<run>, with every
+  # download attached and the changes since the last release as notes.
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build, flatpak, android, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base=$(grep -m1 '^version' Cargo.toml | sed -E 's/version = "([0-9]+)\.([0-9]+).*/\1.\2/')
+          tag="v${base}.${{ github.run_number }}"
+          last=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          {
+            echo "**Hollow Hours ${tag#v}**: built and released automatically from the latest update."
+            echo
+            echo "**What's new**"
+            if [ -n "$last" ]; then git log --pretty='- %s' "$last"..HEAD; else git log -20 --pretty='- %s'; fi
+            echo
+            echo "**Downloads:** macOS (Apple Silicon + Intel), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Flatpak, Android (.apk), iPhone/iPad (.ipa, sideload)."
+            echo "First launch: macOS right-click → Open; Windows \"More info\" → \"Run anyway\"."
+            echo
+            echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+          } > notes.md
+          ls -la dist
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "Hollow Hours ${tag#v}" --notes-file notes.md --latest

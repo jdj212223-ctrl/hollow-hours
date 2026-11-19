@@ -85,6 +85,7 @@ fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
         (Mode::Title, North) => &[K::I],
         (Mode::Title, RightTrigger) => &[K::S],
         (Mode::Title, LeftTrigger) => &[K::L],
+        (Mode::Title, Select) => &[K::O],
         (Mode::Play, South) => &[K::E],
         (Mode::Play, West) => &[K::H],
         (Mode::Play, North) => &[K::Tab],
@@ -114,6 +115,9 @@ fn keys_for(mode: Mode, b: Button) -> &'static [KeyCode] {
         (Mode::Menu, East) => &[K::Escape],
         (Mode::Menu, DPadUp) => &[K::Up],
         (Mode::Menu, DPadDown) => &[K::Down],
+        (Mode::Menu, DPadLeft) => &[K::Left],
+        (Mode::Menu, DPadRight) => &[K::Right],
+        (Mode::Menu, North) => &[K::Tab],
         _ => &[],
     }
 }
@@ -191,7 +195,7 @@ fn buttons(mode: Mode, online: bool) -> Vec<Btn> {
         }
         Mode::Title => {
             let x = r - 300.0;
-            [("INFECTION", K::Key4), ("THE STORY", K::I), ("NORMAL", K::Key2), ("BRAVE", K::Key1), ("ONLINE", K::S), ("LOG IN / OUT", K::L)]
+            [("INFECTION", K::Key4), ("THE STORY", K::I), ("NORMAL", K::Key2), ("BRAVE", K::Key1), ("ONLINE", K::S), ("LOG IN / OUT", K::L), ("SETTINGS", K::O)]
                 .into_iter().enumerate().map(|(i, (label, key))| b(x, 110.0 + i as f32 * 72.0, 270.0, 60.0, label, key, false)).collect()
         }
         Mode::Typing => vec![
@@ -218,6 +222,9 @@ fn buttons(mode: Mode, online: bool) -> Vec<Btn> {
             b(l + 20.0, crate::VH - 90.0, 180.0, 70.0, "BACK", K::Escape, false),
             b(r - 320.0, crate::VH - 90.0, 100.0, 70.0, "UP", K::Up, false),
             b(r - 440.0, crate::VH - 90.0, 100.0, 70.0, "DOWN", K::Down, false),
+            b(r - 560.0, crate::VH - 90.0, 100.0, 70.0, "<", K::Left, false),
+            b(r - 680.0, crate::VH - 90.0, 100.0, 70.0, ">", K::Right, false),
+            b(r - 800.0, crate::VH - 90.0, 100.0, 70.0, "TAB", K::Tab, false),
         ],
     }
 }

@@ -26,6 +26,7 @@ mod drone;
 mod learn;
 mod combat;
 mod mimic;
+mod settings;
 mod pad;
 
 use serde_json::json;
@@ -395,6 +396,8 @@ enum Screen {
     Mac,
     /// The pause menu (Esc while playing): resume or quit to the title.
     Paused,
+    /// Settings: sound, voice chat, accessibility, flashing lights, keys.
+    Settings,
 }
 
 struct Game {
@@ -529,8 +532,15 @@ struct Game {
     pclink: Option<pclink::PcLink>,
     /// The login the phone link and lending were last set up with.
     link_token: Option<String>,
-    /// The highlighted choice in the pause menu (0 = back to the game, 1 = quit to the title).
+    /// The highlighted choice in the pause menu (0 = back to the game, 1 = settings, 2 = quit to the title).
     pause_sel: usize,
+    settings_ui: settings::Ui,
+    /// Sprint / sneak when they're set to toggle instead of hold (Settings > Accessibility).
+    sprint_on: bool,
+    sneak_on: bool,
+    /// A lightning flash on the beach (flashing lights on only): seconds left, and when the next one comes.
+    flash_t: f32,
+    next_flash: f32,
     /// Max players for a server made in the game.
     server_max: u32,
     /// Voice chat and the radio (online games).
@@ -1029,6 +1039,7 @@ impl Game {
         self.scare_t = 0.0;
         self.vest.play(haptics::Effect::StopAll);
         self.sfx.silence();
+        settings::flashing_off();
         self.fry_t = 0.0;
         self.voice.set_talking(None);
         self.meta.paused = true; // no more files, Terminal windows or window switching this session
@@ -1109,7 +1120,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
             }).collect());
             json!({
                 "screen": match g.screen { Screen::Title => "title", Screen::Play => "playing", Screen::Typing(_) => "typing", Screen::Safe => "safe (after panic)",
-                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)", Screen::Paused => "paused (the pause menu)" },
+                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)", Screen::Paused => "paused (the pause menu)", Screen::Settings => "settings" },
                 "mode": if g.infection { "infection" } else { "normal" },
                 "map": map_name(here), "you": {"at": tile(g.pos), "hidden": g.hidden, "can_hide_here": can_hide(g), "sneaking": g.sneaking,
                     "lost_control": g.lost_control, "infection": (g.inf * 100.0) as i32, "food": (g.food * 100.0) as i32, "water": (g.water * 100.0) as i32,
@@ -1217,9 +1228,10 @@ fn network(g: &mut Game, dt: f32) {
             Some("vc") => {
                 // A voice: the radio reaches everyone; out loud only reaches you on the same map, fading with distance.
                 let radio = m["r"].as_bool().unwrap_or(false);
-                let gain = if radio { 0.9 } else {
+                let (hear, vol) = settings::with(|s| (s.hear_voice, s.master * s.voices));
+                let gain = if !hear { 0.0 } else if radio { 0.9 * vol } else {
                     g.remotes.iter().find(|r| r.id == from).filter(|r| r.map == g.map)
-                        .map(|r| (1.0 - r.pos.distance(g.pos) / (voice::RANGE * T)).max(0.0)).unwrap_or(0.0)
+                        .map(|r| (1.0 - r.pos.distance(g.pos) / (voice::RANGE * T)).max(0.0)).unwrap_or(0.0) * vol
                 };
                 let started = g.voice.is_talking(&from, now).is_none();
                 g.voice.hear(&from, m["d"].as_str().unwrap_or(""), radio, gain, now);
@@ -1959,15 +1971,16 @@ fn wrap(text: &str, width: f32, size: f32) -> Vec<String> {
 }
 
 fn bubble(text: &str, via: &str, x: f32, y: f32) {
-    let lines = wrap(text, 260.0, 18.0);
-    let h = lines.len() as f32 * 18.0 + if via.is_empty() { 10.0 } else { 24.0 };
-    let w = 280.0;
+    let fs = if settings::with(|s| s.big_text) { 24.0 } else { 18.0 };
+    let w = fs / 18.0 * 280.0;
+    let lines = wrap(text, w - 20.0, fs);
+    let h = lines.len() as f32 * fs + if via.is_empty() { 10.0 } else { 24.0 };
     let bx = (x - w / 2.0).clamp(4.0, VW - w - 4.0);
     let by = (y - h - 26.0).max(4.0);
     draw_rectangle(bx, by, w, h, Color::new(0.06, 0.06, 0.09, 0.92));
     draw_rectangle_lines(bx, by, w, h, 2.0, Color::new(1.0, 1.0, 1.0, 0.35));
     for (i, l) in lines.iter().enumerate() {
-        draw_text(l, bx + 10.0, by + 20.0 + i as f32 * 18.0, 18.0, WHITE);
+        draw_text(l, bx + 10.0, by + fs + 2.0 + i as f32 * fs, fs, WHITE);
     }
     if !via.is_empty() {
         draw_text(via, bx + 10.0, by + h - 7.0, 13.0, Color::new(0.6, 0.65, 0.75, 1.0));
@@ -2117,6 +2130,11 @@ async fn main() {
         fullscreen: false,
         server_max: 20,
         pause_sel: 0,
+        settings_ui: Default::default(),
+        sprint_on: false,
+        sneak_on: false,
+        flash_t: 0.0,
+        next_flash: 20.0,
         pclink: None,
         raw: 0,
         fry_t: 0.0,
@@ -2250,7 +2268,9 @@ async fn main() {
             };
         }
         set_camera(&cam);
-        let dt = get_frame_time().min(0.05);
+        settings::set_playing(g.screen == Screen::Play);
+        // Accessibility: a slower game (the menus and animations still run at full speed).
+        let dt = get_frame_time().min(0.05) * if g.screen == Screen::Play { settings::with(|s| s.game_speed) } else { 1.0 };
         // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
         pending_t -= dt;
         if pending_t <= 0.0 && g.browser_login.is_none() {
@@ -2300,6 +2320,7 @@ async fn main() {
                 if pressed(KeyCode::Key4) { let local = local_mods(); apply_contents(&mut g, &local); begin_intro(&mut g, None); }
                 if pressed(KeyCode::I) { begin_intro(&mut g, None); }
                 if pressed(KeyCode::M) { g.screen = Screen::Consent; }
+                if pressed(KeyCode::O) { settings::open(&mut g, false); }
                 if pressed(KeyCode::S) { refresh_servers(&mut g); g.screen = Screen::Servers; }
                 if pressed(KeyCode::L) {
                     if g.account.is_some() {
@@ -2555,6 +2576,7 @@ async fn main() {
             Screen::Mac => {
                 mac::screen(&mut g);
             }
+            Screen::Settings => settings::screen(&mut g),
             Screen::Paused => {
                 // Online the world keeps going (other players are still playing); offline it waits for you.
                 if g.net.is_some() { update(&mut g, dt); }
@@ -2563,18 +2585,20 @@ async fn main() {
                 draw_rectangle(-margin(), 0.0, vw(), VH, Color::new(0.0, 0.0, 0.02, 0.72));
                 centered("PAUSED", 230.0, 56.0, WHITE);
                 if g.net.is_some() { centered("(online: the game keeps going while you're here)", 268.0, 18.0, Color::new(0.7, 0.72, 0.8, 1.0)); }
-                for (k, label) in ["Back to the game", "Quit to the title"].iter().enumerate() {
+                for (k, label) in ["Back to the game", "Settings", "Quit to the title"].iter().enumerate() {
                     let on = g.pause_sel == k;
                     let y = 330.0 + k as f32 * 52.0;
                     if on { draw_rectangle(VW / 2.0 - 180.0, y - 32.0, 360.0, 44.0, Color::new(0.85, 0.47, 0.32, 0.35)); }
                     centered(label, y, 28.0, if on { WHITE } else { Color::new(0.75, 0.75, 0.8, 1.0) });
                 }
-                centered("Up/Down + Enter   ·   Esc = back to the game", 450.0, 18.0, Color::new(0.6, 0.62, 0.7, 1.0));
-                if pressed(KeyCode::Up) || pressed(KeyCode::W) { g.pause_sel = 0; }
-                if pressed(KeyCode::Down) || pressed(KeyCode::S) { g.pause_sel = 1; }
+                centered("Up/Down + Enter   ·   Esc = back to the game", 500.0, 18.0, Color::new(0.6, 0.62, 0.7, 1.0));
+                if pressed(KeyCode::Up) || pressed(KeyCode::W) { g.pause_sel = g.pause_sel.saturating_sub(1); }
+                if pressed(KeyCode::Down) || pressed(KeyCode::S) { g.pause_sel = (g.pause_sel + 1).min(2); }
                 if pressed(KeyCode::Escape) || (pressed(KeyCode::Enter) && g.pause_sel == 0) {
                     g.screen = Screen::Play;
                 } else if pressed(KeyCode::Enter) && g.pause_sel == 1 {
+                    settings::open(&mut g, true);
+                } else if pressed(KeyCode::Enter) && g.pause_sel == 2 {
                     g.net = None;
                     g.voice.stop();
                     g.remotes.clear();
@@ -2600,8 +2624,9 @@ async fn main() {
                     let m = Vec2::from(mouse_position());
                     let dm = m - g.last_mouse;
                     g.last_mouse = m;
-                    g.yaw += dm.x * 0.0035;
-                    g.pitch = (g.pitch - dm.y * 0.0035).clamp(-1.1, 1.1);
+                    let (sens, inv) = settings::with(|s| (s.mouse_sens, s.invert_y));
+                    g.yaw += dm.x * 0.0035 * sens;
+                    g.pitch = (g.pitch - dm.y * 0.0035 * sens * if inv { -1.0 } else { 1.0 }).clamp(-1.1, 1.1);
                 }
                 if g.view3d {
                     view3d::render(&g, &view);
@@ -2641,9 +2666,9 @@ async fn main() {
 }
 
 /// A key pressed this frame, on the keyboard or by a controller button standing for it (see pad.rs).
-fn pressed(k: KeyCode) -> bool { macroquad::input::is_key_pressed(k) || pad::pressed(k) }
+fn pressed(k: KeyCode) -> bool { macroquad::input::is_key_pressed(settings::bound(k)) || pad::pressed(k) }
 /// A key held down, on the keyboard or the controller.
-fn down(k: KeyCode) -> bool { macroquad::input::is_key_down(k) || pad::down(k) }
+fn down(k: KeyCode) -> bool { macroquad::input::is_key_down(settings::bound(k)) || pad::down(k) }
 
 fn cmd_held() -> bool {
     down(KeyCode::LeftSuper) || down(KeyCode::RightSuper) || down(KeyCode::LeftControl) || down(KeyCode::RightControl)
@@ -2715,7 +2740,10 @@ fn update(g: &mut Game, dt: f32) {
         if g.screen != Screen::Play && !matches!(g.screen, Screen::Typing(_)) { return; }
     }
     // Player movement (not while typing, hiding, or once you've lost control). Shift = sneak: slow and silent.
-    g.sneaking = down(KeyCode::LeftShift) || down(KeyCode::RightShift);
+    let (tsprint, tsneak) = settings::with(|s| (s.toggle_sprint, s.toggle_sneak));
+    if tsneak && pressed(KeyCode::LeftShift) { g.sneak_on = !g.sneak_on; }
+    if tsprint && pressed(KeyCode::Space) { g.sprint_on = !g.sprint_on; }
+    g.sneaking = if tsneak { g.sneak_on } else { down(KeyCode::LeftShift) || down(KeyCode::RightShift) };
     g.noise = (g.noise - dt * 1.5).max(0.0);
     g.ai_t += dt;
     // Voice: hold V to talk out loud (nearby players hear you), hold R for the radio (everyone hears you).
@@ -2725,6 +2753,11 @@ fn update(g: &mut Game, dt: f32) {
             if want.is_some() && !g.voice_hint {
                 g.voice_hint = true;
                 g.log.push("Voice chat (V) and the radio (R) work in online games: J on the title screen.".into());
+            }
+        } else if want.is_some() && !settings::with(|s| s.mic_on) {
+            if !g.voice_hint {
+                g.voice_hint = true;
+                g.log.push("Your microphone is off (Settings > Voice chat). Nobody can hear you until you turn it on.".into());
             }
         } else if want != g.voice.talking {
             if want == Some(true) || g.voice.talking == Some(true) { g.sfx.radio(); }
@@ -2784,7 +2817,8 @@ fn update(g: &mut Game, dt: f32) {
         if g.down_t > 0.0 { d = Vec2::ZERO; } // knocked flat after a dropkick
         if drone::fly(g, d, dt) { d = Vec2::ZERO; }
         // Sprint: hold Space (L3 on a controller). Fast and loud, and it tires you out.
-        g.sprinting = d != Vec2::ZERO && !g.sneaking && !g.winded && down(KeyCode::Space);
+        let sprint_key = if settings::with(|s| s.toggle_sprint) { g.sprint_on } else { down(KeyCode::Space) };
+        g.sprinting = d != Vec2::ZERO && !g.sneaking && !g.winded && sprint_key;
         if g.sprinting {
             g.stamina -= dt / 5.0;
             if g.stamina <= 0.0 { g.stamina = 0.0; g.winded = true; g.log.push("You're out of breath.".into()); }
@@ -2933,11 +2967,28 @@ fn update(g: &mut Game, dt: f32) {
     if g.map != g.prev_map { g.sfx.door(); g.prev_map = g.map; }
     // Growls: something hunting close by.
     g.growl_t -= dt;
-    let hunter = g.chars.iter().filter(|c| c.map == g.map && c.crazy > 0.0 && (c.infected || !g.infection))
-        .map(|c| 1.0 - (c.pos.distance(g.pos) / (8.0 * T)).min(1.0)).fold(0.0f32, f32::max);
+    let nearest_hunter = g.chars.iter().filter(|c| c.map == g.map && c.crazy > 0.0 && (c.infected || !g.infection))
+        .min_by(|a, b| a.pos.distance(g.pos).partial_cmp(&b.pos.distance(g.pos)).unwrap()).map(|c| c.pos);
+    let hunter = nearest_hunter.map(|p| 1.0 - (p.distance(g.pos) / (8.0 * T)).min(1.0)).unwrap_or(0.0);
     if hunter > 0.05 && g.growl_t <= 0.0 {
-        g.sfx.growl(hunter);
+        // Where it is, for captions: relative to where you look (3D) or on the map (2D).
+        let to = nearest_hunter.unwrap_or(g.pos) - g.pos;
+        let side = if g.view3d {
+            let a = (to.y.atan2(to.x) - g.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            if a.abs() < 0.6 { "ahead" } else if a.abs() > 2.4 { "behind you" } else if a > 0.0 { "right" } else { "left" }
+        } else if to.x.abs() > to.y.abs() { if to.x > 0.0 { "east" } else { "west" } } else if to.y > 0.0 { "south" } else { "north" };
+        g.sfx.growl(hunter, side);
         g.growl_t = rand::gen_range(1.6, 3.2);
+    }
+    // Lightning over the beach (only with flashing lights turned on in Settings).
+    g.flash_t = (g.flash_t - dt).max(0.0);
+    g.next_flash -= dt;
+    if g.next_flash <= 0.0 {
+        g.next_flash = rand::gen_range(12.0, 30.0);
+        if settings::with(|s| s.flashing) && !indoors_map(g.map) {
+            g.flash_t = 0.15;
+            g.sfx.caption("[thunder]");
+        }
     }
     let tornado_here = g.tornado.as_ref().is_some_and(|t| t.warn <= 0.0);
     g.sfx.wind(tornado_here);
@@ -3015,6 +3066,9 @@ fn update_frying(g: &mut Game, dt: f32) {
     }
 }
 
+/// A map with a roof (walls all along the top edge): no lightning inside.
+fn indoors_map(m: usize) -> bool { with_map(m, |d| d.rows[0].iter().filter(|&&c| c == b'#').count() > MW / 2) }
+
 fn near_mac(g: &Game) -> bool {
     let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
     (-1..=1).any(|dy| (-1..=1).any(|dx| tile(g.map, px + dx, py + dy) == 'm'))
@@ -3033,7 +3087,7 @@ fn nearest(g: &Game, within: f32) -> Option<usize> {
 
 fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     let (floor, wall, m_name, drained) = (map_floor(g.map), map_wall(g.map), map_name(g.map), map_drained(g.map));
-    let shake = if g.fear > 0.75 { rand::gen_range(-1.5, 1.5) } else { 0.0 };
+    let shake = if g.fear > 0.75 && !settings::with(|s| s.reduce_motion) { rand::gen_range(-1.5, 1.5) } else { 0.0 };
     let (sw, sh) = (MW as f32 * T, MH as f32 * T);
     let cam = view3d::camera(g, None);
     // Where something on this map shows up on screen: its tile spot in 2D, projected from 3D in first person.
@@ -3249,8 +3303,35 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         draw_rectangle(sw - measure_text(t, None, 16, 1.0).width - 24.0, 6.0, measure_text(t, None, 16, 1.0).width + 16.0, 24.0, Color::new(0.85, 0.47, 0.32, 0.9));
         draw_text(t, sw - measure_text(t, None, 16, 1.0).width - 16.0, 23.0, 16.0, WHITE);
     }
-    // Jumpscare: a face fills the screen for a moment (no flashing lights: one quick fade).
-    if g.scare_t > 0.0 {
+    // Flashing lights (only if turned on through the four warnings): lightning, and a strobe when a jumpscare starts.
+    let (flashing, jumpscares, high_contrast, big) = settings::with(|s| (s.flashing, s.jumpscares, s.high_contrast, s.big_text));
+    if flashing && g.flash_t > 0.0 {
+        draw_rectangle(-margin(), 0.0, vw(), sh, Color::new(0.9, 0.92, 1.0, (g.flash_t / 0.15).min(1.0) * 0.8));
+    }
+    if flashing && jumpscares && g.scare_t > 0.45 && ((g.scare_t * 16.0) as i32) % 2 == 0 {
+        draw_rectangle(-margin(), 0.0, vw(), sh, Color::new(1.0, 0.1, 0.1, 0.55));
+    }
+    // High-contrast infected: a yellow ! over every infected you can see (shape, not colour).
+    if high_contrast {
+        for c in g.chars.iter().filter(|c| c.map == g.map && c.infected && c.stun < combat::SHUT_DOWN / 2.0 && !(c.mimic && c.crazy <= 0.0)) {
+            if let Some(p) = at(c.pos, 1.75) {
+                let y = if g.view3d { p.y } else { p.y - 30.0 };
+                draw_triangle(vec2(p.x, y - 22.0), vec2(p.x - 13.0, y), vec2(p.x + 13.0, y), Color::new(1.0, 0.85, 0.0, 1.0));
+                draw_text("!", p.x - 3.0, y - 3.0, 20.0, BLACK);
+            }
+        }
+    }
+    // Captions (accessibility): what you'd hear, as text.
+    let caps = g.sfx.recent_captions();
+    for (k, c) in caps.iter().rev().enumerate() {
+        let size = if big { 24.0 } else { 18.0 };
+        let w = measure_text(c, None, size as u16, 1.0).width + 16.0;
+        let y = sh - 50.0 - k as f32 * (size + 10.0);
+        draw_rectangle(sw / 2.0 - w / 2.0, y - size, w, size + 8.0, Color::new(0.0, 0.0, 0.0, 0.75));
+        draw_text(c, sw / 2.0 - w / 2.0 + 8.0, y, size, WHITE);
+    }
+    // Jumpscare: a face fills the screen for a moment (one quick fade; it strobes only with flashing lights on).
+    if g.scare_t > 0.0 && jumpscares {
         let k = (g.scare_t / 0.7).min(1.0);
         draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.0, 0.85 * k));
         draw_circle(sw / 2.0, sh / 2.0, 220.0 * (1.2 - k * 0.2), Color::new(g.scare_face.r, g.scare_face.g, g.scare_face.b, k));
@@ -3349,7 +3430,7 @@ fn draw_title(g: &Game) {
         "  2  Normal".into(),
         "  3  Many phobias: pick what scares you (and switch off what you can't handle)".into(),
         "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
-        "  I  watch the story (ASTRA 9.1, one year later)      M in game = sound on/off".into(),
+        "  I  watch the story (ASTRA 9.1, one year later)      O  SETTINGS (sound, voice, accessibility, keys)".into(),
         "  J  INFECTION ONLINE: play with friends (type the same room code)   S  server list   (needs a login)".into(),
         match &g.account {
             Some(a) if pad::touch_mode() => format!("  Logged in as {}.  Real Claude: turn on K on your computer (same account)", a.name),

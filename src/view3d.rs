@@ -12,8 +12,9 @@ pub const VIEW_H: f32 = MH as f32 * T;
 /// The camera: your eyes (lower while hiding, a small bob while walking).
 pub fn camera(g: &Game, target: Option<RenderTarget>) -> Camera3D {
     let p = super::drone::view_pos(g) / T;
-    let bob = (g.clock * 9.0).sin() * 0.035 * g.noise;
-    let shake = if g.fear > 0.75 { rand::gen_range(-0.015, 0.015) } else { 0.0 };
+    let calm = super::settings::with(|s| s.reduce_motion);
+    let bob = if calm { 0.0 } else { (g.clock * 9.0).sin() * 0.035 * g.noise };
+    let shake = if g.fear > 0.75 && !calm { rand::gen_range(-0.015, 0.015) } else { 0.0 };
     let eye = if g.drone.is_some() { 1.55 + 0.03 * (g.clock * 7.0).sin() } else if g.hidden { 0.45 } else { EYE } + bob + shake;
     let pos = vec3(p.x, eye, p.y);
     let look = vec3(g.yaw.cos() * g.pitch.cos(), g.pitch.sin(), g.yaw.sin() * g.pitch.cos());

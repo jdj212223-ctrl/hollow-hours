@@ -2,7 +2,7 @@
 //! a heartbeat, footsteps, a jumpscare sting, tornado wind, an infected growl, a pickup blip, a door creak and a
 //! radio crackle. Turned into WAV in memory and handed to macroquad's audio.
 
-use macroquad::audio::{load_sound_from_bytes, play_sound, play_sound_once, stop_sound, PlaySoundParams, Sound};
+use macroquad::audio::{load_sound_from_bytes, play_sound, play_sound_once, set_sound_volume, stop_sound, PlaySoundParams, Sound};
 
 const RATE: u32 = 22050;
 
@@ -58,6 +58,7 @@ pub struct Sfx {
     buzz: Option<Sound>,
     buzz_on: bool,
     hit: Option<Sound>,
+    captions: std::cell::RefCell<Vec<(String, f64)>>,
     pub on: bool,
     wind_on: bool,
 }
@@ -114,46 +115,82 @@ impl Sfx {
         let radio = gen(0.35, |t, r| r.next() * 0.35 * (1.0 - t / 0.35) * if ((t * 60.0) as i32) % 3 == 0 { 1.0 } else { 0.3 });
         Sfx {
             hum: s(hum).await, wind: s(wind).await, heart: s(heart).await, step: s(step).await, sting: s(sting).await,
-            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, buzz: s(buzz).await, buzz_on: false, hit: s(hit).await, on: true, wind_on: false,
+            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, buzz: s(buzz).await, buzz_on: false, hit: s(hit).await, captions: Default::default(), on: true, wind_on: false,
         }
+    }
+
+    fn amb() -> f32 { crate::settings::with(|s| s.master * s.ambience) }
+    fn fx() -> f32 { crate::settings::with(|s| s.master * s.effects) }
+
+    /// A caption for people who can't hear the sounds (Settings > Accessibility > Captions).
+    pub fn caption(&self, text: &str) {
+        if !crate::settings::with(|s| s.captions) { return; }
+        let mut c = self.captions.borrow_mut();
+        let now = macroquad::time::get_time();
+        if let Some(last) = c.iter_mut().find(|(t, _)| t == text) { last.1 = now; return; }
+        c.push((text.to_string(), now));
+        if c.len() > 4 { c.remove(0); }
+    }
+    /// Captions from the last 2.5 seconds.
+    pub fn recent_captions(&self) -> Vec<String> {
+        let now = macroquad::time::get_time();
+        let mut c = self.captions.borrow_mut();
+        c.retain(|(_, t)| now - t < 2.5);
+        c.iter().map(|(x, _)| x.clone()).collect()
     }
 
     fn once(&self, s: &Option<Sound>, volume: f32) {
         if let (true, Some(s)) = (self.on, s) {
-            play_sound(s, PlaySoundParams { looped: false, volume });
+            play_sound(s, PlaySoundParams { looped: false, volume: volume * Self::fx() });
         }
+    }
+
+    /// The looping sounds follow the volume sliders right away.
+    pub fn apply_volumes(&self) {
+        let a = Self::amb();
+        if let Some(h) = &self.hum { set_sound_volume(h, 0.35 * a); }
+        if let (true, Some(w)) = (self.wind_on, &self.wind) { set_sound_volume(w, 0.6 * a); }
+        if let (true, Some(z)) = (self.sizzle_on, &self.sizzle) { set_sound_volume(z, 0.55 * a); }
+        if let (true, Some(b)) = (self.buzz_on, &self.buzz) { set_sound_volume(b, 0.45 * a); }
     }
 
     pub fn start_hum(&self) {
         if let (true, Some(s)) = (self.on, &self.hum) {
-            play_sound(s, PlaySoundParams { looped: true, volume: 0.35 });
+            play_sound(s, PlaySoundParams { looped: true, volume: 0.35 * Self::amb() });
         }
     }
-    pub fn heart(&self, fear: f32) { self.once(&self.heart, 0.25 + fear * 0.6); }
+    pub fn heart(&self, fear: f32) { self.once(&self.heart, 0.25 + fear * 0.6); self.caption("[heartbeat]"); }
     pub fn step(&self, loud: bool) { self.once(&self.step, if loud { 0.35 } else { 0.08 }); }
-    pub fn sting(&self) { self.once(&self.sting, 0.8); }
-    pub fn growl(&self, near: f32) { self.once(&self.growl, 0.2 + near * 0.6); }
+    pub fn sting(&self) { self.once(&self.sting, 0.8); self.caption("[sudden screech]"); }
+    /// A growl; `side` says where it comes from ("left", "behind"...).
+    pub fn growl(&self, near: f32, side: &str) {
+        self.once(&self.growl, 0.2 + near * 0.6);
+        self.caption(&format!("[growl{}, {side}]", if near > 0.6 { " (close!)" } else { "" }));
+    }
     pub fn pickup(&self) { self.once(&self.pickup, 0.5); }
-    pub fn door(&self) { self.once(&self.door, 0.5); }
-    pub fn radio(&self) { self.once(&self.radio, 0.4); }
-    pub fn hit(&self) { self.once(&self.hit, 0.8); }
+    pub fn door(&self) { self.once(&self.door, 0.5); self.caption("[door creaks]"); }
+    pub fn radio(&self) { self.once(&self.radio, 0.4); self.caption("[radio crackle]"); }
+    pub fn hit(&self) { self.once(&self.hit, 0.8); self.caption("[thud]"); }
     /// The drone flying (loops until it lands).
     pub fn drone(&mut self, on: bool) {
         let Some(s) = &self.buzz else { return };
-        if on && !self.buzz_on && self.on { play_sound(s, PlaySoundParams { looped: true, volume: 0.45 }); self.buzz_on = true; }
+        if on && !self.buzz_on && self.on { play_sound(s, PlaySoundParams { looped: true, volume: 0.45 * Self::amb() }); self.buzz_on = true; }
         if !on && self.buzz_on { stop_sound(s); self.buzz_on = false; }
+        if on { self.caption("[drone buzzing]"); }
     }
     /// Frying on the stove (loops until turned off).
     pub fn sizzle(&mut self, on: bool) {
         let Some(s) = &self.sizzle else { return };
-        if on && !self.sizzle_on && self.on { play_sound(s, PlaySoundParams { looped: true, volume: 0.55 }); self.sizzle_on = true; }
+        if on && !self.sizzle_on && self.on { play_sound(s, PlaySoundParams { looped: true, volume: 0.55 * Self::amb() }); self.sizzle_on = true; }
         if !on && self.sizzle_on { stop_sound(s); self.sizzle_on = false; }
+        if on { self.caption("[sizzling, loud]"); }
     }
     /// Tornado wind while one is on your map.
     pub fn wind(&mut self, on: bool) {
         let Some(w) = &self.wind else { return };
-        if on && !self.wind_on && self.on { play_sound(w, PlaySoundParams { looped: true, volume: 0.6 }); self.wind_on = true; }
+        if on && !self.wind_on && self.on { play_sound(w, PlaySoundParams { looped: true, volume: 0.6 * Self::amb() }); self.wind_on = true; }
         if !on && self.wind_on { stop_sound(w); self.wind_on = false; }
+        if on { self.caption("[howling wind]"); }
     }
     /// Everything off (the panic key, or M to mute).
     pub fn silence(&mut self) {

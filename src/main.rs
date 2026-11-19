@@ -1068,7 +1068,7 @@ impl Game {
                  (the robot refused to shut down and store robots in 41 cities updated themselves), Claude's notes from the day it \
                  found the player, the Helix Market staff bulletin about firmware 9.1, Opus's escape routes and Haiku's lookout notes. \
                  DISGUISES AND THE CURE: Helix disguise kits (from the Helix Store on the Mac Studio) make anyone look infected \
-                 for a while; if the player asks you to "disguise yourself" (or "disguise everyone"), you put one on and the \
+                 for a while; if the player asks you to 'disguise yourself' (or 'disguise everyone'), you put one on and the \
                  infected ignore you. Antidotes (bought, or brewed on the stove from a Helix chip that shut-down robots drop) \
                  cure the player's infection, and can even bring an infected Claude back if the player stays close for a moment. \
                  Hiding inside this house slowly lowers the player's infection. \

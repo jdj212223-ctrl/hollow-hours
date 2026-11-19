@@ -744,6 +744,8 @@ struct Game {
     rested_once: bool,
     /// You asked a Claude to disguise (which one, and everyone?), handled next frame.
     disguise_ask: Option<(usize, bool)>,
+    /// A Claude was asked to take its disguise off (or everyone's).
+    undisguise_ask: Option<(usize, bool)>,
     /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
     /// Czech ingredients for the stove (see czech.rs).
     pantry: czech::Pantry,
@@ -762,6 +764,12 @@ struct Game {
     /// Disguises and the cure: kits, seconds of your disguise left, antidotes, Helix chips, the cure in progress
     /// (which Claude, seconds left), and whether the stove is brewing an antidote instead of frying.
     kits: u32,
+    /// Intel picked up while disguised (3 opens the ASTRA Cure at a Helix Lab terminal), who from, and the timer.
+    intel: u32,
+    intel_from: Vec<&'static str>,
+    intel_t: (Option<usize>, f32),
+    /// The ASTRA Cure being synthesized (seconds left).
+    synth_t: Option<f32>,
     disguise_t: f32,
     antidotes: u32,
     chips: u32,
@@ -1199,9 +1207,12 @@ impl Game {
                  and presses E to use it. On it: a chat with Claude, and files Claude saved: Helix's ASTRA 9.1 incident report \
                  (the robot refused to shut down and store robots in 41 cities updated themselves), Claude's notes from the day it \
                  found the player, the Helix Market staff bulletin about firmware 9.1, Opus's escape routes and Haiku's lookout notes. \
-                 DISGUISES AND THE CURE: Helix disguise kits (from the Helix Store on the Mac Studio) make anyone look infected \
-                 for a while; if the player asks you to 'disguise yourself' (or 'disguise everyone'), you put one on and the \
-                 infected ignore you. Antidotes (bought, or brewed on the stove from a Helix chip that shut-down robots drop) \
+                 DISGUISES AND THE CURE: Helix disguise kits (from the Helix Store on the Mac Studio) make anyone look infected, \
+                 and they stay on until taken off (running is fine; fighting or cooking gives you away); if the player asks you to \
+                 'disguise yourself' (or 'disguise everyone'), you put one on and the infected ignore you and can't infect you. \
+                 Disguised, the player can stand close to the infected and pick up INTEL (Helix access-code fragments, things they \
+                 mutter); with 3 pieces, a terminal in the Helix Lab synthesizes the ASTRA CURE, which cures the player and goes out \
+                 over the Helix network, bringing back every infected Claude. That is the plan: get intel, get into the Lab. Antidotes (bought, or brewed on the stove from a Helix chip that shut-down robots drop) \
                  cure the player's infection, and can even bring an infected Claude back if the player stays close for a moment. \
                  Hiding inside this house slowly lowers the player's infection. \
                  Reply in 1-3 short sentences, in character, no emojis, no lists, no gore.",
@@ -1304,7 +1315,10 @@ impl Game {
             if ["mimic", "not me", "isnt me", "isn't me", "fake", "impostor", "imposter", "not real"].iter().any(|w| t.contains(w)) {
                 self.mimic_warned = true;
             }
-            if t.contains("disguise") {
+            if t.contains("disguise") && ["take off", "remove", "undisguise", "wipe off", "stop"].iter().any(|w| t.contains(w)) {
+                // "take off your disguise" (or everyone's): back to their own colours (the kit is used up).
+                self.undisguise_ask = Some((i, t.contains("every") || t.contains("all")));
+            } else if t.contains("disguise") {
                 self.disguise_ask = Some((i, t.contains("every") || t.contains("all of you") || t.contains("all")));
             }
             let asks = ["get", "go", "stock", "bring", "find", "fetch", "grab", "need"].iter().any(|w| t.contains(w));
@@ -1623,6 +1637,10 @@ fn start_infection(g: &mut Game) {
     g.credits = 10;
     g.credit_t = 0.0;
     g.kits = 0;
+    g.intel = 0;
+    g.intel_from.clear();
+    g.intel_t = (None, 0.0);
+    g.synth_t = None;
     g.disguise_t = 0.0;
     g.antidotes = 0;
     g.chips = 0;
@@ -2405,6 +2423,10 @@ async fn main() {
         servers: serverlist::List::load(),
         note: None,
         kits: 0,
+        intel: 0,
+        intel_from: vec![],
+        intel_t: (None, 0.0),
+        synth_t: None,
         disguise_t: 0.0,
         antidotes: 0,
         chips: 0,
@@ -2438,6 +2460,7 @@ async fn main() {
         trust_t: 0.0,
         mimic_warned: false,
         disguise_ask: None,
+        undisguise_ask: None,
         whisper_t: 20.0,
         resting: false,
         rest_t: 0.0,
@@ -3245,6 +3268,8 @@ fn update(g: &mut Game, dt: f32) {
             } else {
                 g.log.push(if g.chips > 0 { "You need a bit more water to brew an antidote.".into() } else { "Nothing to cook. Ingredients come from the Marketplace (or a grocery bag from the Helix Store); a Helix chip (from a robot) brews an antidote.".into() });
             }
+        } else if pressed(KeyCode::E) && disguise::lab_ready(g) {
+            disguise::start_synthesis(g);
         } else if g.note.is_some() && (pressed(KeyCode::E) || pressed(KeyCode::Escape) || lore::near(g).is_none()) {
             g.note = None; // closed, or you walked away
         } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && !near_mac(g) && lore::near(g).is_some() {

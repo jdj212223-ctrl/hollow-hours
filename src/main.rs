@@ -393,6 +393,8 @@ enum Screen {
     Intro,
     /// Sitting at the Mac Studio.
     Mac,
+    /// The pause menu (Esc while playing): resume or quit to the title.
+    Paused,
 }
 
 struct Game {
@@ -527,6 +529,8 @@ struct Game {
     pclink: Option<pclink::PcLink>,
     /// The login the phone link and lending were last set up with.
     link_token: Option<String>,
+    /// The highlighted choice in the pause menu (0 = back to the game, 1 = quit to the title).
+    pause_sel: usize,
     /// Max players for a server made in the game.
     server_max: u32,
     /// Voice chat and the radio (online games).
@@ -1105,7 +1109,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
             }).collect());
             json!({
                 "screen": match g.screen { Screen::Title => "title", Screen::Play => "playing", Screen::Typing(_) => "typing", Screen::Safe => "safe (after panic)",
-                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)" },
+                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)", Screen::Paused => "paused (the pause menu)" },
                 "mode": if g.infection { "infection" } else { "normal" },
                 "map": map_name(here), "you": {"at": tile(g.pos), "hidden": g.hidden, "can_hide_here": can_hide(g), "sneaking": g.sneaking,
                     "lost_control": g.lost_control, "infection": (g.inf * 100.0) as i32, "food": (g.food * 100.0) as i32, "water": (g.water * 100.0) as i32,
@@ -2112,6 +2116,7 @@ async fn main() {
         mac: mac::Mac::default(),
         fullscreen: false,
         server_max: 20,
+        pause_sel: 0,
         pclink: None,
         raw: 0,
         fry_t: 0.0,
@@ -2550,7 +2555,38 @@ async fn main() {
             Screen::Mac => {
                 mac::screen(&mut g);
             }
+            Screen::Paused => {
+                // Online the world keeps going (other players are still playing); offline it waits for you.
+                if g.net.is_some() { update(&mut g, dt); }
+                if g.view3d { view3d::render(&g, &view); set_camera(&cam); }
+                draw_world(&g, &light, &view);
+                draw_rectangle(-margin(), 0.0, vw(), VH, Color::new(0.0, 0.0, 0.02, 0.72));
+                centered("PAUSED", 230.0, 56.0, WHITE);
+                if g.net.is_some() { centered("(online: the game keeps going while you're here)", 268.0, 18.0, Color::new(0.7, 0.72, 0.8, 1.0)); }
+                for (k, label) in ["Back to the game", "Quit to the title"].iter().enumerate() {
+                    let on = g.pause_sel == k;
+                    let y = 330.0 + k as f32 * 52.0;
+                    if on { draw_rectangle(VW / 2.0 - 180.0, y - 32.0, 360.0, 44.0, Color::new(0.85, 0.47, 0.32, 0.35)); }
+                    centered(label, y, 28.0, if on { WHITE } else { Color::new(0.75, 0.75, 0.8, 1.0) });
+                }
+                centered("Up/Down + Enter   ·   Esc = back to the game", 450.0, 18.0, Color::new(0.6, 0.62, 0.7, 1.0));
+                if pressed(KeyCode::Up) || pressed(KeyCode::W) { g.pause_sel = 0; }
+                if pressed(KeyCode::Down) || pressed(KeyCode::S) { g.pause_sel = 1; }
+                if pressed(KeyCode::Escape) || (pressed(KeyCode::Enter) && g.pause_sel == 0) {
+                    g.screen = Screen::Play;
+                } else if pressed(KeyCode::Enter) && g.pause_sel == 1 {
+                    g.net = None;
+                    g.voice.stop();
+                    g.remotes.clear();
+                    g.vest.play(haptics::Effect::StopAll);
+                    g.sfx.drone(false);
+                    g.sfx.sizzle(false);
+                    g.screen = Screen::Title;
+                }
+            }
             Screen::Play | Screen::Typing(_) => {
+                // What the screen was at the start of this frame: Esc that just closed the chat doesn't also pause.
+                let was_playing = g.screen == Screen::Play;
                 update(&mut g, dt);
                 if g.screen == Screen::Play && pressed(KeyCode::Tab) { g.view3d = !g.view3d; }
                 // Looking around with the mouse: click to capture it, Esc lets go.
@@ -2575,16 +2611,15 @@ async fn main() {
                 if let Screen::Typing(i) = g.screen {
                     typing(&mut g, i);
                 }
-                if pressed(KeyCode::Escape) && g.screen == Screen::Play && g.grabbed {
-                    g.grabbed = false;
-                    set_cursor_grab(false);
-                    show_mouse(true);
-                } else if pressed(KeyCode::Escape) && g.screen == Screen::Play {
-                    g.net = None;
-                    g.voice.stop();
-                    g.remotes.clear();
-                    g.vest.play(haptics::Effect::StopAll);
-                    g.screen = Screen::Title;
+                // Esc while playing (not the Esc that closed the chat): the pause menu, like in Minecraft.
+                if pressed(KeyCode::Escape) && was_playing && g.screen == Screen::Play {
+                    if g.grabbed {
+                        g.grabbed = false;
+                        set_cursor_grab(false);
+                        show_mouse(true);
+                    }
+                    g.pause_sel = 0;
+                    g.screen = Screen::Paused;
                 }
             }
         }

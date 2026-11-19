@@ -18,10 +18,45 @@ pub struct Mac {
     pub lines: Vec<(bool, String, String)>,
     pub thinking: bool,
     pub file: usize,
+    /// The highlighted thing in the Helix Store.
+    pub shop: usize,
     pub open: Option<usize>,
 }
 
-const TABS: [&str; 3] = ["Claude", "Files", "About This Mac"];
+const TABS: [&str; 4] = ["Claude", "Files", "Helix Store", "About This Mac"];
+
+/// What the Helix Store sells (Infection mode). A delivery drone leaves it at the house's front door.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Buy { Bat, Knife, Water, Food, Battery }
+
+pub const STORE: [(Buy, &str, u32); 5] = [
+    (Buy::Bat, "Baseball bat: big knockback, 12 hits", 15),
+    (Buy::Knife, "Kitchen knife: shuts Helix robots down, 8 hits", 25),
+    (Buy::Water, "Bottle of water", 6),
+    (Buy::Food, "Food pack", 8),
+    (Buy::Battery, "Drone battery (full charge, instant)", 10),
+];
+
+/// Seconds until the delivery drone drops it at the door.
+pub const DELIVERY: f32 = 15.0;
+
+fn buy(g: &mut Game, k: usize) {
+    let (what, label, price) = STORE[k];
+    if !g.infection { g.mac.lines.push((true, "The store only delivers during Infection.".into(), String::new())); return; }
+    if g.credits < price {
+        g.log.push(format!("Not enough credits for that (H$ {price}, you have H$ {}).", g.credits));
+        return;
+    }
+    g.credits -= price;
+    if what == Buy::Battery {
+        g.drone_charge = 1.0;
+        g.log.push("Drone battery swapped: 100%.".into());
+    } else {
+        g.deliveries.push((DELIVERY, what));
+        g.log.push(format!("Ordered: {}. The delivery drone will leave it at the front door.", label.split(':').next().unwrap_or(label)));
+    }
+    g.sfx.pickup();
+}
 
 pub const FILES: [(&str, &str); 5] = [
     ("HELIX_internal_ASTRA-9.1_incident.txt",
@@ -156,6 +191,22 @@ pub fn screen(g: &mut Game) {
                 if pressed(KeyCode::Up) { g.mac.file = (g.mac.file + FILES.len() - 1) % FILES.len(); }
                 if pressed(KeyCode::Enter) { g.mac.open = Some(g.mac.file); }
             }
+            while get_char_pressed().is_some() {}
+        }
+        2 => {
+            draw_text("Helix Store", x0, y0 + 4.0, 30.0, ink);
+            draw_text(&format!("Your credits: H$ {}", g.credits), x0 + 260.0, y0 + 2.0, 22.0, orange);
+            draw_text("Earn credits: +2 per supply you pick up, +1 per minute alive, +10 per Helix robot shut down.", x0, y0 + 30.0, 16.0, soft);
+            for (i, (_, label, price)) in STORE.iter().enumerate() {
+                let y = y0 + 70.0 + i as f32 * 36.0;
+                if i == g.mac.shop { draw_rectangle(x0 - 8.0, y - 24.0, ww - 40.0, 32.0, Color::new(0.85, 0.47, 0.32, 0.25)); }
+                let col = if g.credits >= *price { ink } else { soft };
+                draw_text(&format!("H$ {price:>3}   {label}"), x0, y, 20.0, col);
+            }
+            draw_text("Up/Down = choose   Enter = buy   (deliveries take about 15 seconds, to the front door)", x0, wy + wh - 20.0, 16.0, soft);
+            if pressed(KeyCode::Down) { g.mac.shop = (g.mac.shop + 1) % STORE.len(); }
+            if pressed(KeyCode::Up) { g.mac.shop = (g.mac.shop + STORE.len() - 1) % STORE.len(); }
+            if pressed(KeyCode::Enter) { let k = g.mac.shop; buy(g, k); }
             while get_char_pressed().is_some() {}
         }
         _ => {

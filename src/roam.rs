@@ -141,7 +141,7 @@ pub fn update(g: &mut Game, dt: f32) {
     let mut delivered: Vec<(bool, &'static str)> = vec![];
     let mut taken: Vec<usize> = vec![];
     // Infected (and you, once you've turned) are dangerous: (map, where).
-    let threats: Vec<(usize, Vec2)> = g.chars.iter().filter(|c| c.infected && c.stun <= 0.0).map(|c| (c.map, c.pos))
+    let threats: Vec<(usize, Vec2)> = g.chars.iter().filter(|c| c.infected && c.stun <= 0.0 && !(c.mimic && c.crazy <= 0.0)).map(|c| (c.map, c.pos))
         .chain(lost.then_some(player)).collect();
     let kinds: Vec<usize> = (0..g.chars.len()).filter(|&i| g.chars[i].kind && !g.chars[i].infected && g.chars[i].shop <= 0.0).collect();
     let mut guards = kinds.iter().filter(|&&i| g.chars[i].task == Task::Follow).count();

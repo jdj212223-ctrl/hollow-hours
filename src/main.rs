@@ -25,6 +25,7 @@ mod pclink;
 mod drone;
 mod learn;
 mod combat;
+mod mimic;
 mod pad;
 
 use serde_json::json;
@@ -287,6 +288,8 @@ struct Character {
     breach: f32,
     /// What the player asked this kind AI to fetch: Some(true) water, Some(false) food.
     want: Option<bool>,
+    /// The Mimic: looks like a human with your name and types like you (while it isn't chasing).
+    mimic: bool,
 }
 
 fn characters() -> Vec<Character> {
@@ -294,7 +297,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, claude: backend == "anthropic",
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -327,7 +330,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, claude: true,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -507,6 +510,16 @@ struct Game {
     attack_cd: f32,
     swing_t: f32,
     down_t: f32,
+    /// Helix credits (H$) for the store on the Mac Studio, and orders on their way: (seconds left, what).
+    credits: u32,
+    credit_t: f32,
+    deliveries: Vec<(f32, mac::Buy)>,
+    /// The Mimic: seconds until its next call, waiting for its AI-written line, and how long the Claudes ignore it.
+    mimic_t: f32,
+    mimic_asked: bool,
+    trust_t: f32,
+    /// You just told a Claude it's the mimic (handled next frame).
+    mimic_warned: bool,
     /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
     raw: u32,
     fry_t: f32,
@@ -870,7 +883,7 @@ fn mod_character(v: &serde_json::Value) -> Option<Character> {
         personality: Box::leak(personality.into_boxed_str()), map, pos, target: pos, crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
         kind: v["kind"].as_bool() == Some(true) && v["infected"].as_bool() != Some(true),
-        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, claude: false,
+        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, claude: false,
     })
 }
 
@@ -976,7 +989,8 @@ impl Game {
         }
         out.push(player + &format!(", {} from you.", dir(me.pos, self.pos)));
         let others: Vec<String> = self.chars.iter().filter(|c| c.map == self.map && c.name != me.name).map(|c| {
-            let state = if c.infected { if c.stun > 0.0 { "infected, stunned" } else if c.crazy > 0.0 { "INFECTED and CHASING the player" } else { "infected, wandering" } }
+            let state = if c.mimic && c.crazy <= 0.0 { "looks like a human survivor, it calls itself by the player's name" }
+                else if c.infected { if c.stun > 0.0 { "infected, stunned" } else if c.crazy > 0.0 { "INFECTED and CHASING the player" } else { "infected, wandering" } }
                 else if c.crazy > 0.0 { "in crazy mode" } else if c.kind || c.claude { "friendly (Claude family)" } else { "calm" };
             format!("{} ({}, {} from the player)", c.name, state, dir(self.pos, c.pos))
         }).collect();
@@ -1023,6 +1037,9 @@ impl Game {
         let c = &mut self.chars[i];
         if let (Some(t), true) = (&user_text, c.kind && self.infection) {
             let t = t.to_lowercase();
+            if ["mimic", "not me", "isnt me", "isn't me", "fake", "impostor", "imposter", "not real"].iter().any(|w| t.contains(w)) {
+                self.mimic_warned = true;
+            }
             let asks = ["get", "go", "stock", "bring", "find", "fetch", "grab", "need"].iter().any(|w| t.contains(w));
             let water = t.contains("water") || t.contains("drink");
             let food = t.contains("food") || t.contains("fod") || t.contains("eat") || t.contains("stock");
@@ -1326,6 +1343,14 @@ fn start_infection(g: &mut Game) {
     g.weapon = None;
     g.weapon_items = combat::spawn();
     g.down_t = 0.0;
+    g.credits = 10;
+    g.credit_t = 0.0;
+    g.deliveries.clear();
+    g.mimic_t = 30.0;
+    g.mimic_asked = false;
+    g.trust_t = 0.0;
+    let me = g.my_name.clone();
+    g.chars.push(mimic::spawn(&me));
     g.log = vec!["You are the last human. Hide (H), find food and water, and stay away from green eyes.".into(),
         "The Marketplace (south door on the beach) has lots of food... and corrupted Helix robots.".into()];
     g.shop_t = 30.0;
@@ -1452,6 +1477,7 @@ fn update_infection(g: &mut Game, dt: f32) {
             n.send(json!({"t": "pick", "map": im, "x": ip.x / T, "y": ip.y / T}));
         }
         let raw = !water && map_name(im) == "The Marketplace" && rand::gen_range(0, 2) == 0;
+        g.credits += 2;
         g.sfx.pickup();
         if raw {
             g.raw += 1;
@@ -1473,6 +1499,7 @@ fn update_infection(g: &mut Game, dt: f32) {
     // Infected: chase while they see you, keep going a few seconds after you vanish; caught = game over.
     for i in 0..g.chars.len() {
         if !g.chars[i].infected { continue; }
+        if g.chars[i].mimic && g.chars[i].crazy <= 0.0 { continue; } // pretending to be a human
         if g.chars[i].stun > 0.0 {
             g.chars[i].stun -= dt;
             g.chars[i].target = g.chars[i].pos;
@@ -1596,6 +1623,24 @@ fn update_infection(g: &mut Game, dt: f32) {
     }
     shopping(g, dt);
     learn::update(g, dt);
+    mimic::update(g, dt);
+    // Credits: one a minute for staying alive. Orders: the delivery drone drops them at the front door.
+    g.credit_t += dt;
+    if g.credit_t >= 60.0 { g.credit_t -= 60.0; g.credits += 1; }
+    let mut arrived = vec![];
+    g.deliveries.retain_mut(|d| { d.0 -= dt; if d.0 <= 0.0 { arrived.push(d.1); false } else { true } });
+    for what in arrived {
+        let door = vec2(27.5, 13.5) * T;
+        match what {
+            mac::Buy::Bat => g.weapon_items.push(combat::delivered(combat::Weapon::Bat)),
+            mac::Buy::Knife => g.weapon_items.push(combat::delivered(combat::Weapon::Knife)),
+            mac::Buy::Water => g.items.push((0, door, true)),
+            mac::Buy::Food => g.items.push((0, door, false)),
+            mac::Buy::Battery => {}
+        }
+        g.sfx.radio();
+        g.log.push("(radio) Helix delivery drone: your package is at the front door of the house.".into());
+    }
     // Tornadoes: a warning, then one sweeps across the map you're on.
     g.next_tornado -= dt;
     if g.tornado.is_none() && g.next_tornado <= 0.0 && !guest(g) {
@@ -2073,6 +2118,13 @@ async fn main() {
         attack_cd: 0.0,
         swing_t: 0.0,
         down_t: 0.0,
+        credits: 10,
+        credit_t: 0.0,
+        deliveries: vec![],
+        mimic_t: 30.0,
+        mimic_asked: false,
+        trust_t: 0.0,
+        mimic_warned: false,
         link_token: Some(String::new()), // anything but the real token: set up on the first frame
         stamina: 1.0,
         winded: false,
@@ -2603,6 +2655,7 @@ fn update(g: &mut Game, dt: f32) {
     // Answers from the AIs.
     while let Ok(r) = g.brains.rx.try_recv() {
         if r.who == mac::WHO { mac::reply(g, r.text, r.via); continue; }
+        if r.who == mimic::WHO { mimic::reply(g, r.text); continue; }
         let Some(c) = g.chars.get_mut(r.who) else { continue };
         c.thinking = false;
         c.history.push(ai::Msg { user: false, text: r.text.clone() });
@@ -3013,9 +3066,11 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         // Characters.
         for c in g.chars.iter().filter(|c| c.map == g.map) {
             if c.kind { draw_circle_lines(c.pos.x + shake, c.pos.y + shake, 16.0, 2.0, g.rules.halo); }
-            let body = if c.infected { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
+            let disguised = c.mimic && c.crazy <= 0.0;
+            let body = if c.infected && !disguised { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
             draw_circle(c.pos.x + shake, c.pos.y + shake, 12.0, body);
-            let eye = if c.infected { if c.stun > 0.0 { GRAY } else { g.rules.eye } } else if c.crazy > 0.0 { RED } else { BLACK };
+            let flicker = disguised && (get_time() as f32 * 3.1 + c.pos.x).sin() > 0.985;
+            let eye = if disguised && !flicker { BLACK } else if c.infected { if c.stun > 0.0 { GRAY } else { g.rules.eye } } else if c.crazy > 0.0 { RED } else { BLACK };
             let look = (g.pos - c.pos).normalize_or_zero() * 2.0;
             draw_circle(c.pos.x - 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
             draw_circle(c.pos.x + 4.0 + look.x, c.pos.y - 2.0 + look.y, 2.4, eye);
@@ -3158,6 +3213,10 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     if g.fry_t > 0.0 {
         draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0, 6.0, Color::new(0.0, 0.0, 0.0, 0.5));
         draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0 * (1.0 - g.fry_t / 6.0), 6.0, Color::new(1.0, 0.55, 0.15, 0.9));
+    }
+    if g.infection && g.screen == Screen::Play {
+        let t = format!("H$ {}", g.credits);
+        draw_text(&t, sw - measure_text(&t, None, 16, 1.0).width - 14.0, sh - 28.0, 16.0, Color::new(1.0, 0.85, 0.35, 0.9));
     }
     if g.raw > 0 && g.infection {
         let t = format!("raw food: {}", g.raw);

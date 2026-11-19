@@ -26,11 +26,13 @@ pub fn is_robot(c: &Character) -> bool { c.inspired.contains("robot") }
 
 /// The weapons lying around at the start of a game: (map, where, what).
 pub fn spawn() -> Vec<(usize, Vec2, Weapon)> {
-    let mut v = vec![(0, vec2(24.5, 14.5), Weapon::Bat), (0, vec2(3.5, 1.5), Weapon::Knife)];
-    if maps_len() > 1 { v.push((1, vec2(6.5, 12.5), Weapon::Bat)); }
-    if let Some(m) = (0..maps_len()).find(|&m| map_name(m) == "The Marketplace") { v.push((m, vec2(27.5, 3.5), Weapon::Knife)); }
-    // Only where the floor is free (mods can change the maps).
-    v.into_iter().filter(|(m, p, _)| matches!(tile(*m, p.x as i32, p.y as i32), '.' | ',')).map(|(m, p, w)| (m, p * T, w)).collect()
+    // Weapons aren't free anymore: buy them in the Helix Store on the Mac Studio.
+    vec![]
+}
+
+/// A weapon from the delivery drone, at the house's front door.
+pub fn delivered(w: Weapon) -> (usize, Vec2, Weapon) {
+    (0, vec2(27.5, 13.5) * T, w)
 }
 
 /// The infected you'd hit: the nearest one in reach (in front of you, in 3D).
@@ -90,7 +92,8 @@ fn attack(g: &mut Game, hit: Hit, what: &str) {
     g.sfx.hit();
     if shut_down {
         g.sfx.sting();
-        g.log.push(format!("Sparks fly. {name} powers down for good."));
+        g.credits += 10;
+        g.log.push(format!("Sparks fly. {name} powers down for good. It dropped a credit chip: +H$ 10."));
     } else {
         g.log.push(format!("You {what} {name}. It staggers back."));
     }
@@ -188,11 +191,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn weapons_spawn_on_the_floor_and_shoves_stop_at_walls() {
+    fn weapons_are_bought_and_shoves_stop_at_walls() {
         set_maps(vec![]);
-        let w = spawn();
-        assert_eq!(w.iter().filter(|x| x.2 == Weapon::Bat).count(), 2, "a bat in the house and on the beach");
-        assert_eq!(w.iter().filter(|x| x.2 == Weapon::Knife).count(), 2, "a knife in the kitchen and the Marketplace");
+        assert!(spawn().is_empty(), "no free weapons: they're bought");
+        assert!(!solid(0, delivered(Weapon::Bat).1.x, delivered(Weapon::Bat).1.y), "deliveries land on the floor");
         let mut robot = characters().into_iter().find(|c| c.name == "Clerk-07").unwrap();
         assert!(is_robot(&robot));
         // Shoved toward the house's west wall from 2 tiles away: it stops in front of the wall, never inside it.

@@ -69,6 +69,12 @@ impl Meta {
         crate::platform::terminal(lines);
     }
 
+    /// Opens your web browser on one of the (fictional) Helix Dynamics pages on the Hollow Hours website.
+    /// Nothing about you goes in the address: just which page.
+    pub fn browser(&self, url: &str) {
+        if self.on() { crate::platform::open_url(url); }
+    }
+
     /// Switches the window: opens one of OUR files in TextEdit.
     pub fn show_in_textedit(&self, path: &PathBuf) {
         if self.on() && self.created.iter().any(|p| PathBuf::from(p) == *path) {

@@ -8,6 +8,7 @@
 //           player there longest; the host's game runs the AIs), passes messages on, and only lets the host send
 //           the world. Registered servers also give their name, mods and player limit.
 
+import { helixPage } from "./helix.js";
 import { runCommand } from "./console.js";
 import { unzipSync } from "fflate";
 import { register, login, currentUser, logout, sessionCookie, clearCookie, newSession, checkPassword, setPassword } from "./auth.js";
@@ -692,6 +693,9 @@ export default {
         headers.set("X-HH-User-Name", user.name);
         return env.ROOMS.get(env.ROOMS.idFromName(room[1].toUpperCase())).fetch(new Request(req, { headers }));
       }
+
+      // --- Helix Dynamics (the made-up company from the story; the game opens these pages) ---
+      if (p.startsWith("/helix")) { const h = helixPage(p); if (h) return h; }
 
       // --- server console (the server's owner only) ---
       const con = p.match(/^\/(api\/)?servers\/([A-Za-z0-9]{4,8})\/console$/);

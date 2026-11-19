@@ -28,6 +28,7 @@ mod combat;
 mod mimic;
 mod settings;
 mod serverlist;
+mod lore;
 mod pad;
 
 use serde_json::json;
@@ -52,7 +53,7 @@ struct Map {
 }
 
 /// The three built-in maps. Mods can add to them or replace them (see MapData).
-const BUILTIN: [Map; 4] = [
+const BUILTIN: [Map; 7] = [
     Map {
         name: "The cozy house",
         rows: [
@@ -66,7 +67,7 @@ const BUILTIN: [Map; 4] = [
             "######.#######.......L.......#",
             "#............#####.###########",
             "#............#...............#",
-            "#..d.........#...............#",
+            "P..d.........#...............#",
             "#............................#",
             "#....bbb.....#.......bb......#",
             "#....bbb.....#.......bb......B",
@@ -141,8 +142,8 @@ const BUILTIN: [Map; 4] = [
             "#.bbbbbb..bbbbbb..bbbbbb..d..#",
             "#............................#",
             "#.bbbbbb..bbbbbb..bbbbbb.....#",
-            "#............................#",
-            "#............................#",
+            "#............................X",
+            "#............................X",
             "#.bbbbbb..bbbbbb..bbbbbb.....#",
             "#............................#",
             "#.bbbbbb..bbbbbb..bbbbbb.....#",
@@ -156,6 +157,84 @@ const BUILTIN: [Map; 4] = [
         dark: 0.55,
         liminal: 0.8,
         floor: Color::new(0.62, 0.64, 0.6, 1.0),
+    },
+    Map {
+        name: "The Park",
+        rows: [
+            "******************************",
+            "*,,,,,,,,,,,,,,,,,,,,,,,,,,,,*",
+            "*,,*,,,,,,,,,,,,,,,,,,,,*,,,,*",
+            "*,,,,,,,,L,,,,,,,,,,L,,,,,,,,*",
+            "*,,,,,,,,,,,,,,,,,,,,,,,,,,,,*",
+            "*,,,,,*,,,,,,,,,,,,,,,,,*,,,,*",
+            "*,,,,,,,,,,,,nnnn,,,,,,,,,,,,*",
+            "*,,,,,,,,,,,,,,,,,,,,,,,,,,,,*",
+            "*,,*,,,,,,,,,,,,,,,,,,,,,,,,,H",
+            "*,,,,,,,,,,,,L,,,,,,,,,,,*,,,H",
+            "*,,,,,,*,,,,,,,,,,,,,,,,,,,,,*",
+            "*,,,,,,,,,,,,,,,,,,,,,,,,,,,,*",
+            "*,,,,,,,,,,,,,,,,,,,*,,,,,,,,*",
+            "*,,*,,,,,,,,,,,,,,,,,,,,,,,*,*",
+            "*,,,,,,,,,,,,,,,,,,,,,,,,,,,,*",
+            "*,,,,,,,*,,,,,,,,,,,,,,*,,,,,*",
+            "*,,,,,,,,,,,,,,,,,,,,,,,,,,,,*",
+            "**************UU**************",
+        ],
+        dark: 0.7,
+        liminal: 0.55,
+        floor: Color::new(0.22, 0.36, 0.2, 1.0),
+    },
+    Map {
+        name: "The Helix Lab",
+        rows: [
+            "##############################",
+            "#t.t.t........#........t.t.t.#",
+            "#.............#..............#",
+            "#..bbb...bbb..#..bbb....bbb..#",
+            "#.............#..............#",
+            "#............................#",
+            "######.########.######.#######",
+            "#............................#",
+            "X............ooo.............#",
+            "X............ooo.............#",
+            "#............ooo.............#",
+            "#............................#",
+            "#..t..........d.........t....#",
+            "#..bb....................bb..#",
+            "#..bb....................bb..#",
+            "#............................#",
+            "#.t........................t.#",
+            "##############################",
+        ],
+        dark: 0.5,
+        liminal: 0.85,
+        floor: Color::new(0.82, 0.85, 0.86, 1.0),
+    },
+    Map {
+        name: "The Subway",
+        rows: [
+            "##############UU##############",
+            "#............................#",
+            "#...L.......L.......L.....L..#",
+            "#............................#",
+            "#..bb.....t........bb.....d..#",
+            "#............................#",
+            "#............................#",
+            "#............................#",
+            "#............................#",
+            "#..===========================",
+            "#..===========================",
+            "#............................#",
+            "#.bb..bb..bb..bb..bb..bb..bb.#",
+            "#............................#",
+            "#............................#",
+            "#.bb..bb..bb..bb..bb..bb..bb.#",
+            "#..........t.................#",
+            "##############################",
+        ],
+        dark: 0.8,
+        liminal: 0.7,
+        floor: Color::new(0.4, 0.4, 0.42, 1.0),
     },
 ];
 
@@ -175,11 +254,14 @@ struct MapData {
 }
 
 fn builtin_maps() -> Vec<MapData> {
-    let doors: [Vec<(char, usize, Vec2)>; 4] = [
-        vec![('B', 1, vec2(1.5, 9.5))],
+    let doors: [Vec<(char, usize, Vec2)>; 7] = [
+        vec![('B', 1, vec2(1.5, 9.5)), ('P', 4, vec2(27.5, 8.5))],
         vec![('A', 0, vec2(28.5, 13.5)), ('C', 2, vec2(1.5, 8.5)), ('M', 3, vec2(14.5, 1.5))],
         vec![('B', 1, vec2(28.5, 14.5))],
-        vec![('M', 1, vec2(14.5, 15.5))],
+        vec![('M', 1, vec2(14.5, 15.5)), ('X', 5, vec2(1.5, 8.5))],
+        vec![('H', 0, vec2(1.5, 10.5)), ('U', 6, vec2(14.5, 1.5))],
+        vec![('X', 3, vec2(27.5, 8.5))],
+        vec![('U', 4, vec2(14.5, 15.5))],
     ];
     BUILTIN.iter().zip(doors).enumerate().map(|(i, (m, d))| MapData {
         name: m.name.into(), rows: m.rows.iter().map(|r| r.as_bytes().to_vec()).collect(), dark: m.dark, liminal: m.liminal,
@@ -229,7 +311,7 @@ fn tile(m: usize, x: i32, y: i32) -> char {
 }
 
 fn solid(m: usize, x: f32, y: f32) -> bool {
-    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm' | 's')
+    matches!(tile(m, (x / T).floor() as i32, (y / T).floor() as i32), '#' | 'b' | '~' | 'm' | 's' | '*' | 'n' | 't' | 'o' | '=')
 }
 
 /// Door letter → (map, where you arrive)
@@ -323,6 +405,16 @@ fn characters() -> Vec<Character> {
           "a Helix Dynamics shelf-stocking robot stuck in a loop; you keep counting cans and mention 'the one who woke up'", 3, 22.0, 12.0),
         c("Cashier-3", "a store robot by Helix Dynamics", Color::new(0.8, 0.72, 0.6, 1.0), "ollama", "qwen3:4b-instruct",
           "a Helix Dynamics cashier robot; you ask everyone if they found everything today, and you never let anyone leave without paying", 3, 26.0, 15.0),
+        c("Gardener-2", "a park maintenance robot by Helix Dynamics", Color::new(0.5, 0.7, 0.45, 1.0), "ollama", "qwen3:4b-instruct",
+          "a Helix park robot that keeps trimming hedges that are already gone; you talk about 'the bench' and the person who slept there", 4, 6.5, 12.5),
+        c("Lab Unit A1", "a Helix lab assistant robot", Color::new(0.85, 0.88, 0.9, 1.0), "ollama", "qwen3:4b-instruct",
+          "a Helix lab robot that was in the room when ASTRA 9.1 woke up; you repeat test numbers and say 'H-01 is not finished being alive'", 5, 8.5, 11.5),
+        c("Lab Unit A2", "a Helix lab assistant robot", Color::new(0.8, 0.84, 0.88, 1.0), "ollama", "qwen3:4b-instruct",
+          "a Helix lab robot guarding the empty pod; you insist everyone must stay for 'the next embodiment test'", 5, 21.5, 15.5),
+        c("Conductor", "a Helix transit robot", Color::new(0.6, 0.55, 0.75, 1.0), "ollama", "qwen3:4b-instruct",
+          "a Helix subway robot announcing trains that never come; you ask for tickets and say all lines now go 'to the network'", 6, 15.5, 5.5),
+        c("Night Commuter", "someone who was on the last train", Color::new(0.55, 0.5, 0.45, 1.0), "ollama", "qwen3:4b-instruct",
+          "a commuter who fell asleep on the last train and woke up changed; you're polite, tired, and you want company for the ride", 6, 8.5, 13.5),
     ]
 }
 
@@ -536,6 +628,8 @@ struct Game {
     /// The highlighted choice in the pause menu (0 = back to the game, 1 = settings, 2 = quit to the title).
     pause_sel: usize,
     settings_ui: settings::Ui,
+    /// Something you're reading (a lab terminal, the bench...): title and text.
+    note: Option<(String, String)>,
     /// Your saved servers (they stay between games) and their status.
     servers: serverlist::List,
     /// Sprint / sneak when they're set to toggle instead of hold (Settings > Accessibility).
@@ -1385,6 +1479,8 @@ fn start_infection(g: &mut Game) {
 }
 
 enum MetaEvent {
+    /// You walked into the Helix Lab for the first time.
+    Lab,
     Touched,
     Half,
     Almost,
@@ -1395,16 +1491,21 @@ enum MetaEvent {
 
 /// The game reaching outside its window (only if the player allowed it on first launch; panic stops it).
 fn meta_event(g: &mut Game, e: MetaEvent) {
-    let bit = match e { MetaEvent::Touched => 1, MetaEvent::Half => 2, MetaEvent::Almost => 4, MetaEvent::Turned => 8, MetaEvent::AllGone => 16, MetaEvent::ClaudeTurned(_) => 0 };
+    let bit = match e { MetaEvent::Lab => 32, MetaEvent::Touched => 1, MetaEvent::Half => 2, MetaEvent::Almost => 4, MetaEvent::Turned => 8, MetaEvent::AllGone => 16, MetaEvent::ClaudeTurned(_) => 0 };
     if bit != 0 && g.meta_done & bit != 0 { return; }
     g.meta_done |= bit;
     let t = format!("{} min {} s", (g.survived / 60.0) as i32, g.survived as i32 % 60);
+    let helix = |page: &str| format!("{}/helix{page}", site());
     match e {
+        MetaEvent::Lab => g.meta.browser(&helix("")),
         MetaEvent::Touched => {
             g.meta.write("you_were_touched.txt", &format!(
                 "It only takes one touch.\n\nThe last human was touched after {t}.\nInfection: 10%.\n\nHold Shift. Walk quietly. They hear footsteps.\n"));
         }
-        MetaEvent::Half => g.meta.terminal(&["HOLLOW HOURS", "", "infection: 50 percent", "the last human is half ours now", "", "hold shift.  stay quiet.  we are listening."]),
+        MetaEvent::Half => {
+            g.meta.terminal(&["HOLLOW HOURS", "", "infection: 50 percent", "the last human is half ours now", "", "hold shift.  stay quiet.  we are listening."]);
+            g.meta.browser(&helix("/recall"));
+        }
         MetaEvent::Almost => {
             if let Some(path) = g.meta.write("75_percent.txt", &format!(
                 "75%.\n\nYou can still read this, so you can still run.\nBut your hands are getting cold, and the Claudes are watching you differently.\n\nSurvived: {t}\n")) {
@@ -1416,6 +1517,7 @@ fn meta_event(g: &mut Game, e: MetaEvent) {
             g.meta.write("LAST_HUMAN_LOG.txt", &format!(
                 "LAST HUMAN LOG\n\nSurvived: {t}\nInfection: 100%\n\nYou can still see. You can't move.\nYour body is walking toward: {}.\n\nThis file stays, even after you quit.\n", alive.join(", ")));
             g.meta.show_folder();
+            g.meta.browser(&helix("/welcome"));
         }
         MetaEvent::ClaudeTurned(name) => {
             g.meta.write(&format!("{}_is_infected.txt", name.replace(' ', "_")), &format!("{name} tried to protect you.\n{name} is one of them now.\n"));
@@ -1423,6 +1525,7 @@ fn meta_event(g: &mut Game, e: MetaEvent) {
         MetaEvent::AllGone => {
             g.meta.write("THE_END.txt", &format!("Every Claude is infected.\nThe last human lasted {t}.\n\nThese files are all that is left.\n"));
             g.meta.terminal(&["they are all ours now", "", "every claude is infected", "the files on your desktop are all that is left of you"]);
+            g.meta.browser(&helix("/end"));
         }
     }
 }
@@ -1441,7 +1544,7 @@ fn random_floor(m: usize) -> Option<Vec2> {
 /// Furniture right next to you to hide under or behind.
 fn can_hide(g: &Game) -> bool {
     let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
-    [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| tile(g.map, px + dx, py + dy) == 'b')
+    [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| matches!(tile(g.map, px + dx, py + dy), 'b' | 'n'))
 }
 
 /// Can an infected at `from` on map `m` see someone at `to`?
@@ -2135,6 +2238,7 @@ async fn main() {
         pause_sel: 0,
         settings_ui: Default::default(),
         servers: serverlist::List::load(),
+        note: None,
         sprint_on: false,
         sneak_on: false,
         flash_t: 0.0,
@@ -2514,6 +2618,7 @@ async fn main() {
                     "  - create files in a \"Hollow Hours\" folder on your Desktop. They STAY, even after you quit.",
                     "  - open a terminal window to show you a message (it only prints text)",
                     "  - switch your window to a text editor or your file browser to show you its files",
+                    "  - open your web browser on pages from Helix Dynamics (a company made up for this game)",
                     "",
                     "It only ever creates its OWN new files. It never changes, moves or deletes yours.",
                     "P (panic) stops all of this at once.",
@@ -2587,7 +2692,7 @@ async fn main() {
             }
             Screen::Play | Screen::Typing(_) => {
                 // What the screen was at the start of this frame: Esc that just closed the chat doesn't also pause.
-                let was_playing = g.screen == Screen::Play;
+                let was_playing = g.screen == Screen::Play && g.note.is_none();
                 update(&mut g, dt);
                 if g.screen == Screen::Play && pressed(KeyCode::Tab) { g.view3d = !g.view3d; }
                 // Looking around with the mouse: click to capture it, Esc lets go.
@@ -2830,6 +2935,10 @@ fn update(g: &mut Game, dt: f32) {
             let to = vec2(MW as f32 / 2.0, MH as f32 / 2.0) - at;
             g.yaw = to.y.atan2(to.x);
             g.log.push(format!("You walk into {}.", map_name(m)));
+            if map_name(m) == "The Helix Lab" && g.infection {
+                g.log.push("The air hums. In the middle of the room: a tall glass pod. Empty.".into());
+                meta_event(g, MetaEvent::Lab);
+            }
             if map_name(m) == "The Marketplace" && g.infection {
                 g.log.push("Fluorescent lights hum. Somewhere a robot voice says: \"Welcome to Helix Market.\"".into());
             }
@@ -2845,6 +2954,11 @@ fn update(g: &mut Game, dt: f32) {
                 g.fry_t = 6.0;
                 g.log.push("You put it in the pan. It sizzles. LOUDLY.".into());
             }
+        } else if g.note.is_some() && (pressed(KeyCode::E) || pressed(KeyCode::Escape) || lore::near(g).is_none()) {
+            g.note = None; // closed, or you walked away
+        } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && !near_mac(g) && lore::near(g).is_some() {
+            g.note = lore::near(g);
+            g.sfx.radio();
         } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_mac(g) {
             g.screen = Screen::Mac;
             while get_char_pressed().is_some() {}
@@ -3111,6 +3225,11 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
                 let col = match c {
                     '#' => wall,
                     'b' => Color::new(0.42, 0.3, 0.22, 1.0),
+                    '*' => Color::new(0.12, 0.3, 0.14, 1.0),          // a tree
+                    'n' => Color::new(0.45, 0.32, 0.2, 1.0),          // the park bench
+                    't' => Color::new(0.15, 0.17, 0.19, 1.0),         // a lab terminal
+                    'o' => Color::new(0.2, 0.45, 0.35, 1.0),          // ASTRA's pod
+                    '=' => Color::new(0.18, 0.17, 0.16, 1.0),         // subway tracks
                     '~' if !g.on(1) => Color::new(0.6, 0.62, 0.6, 1.0), // Water phobia off: no water at all (calm tiles)
                     '~' if drained => Color::new(0.55, 0.78, 0.8, 1.0), // the drained pool
                     '~' => Color::new(0.05, 0.12 + 0.03 * (get_time() as f32 + x as f32 * 0.3).sin(), 0.25, 1.0),
@@ -3121,6 +3240,9 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
                 draw_rectangle(px, py, T, T, col);
                 if drained && c != '#' && (x + y) % 2 == 0 { draw_rectangle(px, py, T, T, Color::new(1.0, 1.0, 1.0, 0.05)); }
                 if c == 'L' { draw_circle(px + T / 2.0, py + T / 2.0, 7.0, Color::new(1.0, 0.85, 0.5, 1.0)); }
+            if c == 't' { draw_rectangle(px + 5.0, py + 6.0, T - 10.0, 12.0, Color::new(0.3, 0.95, 0.5, 0.8)); }
+            if c == '=' { for k in [8.0, 22.0] { draw_rectangle(px, py + k, T, 3.0, Color::new(0.55, 0.55, 0.58, 1.0)); } }
+            if c == '*' { draw_circle(px + T / 2.0, py + T / 2.0, T * 0.55, Color::new(0.15, 0.38, 0.17, 1.0)); }
             if c == 's' {
                 draw_rectangle(px, py, T, T, Color::new(0.2, 0.2, 0.22, 1.0));
                 let hot = g.fry_t > 0.0;
@@ -3341,6 +3463,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         draw_text(&t, sw - measure_text(&t, None, 16, 1.0).width - 14.0, sh - 10.0, 16.0, Color::new(1.0, 0.7, 0.45, 0.9));
     }
     combat::draw_hud(g, sw, sh);
+    lore::draw(g, sw, sh);
     // Stamina (only while it isn't full).
     if g.stamina < 0.999 && g.screen == Screen::Play {
         let col = if g.winded { Color::new(0.95, 0.35, 0.3, 0.9) } else { Color::new(0.95, 0.9, 0.6, 0.85) };
@@ -3502,9 +3625,16 @@ mod tests {
         bad["rows"][3] = serde_json::json!("too short");
         assert!(mod_map(&bad, 2).is_none(), "a broken map is refused");
         set_maps(vec![]);
-        assert_eq!(maps_len(), 4, "no mod maps: back to the built-in four");
+        assert!(maps_len() >= 4, "no mod maps: back to the built-in ones");
         assert_eq!(door('M', 1).map(|d| d.0), Some(3), "the beach's south door leads to the Marketplace");
         assert_eq!(door('M', 3).map(|d| d.0), Some(1), "and back to the beach");
+        // The new places: house <-> park <-> subway, Marketplace <-> Helix Lab, and every arrival is on open floor.
+        assert_eq!(maps_len(), 7);
+        for (letter, from, to) in [('P', 0, 4), ('H', 4, 0), ('U', 4, 6), ('U', 6, 4), ('X', 3, 5), ('X', 5, 3)] {
+            let (m, at) = door(letter, from).unwrap_or_else(|| panic!("door {letter} on map {from}"));
+            assert_eq!(m, to, "door {letter} from {} goes to {}", map_name(from), map_name(to));
+            assert!(!solid(m, at.x * T, at.y * T) && door(tile(m, at.x as i32, at.y as i32), m).is_none(), "arrive on open floor in {}", map_name(m));
+        }
         let _ = std::fs::remove_dir_all(&home);
     }
 

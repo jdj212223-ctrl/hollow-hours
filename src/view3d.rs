@@ -85,6 +85,17 @@ pub fn render(g: &Game, view: &RenderTarget) {
             if vec2(center.x, center.z).distance(me) > fog.dist + 2.0 { continue; }
             let checker = if (x + y) % 2 == 0 { 1.0 } else { 0.93 };
             match c {
+                '*' => {
+                    // A tree: a trunk and a dark crown.
+                    draw_plane(center, vec2(0.5, 0.5), None, fog.at(floor, center));
+                    draw_cylinder(center, 0.1, 0.14, 1.4, None, fog.at(Color::new(0.3, 0.2, 0.13, 1.0), center));
+                    draw_sphere(center + vec3(0.0, 1.8, 0.0), 0.75, None, fog.at(Color::new(0.1, 0.28 + 0.03 * ((x + y) % 3) as f32, 0.12, 1.0), center + vec3(0.0, 1.8, 0.0)));
+                }
+                '=' => {
+                    // Subway tracks: a dark trench with two rails.
+                    draw_plane(center - vec3(0.0, 0.5, 0.0), vec2(0.5, 0.5), None, fog.at(Color::new(0.12, 0.11, 0.1, 1.0), center));
+                    for dz in [-0.25, 0.25] { draw_cube(center + vec3(0.0, -0.42, dz), vec3(1.0, 0.06, 0.06), None, fog.at(Color::new(0.5, 0.5, 0.52, 1.0), center)); }
+                }
                 '#' => {
                     let k = 0.85 + 0.15 * (((x * 7 + y * 13) % 5) as f32 / 4.0);
                     draw_cube(center + vec3(0.0, WALL_H / 2.0, 0.0), vec3(1.0, WALL_H, 1.0), None, fog.at(mul(wall, k * 1.6), center + vec3(0.0, 1.0, 0.0)));
@@ -117,6 +128,25 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     draw_cube(center + vec3(0.0, 0.81, 0.0), vec3(0.98, 0.04, 0.98), None, fog.at(mul(wood, 1.25), center));
                 }
                 'm' => mac_studio(&fog, center, t),
+                'n' => {
+                    // The park bench (where Claude found you).
+                    let wood = Color::new(0.45, 0.32, 0.2, 1.0);
+                    draw_cube(center + vec3(0.0, 0.42, 0.0), vec3(1.0, 0.06, 0.5), None, fog.at(wood, center));
+                    draw_cube(center + vec3(0.0, 0.75, -0.24), vec3(1.0, 0.3, 0.05), None, fog.at(wood, center));
+                    for dx in [-0.42, 0.42] { draw_cube(center + vec3(dx, 0.2, 0.0), vec3(0.06, 0.4, 0.45), None, fog.at(Color::new(0.15, 0.15, 0.16, 1.0), center)); }
+                }
+                't' => {
+                    // A lab terminal: a desk with a green screen.
+                    draw_cube(center + vec3(0.0, 0.37, 0.0), vec3(0.9, 0.74, 0.6), None, fog.at(Color::new(0.2, 0.21, 0.23, 1.0), center));
+                    draw_cube(center + vec3(0.0, 0.98, 0.1), vec3(0.6, 0.4, 0.04), None, Color::new(0.2, 0.85 + 0.1 * (t * 2.0 + x as f32).sin(), 0.45, 1.0));
+                }
+                'o' => {
+                    // ASTRA's pod: a tall glass cylinder, empty, faintly glowing green.
+                    if (x + y) % 2 == 0 {
+                        draw_cylinder(center, 0.48, 0.5, 2.2, None, Color::new(0.4, 0.95, 0.6, 0.18 + 0.05 * (t * 1.3).sin()));
+                    }
+                    draw_plane(center + vec3(0.0, 0.02, 0.0), vec2(0.5, 0.5), None, Color::new(0.25, 0.8, 0.45, 0.6));
+                }
                 's' => stove(&fog, center, t, g.fry_t > 0.0),
                 'L' => {
                     draw_cylinder(center, 0.03, 0.05, 1.3, None, fog.at(Color::new(0.25, 0.25, 0.27, 1.0), center));

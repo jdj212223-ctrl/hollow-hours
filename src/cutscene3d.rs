@@ -188,3 +188,71 @@ pub fn astra(view: &RenderTarget, canvas_cam: &Camera2D, t: f32, green: Color) {
         }
     });
 }
+
+/// The 3.0 title screen: the kind AIs together in the living room at night, the camera slowly drifting around them
+/// (they sit off to the right so the menu on the left stays clear). `who` = (name, color, talking).
+pub fn title(view: &RenderTarget, canvas_cam: &Camera2D, t: f32, who: &[(String, Color, bool)], storm: f32) {
+    let calm = super::settings::with(|s| s.reduce_motion);
+    let a = if calm { 0.35 } else { 0.35 + 0.22 * (t * 0.05).sin() };
+    let center = vec3(0.0, 0.95, 0.4);
+    let eye = center + vec3(a.sin() * 5.2, 0.75 + if calm { 0.0 } else { 0.08 * (t * 0.11).sin() }, -a.cos() * 5.2);
+    let fwd = (center - eye).normalize();
+    let right = fwd.cross(vec3(0.0, 1.0, 0.0)).normalize();
+    let look = center - right * 2.5;
+    let n = who.len().max(1);
+    // Where each of them stands: an arc in front of the sofa, facing the camera.
+    let spot = |i: usize| {
+        let k = if n == 1 { 0.5 } else { i as f32 / (n - 1) as f32 };
+        let ang = (k - 0.5) * 2.3;
+        // Every other one a step back, so seven fit without hiding each other.
+        let back = if row_back(i, n) { 0.5 } else { 0.0 };
+        vec3(ang.sin() * 1.75, 0.0, 1.0 - ang.cos() * 0.8 + back)
+    };
+    let cam = scene(view, canvas_cam, eye, look, Color::new(0.05, 0.04, 0.05, 1.0), |_| {
+        // Floor, rug, walls.
+        draw_plane(vec3(0.0, 0.0, 0.0), vec2(6.0, 6.0), None, Color::new(0.3, 0.21, 0.15, 1.0));
+        draw_plane(vec3(0.0, 0.01, 0.6), vec2(2.4, 1.5), None, Color::new(0.45, 0.16, 0.16, 1.0));
+        draw_cube(vec3(0.0, 1.6, 3.2), vec3(10.0, 3.2, 0.1), None, Color::new(0.3, 0.23, 0.19, 1.0));
+        draw_cube(vec3(-4.2, 1.6, 0.0), vec3(0.1, 3.2, 8.0), None, Color::new(0.27, 0.21, 0.17, 1.0));
+        draw_cube(vec3(4.2, 1.6, 0.0), vec3(0.1, 3.2, 8.0), None, Color::new(0.27, 0.21, 0.17, 1.0));
+        // The window: night outside, rain, and the green glow of the infected far away.
+        let glow = 0.25 + 0.15 * (t * 0.7).sin() + storm;
+        draw_cube(vec3(-1.6, 1.9, 3.14), vec3(1.6, 1.1, 0.02), None, Color::new(0.03, 0.06 + glow * 0.12, 0.08, 1.0));
+        for i in 0..18 {
+            let x = -2.35 + (i as f32 * 0.083) % 1.5;
+            let y = 2.4 - ((t * 2.2 + i as f32 * 0.37) % 1.0) * 1.0;
+            draw_cube(vec3(x, y, 3.12), vec3(0.008, 0.09, 0.005), None, Color::new(0.6, 0.7, 0.8, 0.35));
+        }
+        if storm > 0.05 { draw_cube(vec3(-1.6, 1.9, 3.13), vec3(1.6, 1.1, 0.01), None, Color::new(0.9, 0.95, 1.0, storm)); }
+        for (dx, h) in [(-0.82, 1.2), (-1.6, 0.04), (-2.38, 1.2)] {
+            let _ = h;
+            draw_cube(vec3(dx, 1.9, 3.11), vec3(0.06, 1.2, 0.04), None, Color::new(0.2, 0.15, 0.12, 1.0));
+        }
+        // The sofa behind them, a lamp, a small table with two mugs.
+        let sofa = Color::new(0.24, 0.3, 0.38, 1.0);
+        draw_cube(vec3(0.0, 0.25, 2.4), vec3(3.4, 0.5, 0.9), None, sofa);
+        draw_cube(vec3(0.0, 0.75, 2.8), vec3(3.4, 0.6, 0.25), None, sofa);
+        for x in [-1.75, 1.75] { draw_cube(vec3(x, 0.45, 2.4), vec3(0.25, 0.9, 0.9), None, sofa); }
+        draw_cylinder(vec3(2.6, 0.0, 2.6), 0.04, 0.12, 1.6, None, Color::new(0.15, 0.14, 0.13, 1.0));
+        draw_cylinder(vec3(2.6, 1.6, 2.6), 0.18, 0.3, 0.32, None, Color::new(1.0, 0.85, 0.55, 1.0));
+        draw_sphere(vec3(2.6, 1.7, 2.6), 1.3, None, Color::new(1.0, 0.8, 0.45, 0.06));
+        draw_cube(vec3(-2.7, 0.3, 1.6), vec3(0.7, 0.6, 0.7), None, Color::new(0.33, 0.22, 0.15, 1.0));
+        for x in [-2.85, -2.55] { draw_cylinder(vec3(x, 0.6, 1.6), 0.05, 0.05, 0.12, None, Color::new(0.85, 0.47, 0.32, 1.0)); }
+        // The family.
+        for (i, (name, col, talking)) in who.iter().enumerate() {
+            let base = spot(i);
+            let scale = if name.contains("Haiku") { 0.8 } else if name.contains("Opus") { 1.08 } else { 1.0 };
+            let bob = if calm { 0.0 } else { 0.015 * (t * 1.6 + i as f32).sin() };
+            let hop = if *talking && !calm { 0.04 * (t * 9.0).sin().abs() } else { 0.0 };
+            person(base + vec3(0.0, bob + hop, 0.0), *col, eye, scale);
+        }
+    });
+    for (i, (name, _, talking)) in who.iter().enumerate() {
+        let scale = if name.contains("Haiku") { 0.8 } else { 1.0 };
+        let up = if row_back(i, n) { 0.32 } else { 0.0 };
+        label(&cam, spot(i) + vec3(0.0, 1.45 * scale + up, 0.0), name, if *talking { 1.0 } else { 0.75 });
+    }
+}
+
+/// The title room's two rows: the middle one in front, then back, front, back... outwards.
+fn row_back(i: usize, n: usize) -> bool { (i as i32 - (n as i32 - 1) / 2).abs() % 2 == 1 }

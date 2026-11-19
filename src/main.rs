@@ -35,6 +35,10 @@ mod pad;
 mod cutscene3d;
 mod passage;
 mod czech;
+mod title;
+mod memories;
+mod music;
+mod aware;
 
 use serde_json::json;
 
@@ -673,6 +677,13 @@ struct Game {
     grabbed: bool,
     /// The mouse was captured before a chat or menu: capture it again when you're back in the game.
     regrab: bool,
+    /// The 3.0 title screen: time on it, the highlighted entry, the mouse's, who's talking (char, line, seconds).
+    title_t: f32,
+    title_sel: usize,
+    title_hover: Option<usize>,
+    title_say: Option<(String, String, f32)>,
+    /// What's playing on this computer (only with Outside the window allowed).
+    music: music::Music,
     /// Going up/down stairs or through a door right now (no teleporting).
     pass: Option<passage::Pass>,
     /// Just came out of stairs or a door.
@@ -1188,9 +1199,11 @@ impl Game {
         }
         if self.infection && c.infected {
             s += " You are INFECTED: your voice glitches, you want everyone to 'join' you, you hate hiding places. Unsettling, never gory.";
+            s += &aware::prompt();
         }
         if c.claude {
             s += " You are one of the Claude family: always kind, honest and on the player's side, never scary.";
+            s += &memories::prompt();
         }
         if c.crazy > 0.0 && !self.infection {
             s += " RIGHT NOW you are in your 'crazy mode': unsettling, too calm, repeating the player's words back, \
@@ -1829,6 +1842,7 @@ fn update_infection(g: &mut Game, dt: f32) {
             if c.infect >= 1.0 {
                 c.infected = true;
                 c.kind = false;
+                memories::infected(c.name);
                 turned.push(i);
             }
         }
@@ -1991,6 +2005,7 @@ fn shopping(g: &mut Game, dt: f32) {
             let c = &mut g.chars[i];
             c.infected = true;
             c.kind = false;
+            memories::infected(c.name);
             c.map = g.map;
             if let Some(p) = at { c.pos = p; c.target = p; }
             g.log.push(format!("{name} came back from the Marketplace... but its eyes are green now."));
@@ -2352,6 +2367,11 @@ async fn main() {
         pitch: 0.0,
         grabbed: false,
         regrab: false,
+        title_t: 0.0,
+        title_sel: 0,
+        title_hover: None,
+        title_say: None,
+        music: music::Music::default(),
         pass: None,
         arrive: None,
         last_mouse: Vec2::ZERO,
@@ -2493,6 +2513,7 @@ async fn main() {
         (canvas, cam, view)
     };
     let mut cur_w = VW;
+    let mut last_screen = g.screen;
     let (mut canvas, mut cam, mut view) = make(cur_w);
     loop {
         let w = wanted_vw();
@@ -2533,6 +2554,20 @@ async fn main() {
         settings::set_playing(g.screen == Screen::Play);
         // Accessibility: a slower game (the menus and animations still run at full speed).
         let dt = get_frame_time().min(0.05) * if g.screen == Screen::Play { settings::with(|s| s.game_speed) } else { 1.0 };
+        // Memories (3.0): a night starts when you go into the game, ends at game over; saved as you play.
+        if g.screen != last_screen {
+            if g.screen == Screen::Play && matches!(last_screen, Screen::Title | Screen::Intro | Screen::PickPhobias | Screen::JoinRoom | Screen::Servers | Screen::Over) {
+                memories::night_started();
+            }
+            if g.screen == Screen::Over {
+                let r = g.over_reason.trim().trim_end_matches(['.', '!']).to_string();
+                let mut c = r.chars();
+                let how = c.next().map(|f| f.to_lowercase().collect::<String>() + c.as_str()).unwrap_or_else(|| "it ended".into());
+                memories::night_ended(&how);
+            }
+            last_screen = g.screen;
+        }
+        if g.screen == Screen::Play { memories::tick(dt); }
         // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
         pending_t -= dt;
         if pending_t <= 0.0 && g.browser_login.is_none() {
@@ -2586,16 +2621,17 @@ async fn main() {
 
         match g.screen {
             Screen::Title => {
-                draw_title(&g);
-                if pressed(KeyCode::Key1) { g.courage = Courage::Brave; g.screen = Screen::Play; }
-                if pressed(KeyCode::Key2) { g.courage = Courage::Normal; g.screen = Screen::Play; }
-                if pressed(KeyCode::Key3) { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
-                if pressed(KeyCode::Key4) { let local = local_mods(); apply_contents(&mut g, &local); begin_intro(&mut g, None); }
-                if pressed(KeyCode::I) { begin_intro(&mut g, None); }
-                if pressed(KeyCode::M) { g.screen = Screen::Consent; }
-                if pressed(KeyCode::O) { settings::open(&mut g, false); }
-                if pressed(KeyCode::B) { serverlist::refresh(&mut g); refresh_servers(&mut g); g.screen = Screen::Servers; }
-                if pressed(KeyCode::L) {
+                let act = title::update(&mut g, get_frame_time());
+                title::draw(&g, &view, &cam);
+                if act == Some('1') { g.courage = Courage::Brave; g.screen = Screen::Play; }
+                if act == Some('2') { g.courage = Courage::Normal; g.screen = Screen::Play; }
+                if act == Some('3') { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
+                if act == Some('4') { let local = local_mods(); apply_contents(&mut g, &local); begin_intro(&mut g, None); }
+                if act == Some('I') { begin_intro(&mut g, None); }
+                if act == Some('M') { g.screen = Screen::Consent; }
+                if act == Some('O') { settings::open(&mut g, false); }
+                if act == Some('B') { serverlist::refresh(&mut g); refresh_servers(&mut g); g.screen = Screen::Servers; }
+                if act == Some('L') {
                     if g.account.is_some() {
                         g.account = None;
                         forget_account();
@@ -2607,7 +2643,7 @@ async fn main() {
                     }
                 }
                 // K: lend this computer's Claude to your phone (same account).
-                if pressed(KeyCode::K) && !pad::touch_mode() {
+                if act == Some('K') && !pad::touch_mode() {
                     if g.pclink.is_some() {
                         g.pclink = None;
                         pclink::set_enabled(false);
@@ -2620,7 +2656,7 @@ async fn main() {
                         g.pclink = g.account.as_ref().map(|a| pclink::start(&net_base(), &a.token));
                     }
                 }
-                if pressed(KeyCode::J) {
+                if act == Some('J') {
                     if g.account.is_some() { g.room_input.clear(); while get_char_pressed().is_some() {} g.screen = Screen::JoinRoom; }
                     else { g.login_email.clear(); g.login_pw.clear(); g.login_field = 0; g.status = "Online play needs an account: log in first.".into(); while get_char_pressed().is_some() {} g.screen = Screen::Login; }
                 }
@@ -2628,7 +2664,7 @@ async fn main() {
                 if pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
                 if pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
                 if pressed(KeyCode::RightBracket) { g.vest.strength = (g.vest.strength + 0.1).min(1.0); }
-                if pressed(KeyCode::Escape) { break; }
+                if act == Some('Q') { memories::save(); break; }
             }
             Screen::PickPhobias => {
                 draw_phobias(&g);
@@ -2998,12 +3034,16 @@ fn update(g: &mut Game, dt: f32) {
             const WHISPERS: [&str; 8] = ["join us...", "the network is warm.", "you smell like sleep.", "why are you hiding?",
                 "we can hear your heart.", "come to the beach.", "stay. stay forever.", "it doesn't hurt anymore."];
             const ROBOT: [&str; 4] = ["can I help you find something?", "you have not paid.", "welcome to helix.", "please remain."];
-            let line = if combat::is_robot(&g.chars[i]) { ROBOT[rand::gen_range(0, ROBOT.len())] } else { WHISPERS[rand::gen_range(0, WHISPERS.len())] };
+            let robot = combat::is_robot(&g.chars[i]);
+            // 3.0: the more you play, the more they know (and they hear your music).
+            let line: String = if robot { ROBOT[rand::gen_range(0, ROBOT.len())].to_string() }
+                else { aware::whisper(g).unwrap_or_else(|| WHISPERS[rand::gen_range(0, WHISPERS.len())].to_string()) };
+            let line = line.as_str();
             let (name, d) = (g.chars[i].name, g.chars[i].pos.distance(g.pos) / T);
             let c = &mut g.chars[i];
+            c.bubble_t = 3.0 + line.len() as f32 / 30.0;
             c.bubble = line.to_string();
             c.via = String::new();
-            c.bubble_t = 3.0;
             let (on, vol) = settings::with(|s| (s.ai_voices, s.master * s.voices));
             if on { tts::speak(name, line, 1.0, vol * (1.0 - d / 9.0).max(0.25)); }
             g.sfx.caption(&format!("[whisper: \"{line}\"]"));
@@ -3373,6 +3413,7 @@ fn update_frying(g: &mut Game, dt: f32) {
             g.log.push(format!("An antidote: a vial of something clear and cold. (C to use it; you have {})", g.antidotes));
         } else {
             let (dish, food, water, name) = g.cook.take().unwrap_or((None, 0.5, 0.0, "Hot food".into()));
+            memories::cooked(&name);
             g.food = (g.food + food).min(1.0);
             g.water = (g.water + water).min(1.0);
             let what = dish.map(|d| format!(": {}", czech::DISHES[d].what)).unwrap_or_default();
@@ -3808,65 +3849,6 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     draw_text(if pad::name().is_some() { "stick · L3 sprint · A use · B hit · D-right kick · X hide · LT sneak · D-up drone · View PANIC" } else if g.infection { if g.net.is_some() { "WASD · Space sprint · Shift sneak · H hide · E talk · V voice · R radio · P PANIC" } else if g.view3d { "WASD · mouse · Space sprint · Shift sneak · H hide · E use · F hit · G kick · Q drone · P PANIC" } else { "WASD · Space sprint · Shift sneak · H hide · E use · F hit · G kick · Q drone · P PANIC" } } else { "WASD move · E talk · P PANIC (everything off) · Esc menu" },
         sw - 380.0, y0 + 72.0, 14.0, Color::new(0.5, 0.52, 0.6, 1.0));
     if g.vest.enabled { draw_text("vest ON", sw - 70.0, y0 + 24.0, 16.0, Color::new(0.4, 0.9, 0.5, 1.0)); }
-}
-
-fn draw_title(g: &Game) {
-    draw_text(&g.rules.title, 60.0, 78.0, 56.0, Color::new(0.85, 0.3, 0.35, 1.0));
-    if !g.status.is_empty() { draw_text(&g.status, 60.0, 102.0, 18.0, Color::new(1.0, 0.75, 0.4, 1.0)); }
-    let lines = [
-        "A small horror game where the characters are real AIs.".to_string(),
-        format!("Claude app: {}", if ai::claude_cli().is_some() { "found, so the Claude characters talk through it (real Claude)" } else { "not found" }),
-        format!("Brains: {}", if g.brains.ollama_models.is_empty() { "no local AI found (start Ollama), scripted lines only".into() } else { format!("local models {}", g.brains.ollama_models.join(", ")) }),
-        "Cloud AIs join if you set their keys: ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY.".into(),
-        String::new(),
-        "How brave are you?".into(),
-        "  1  Brave: no fear, no chasing, friendly AIs".into(),
-        "  2  Normal".into(),
-        "  3  Many phobias: pick what scares you (and switch off what you can't handle)".into(),
-        "  4  INFECTION: the AIs are infected, you're the last human. Hide, eat, drink, dodge tornadoes.".into(),
-        "  I  watch the story (ASTRA 9.1, one year later)      O  SETTINGS (sound, voice, accessibility, keys)".into(),
-        "  J  INFECTION ONLINE: join by address (officialsmp)   B  your server list   (needs a login)".into(),
-        match &g.account {
-            Some(a) if pad::touch_mode() => format!("  Logged in as {}.  Real Claude: turn on K on your computer (same account)", a.name),
-            Some(a) => format!("  Logged in as {} (L to log out)   K  lend Claude to your phone: {}", a.name,
-                g.pclink.as_ref().and_then(|p| p.status.lock().ok().map(|s| s.clone())).unwrap_or_else(|| "off".into())),
-            None => "  L  log in (make an account on the website)".into(),
-        },
-        String::new(),
-        format!("Haptic vest: {}", if !g.vest.found { "none found".to_string() } else if g.vest.enabled { format!("ON at {}% (V off, [ ] strength)", (g.vest.strength * 100.0) as i32) } else { "found, OFF (V to turn on)".into() }),
-        "Vest effects are mild and capped. Don't use them if you have a heart condition.".into(),
-        "No flashing lights. P = panic at any time: everything stops.   F11 (or Cmd+Ctrl+F) = full screen".into(),
-        match pad::name() {
-            Some(n) => format!("Controller: {}   A Infection · X Normal · Y story · RB servers · LB log in", n.chars().take(28).collect::<String>()),
-            None => "Controllers work too (Xbox, PlayStation, Steam Deck / Legion Go): plug one in or turn it on.".into(),
-        },
-        format!("Outside the window: {}   {}", match g.meta.allowed { Some(true) => "ALLOWED (files, terminal, window switching)", Some(false) => "off", None => "not asked" },
-            if g.meta.created.is_empty() { "M to change".to_string() } else { format!("M to change · {} files on your Desktop", g.meta.created.len()) }),
-    ];
-    // Spacing shrinks a little if there's a lot to show, so everything always fits on screen.
-    let step = 25.0;
-    for (i, l) in lines.iter().enumerate() {
-        draw_text(l, 60.0, 118.0 + i as f32 * step, 20.0, Color::new(0.82, 0.84, 0.9, 1.0));
-    }
-    // Who's who: our own characters, each only inspired by a kind of AI. Three columns, cut to fit.
-    let y = 118.0 + lines.len() as f32 * step + 4.0;
-    draw_text("Who lives here:", 60.0, y, 19.0, WHITE);
-    let cols = 3usize;
-    let colw = (VW - 80.0) / cols as f32;
-    let rows = g.chars.len().div_ceil(cols).max(1) as f32;
-    let rstep = ((VH - 10.0 - (y + 8.0)) / rows).min(22.0);
-    for (i, c) in g.chars.iter().enumerate() {
-        let (col, row) = ((i % cols) as f32, (i / cols) as f32);
-        let (x, yy) = (60.0 + col * colw, y + 8.0 + row * rstep);
-        draw_circle(x + 6.0, yy + 8.0, 6.0, c.color);
-        let mut t = format!("{}: {}", c.name, c.inspired);
-        while t.len() > 4 && measure_text(&t, None, 15, 1.0).width > colw - 24.0 {
-            t.pop();
-            while !t.is_char_boundary(t.len()) { t.pop(); }
-        }
-        if t.len() < c.name.len() + 2 + c.inspired.len() { t = format!("{}...", t.trim_end()); }
-        draw_text(&t, x + 18.0, yy + 13.0, 15.0, Color::new(0.7, 0.72, 0.8, 1.0));
-    }
 }
 
 fn draw_phobias(g: &Game) {

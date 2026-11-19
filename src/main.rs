@@ -2846,6 +2846,23 @@ fn update(g: &mut Game, dt: f32) {
         }
     }
 
+    // Nobody stands inside anybody else: characters that get too close are pushed apart (two in the same spot
+    // flicker in 3D, and pile up into one blob in 2D).
+    for a in 0..g.chars.len() {
+        for b in a + 1..g.chars.len() {
+            if g.chars[a].map != g.chars[b].map { continue; }
+            let d = g.chars[b].pos - g.chars[a].pos;
+            let len = d.length();
+            if len >= 0.6 * T { continue; }
+            let dir = if len < 0.01 { vec2(((a * 7 + b) as f32).cos(), ((a * 7 + b) as f32).sin()) } else { d / len };
+            let push = dir * (0.6 * T - len) * 0.5;
+            let m = g.chars[a].map;
+            let (pa, pb) = (g.chars[a].pos - push, g.chars[b].pos + push);
+            if !solid(m, pa.x, pa.y) { g.chars[a].pos = pa; }
+            if !solid(m, pb.x, pb.y) { g.chars[b].pos = pb; }
+        }
+    }
+
     // Crazy mode: now and then, one character on your map snaps (never in Brave or with Being chased off).
     g.next_crazy -= dt;
     if g.next_crazy <= 0.0 && !g.infection {

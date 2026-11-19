@@ -44,6 +44,11 @@ impl Net {
                     let _ = inbox.send(serde_json::json!({"t": "error", "msg": "your login expired: log in again (L)"}));
                     return;
                 }
+                Err(tungstenite::Error::Http(r)) if r.status() == 403 => {
+                    let why = r.body().as_ref().map(|b| String::from_utf8_lossy(b).chars().take(120).collect::<String>()).unwrap_or_default();
+                    let _ = inbox.send(serde_json::json!({"t": "error", "msg": if why.is_empty() { "you're banned from this server".to_string() } else { format!("you can't join: {why}") }}));
+                    return;
+                }
                 Err(tungstenite::Error::Http(r)) if r.status() == 429 => {
                     let _ = inbox.send(serde_json::json!({"t": "error", "msg": "that server is full"}));
                     return;

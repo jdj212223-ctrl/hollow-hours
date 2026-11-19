@@ -8,6 +8,7 @@
 //           player there longest; the host's game runs the AIs), passes messages on, and only lets the host send
 //           the world. Registered servers also give their name, mods and player limit.
 
+import { runCommand } from "./console.js";
 import { unzipSync } from "fflate";
 import { register, login, currentUser, logout, sessionCookie, clearCookie, newSession, checkPassword, setPassword } from "./auth.js";
 import { validate } from "./mods.js";
@@ -74,9 +75,60 @@ export class Room {
   async seen(code) {
     if (code) await this.env.DB.prepare("UPDATE servers SET players = ?, seen = ? WHERE code = ?").bind(this.sockets().length, now(), code).run().catch(() => {});
   }
+  // ---- the owner's console: bans, mutes and a log, kept in this room's own storage ----
+  async lists() {
+    if (!this.bans) this.bans = (await this.ctx.storage.get("bans")) || {};
+    if (!this.mutes) this.mutes = (await this.ctx.storage.get("mutes")) || {};
+  }
+  async logLine(text) {
+    const t = new Date().toISOString().slice(11, 19);
+    const log = (await this.ctx.storage.get("log")) || [];
+    log.push(`[${t}] ${text}`);
+    await this.ctx.storage.put("log", log.slice(-200));
+  }
+  async console(req) {
+    await this.lists();
+    const players = () => this.sockets().map((ws) => ws.deserializeAttachment()).map((a) => ({ uid: a.uid, name: a.name, id: a.id }));
+    if (req.method === "GET") {
+      return Response.json({
+        players: players().map((p) => ({ name: p.name, muted: !!this.mutes[p.uid], host: p.id === this.host() })),
+        log: (await this.ctx.storage.get("log")) || [],
+        bans: Object.values(this.bans).map((b) => ({ name: b.name, reason: b.reason })),
+      });
+    }
+    const body = await req.json().catch(() => ({}));
+    const line = String(body.command || "");
+    const out = runCommand(line, {
+      players, bans: this.bans, mutes: this.mutes,
+      kick: (uid, reason) => {
+        for (const ws of this.sockets()) if (ws.deserializeAttachment()?.uid === uid) {
+          const me = ws.deserializeAttachment();
+          try { ws.send(JSON.stringify({ t: "error", msg: reason })); ws.close(4003, reason.slice(0, 100)); } catch {}
+          ws.serializeAttachment(null);
+          this.broadcast({ t: "left", from: me.id, host: this.host(), players: this.sockets().length });
+        }
+      },
+      say: (text) => this.broadcast({ t: "announce", msg: text }),
+      stop: (reason) => { for (const ws of this.sockets()) { try { ws.send(JSON.stringify({ t: "error", msg: reason })); ws.close(4004, reason.slice(0, 100)); } catch {} ws.serializeAttachment(null); } },
+      mutedChanged: (uid, muted) => { for (const ws of this.sockets()) if (ws.deserializeAttachment()?.uid === uid) try { ws.send(JSON.stringify({ t: "muted", on: muted })); } catch {} },
+    });
+    await this.ctx.storage.put("bans", this.bans);
+    await this.ctx.storage.put("mutes", this.mutes);
+    if (line.trim()) await this.logLine(`> ${line.trim().slice(0, 200)}`);
+    for (const l of out) await this.logLine(l);
+    const code = (await this.ctx.storage.get("code")) || null;
+    if (code) await this.seen(code);
+    return Response.json({ output: out });
+  }
   async fetch(req) {
+    if (new URL(req.url).pathname.endsWith("/console")) {
+      // Only the router sends this header, after checking you own the server.
+      if (req.headers.get("X-HH-Owner") !== "1") return new Response("forbidden", { status: 403 });
+      return this.console(req);
+    }
     if (req.headers.get("Upgrade") !== "websocket") return new Response("expected a WebSocket", { status: 426 });
     const code = new URL(req.url).pathname.split("/").pop().toUpperCase();
+    await this.ctx.storage.put("code", code);
     const server = await this.env.DB.prepare("SELECT name, max, mods FROM servers WHERE code = ?").bind(code).first().catch(() => null);
     const max = Math.min(server?.max ?? 20, MAX_PLAYERS);
     if (this.sockets().length >= max) return new Response("room is full", { status: 429 });
@@ -84,6 +136,8 @@ export class Room {
     const uid = parseInt(req.headers.get("X-HH-User-Id") || "0");
     const uname = req.headers.get("X-HH-User-Name") || "";
     if (!uid || !uname) return new Response("log in first", { status: 401 });
+    await this.lists();
+    if (this.bans[uid]) return new Response(`banned: ${this.bans[uid].reason}`, { status: 403 });
     // One connection per account: a second one from the same account replaces the first.
     for (const old of this.sockets()) {
       if (old.deserializeAttachment()?.uid === uid) {
@@ -100,6 +154,8 @@ export class Room {
     try { mods = JSON.parse(server?.mods || "[]"); } catch {}
     ws.send(JSON.stringify({ t: "hello", you: id, host: this.host(), players: this.sockets().length, name: server?.name ?? null, mods }));
     this.broadcast({ t: "host", host: this.host(), players: this.sockets().length }, ws);
+    if (this.mutes[uid]) ws.send(JSON.stringify({ t: "muted", on: true }));
+    await this.logLine(`${uname} joined (${this.sockets().length} online)`);
     await this.seen(code);
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -113,6 +169,17 @@ export class Room {
     // Nobody can pretend to be someone else: the name is always the verified account's.
     if (msg.t === "state") msg.name = me.name;
     if (msg.t === "world" && me.id !== this.host()) return;
+    // Muted players' voices go nowhere. Voice shows in the console log when someone starts talking.
+    if (msg.t === "vc") {
+      if (!this.mutes) await this.lists();
+      if (this.mutes[me.uid]) return;
+      this.lastVc ??= new Map();
+      const now = Date.now();
+      if (now - (this.lastVc.get(me.uid) || 0) > 5000) await this.logLine(`${me.name} is talking${msg.r ? " on the radio" : ""}`);
+      this.lastVc.set(me.uid, now);
+    }
+    // Server announcements only come from the console.
+    if (msg.t === "announce" || msg.t === "muted") return;
     this.broadcast(msg, ws);
     if (msg.t === "world" && Math.random() < 0.05) await this.seen(me.code); // keep the server "alive" in the list
   }
@@ -122,12 +189,57 @@ export class Room {
     try { ws.close(1000, "bye"); } catch {}
     if (me) {
       this.broadcast({ t: "left", from: me.id, host: this.host(), players: this.sockets().length });
+      await this.logLine(`${me.name} left (${this.sockets().length} online)`);
       await this.seen(me.code);
     }
   }
   async webSocketError(ws) {
     await this.webSocketClose(ws);
   }
+}
+
+// ---------------- The console page ----------------
+
+function consolePage(user, code, srv) {
+  return page(`Console · ${srv.name}`, user, `
+<div class="card"><h2 style="margin-top:0">${esc(srv.name)} <code>${code}</code></h2>
+${srv.address ? '<p class="dim">This server runs somewhere else: type these commands in its own terminal instead (where you ran <code>node server.mjs</code>).</p>' : ""}
+<div style="display:flex;gap:16px;flex-wrap:wrap">
+<div style="flex:3;min-width:280px">
+<pre id="log" style="background:#07070a;color:#c9d1d9;border:1px solid var(--line);border-radius:10px;padding:12px;height:360px;overflow:auto;white-space:pre-wrap;font-size:13px;margin:0"></pre>
+<form id="cmd" style="display:flex;gap:8px;margin-top:8px"><span style="font-family:monospace;padding:10px 0;color:var(--accent)">&gt;</span>
+<input id="line" autocomplete="off" placeholder="help · list · kick name · ban name reason · mute name · say hello" style="flex:1;font-family:monospace">
+<button class="btn" type="submit">Run</button></form>
+</div>
+<div style="flex:1;min-width:220px"><h3 style="margin-top:0">Online</h3><div id="players" class="small"></div>
+<h3>Banned</h3><div id="bans" class="small dim"></div></div>
+</div></div>
+<script>
+const api = "/api/servers/${code}/console";
+const log = document.getElementById("log"), players = document.getElementById("players"), bans = document.getElementById("bans");
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let last = "";
+async function refresh() {
+  const r = await fetch(api); if (!r.ok) return;
+  const d = await r.json();
+  const text = d.log.join("\\n");
+  if (text !== last) { const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 30; log.textContent = text || "(nothing yet: players joining, leaving and talking show up here)"; last = text; if (atEnd) log.scrollTop = log.scrollHeight; }
+  players.innerHTML = d.players.length ? d.players.map((p) => \`<div style="margin:8px 0">
+    <div>\${esc(p.name)}\${p.host ? ' <span class="pill">host</span>' : ""}\${p.muted ? ' <span class="pill">muted</span>' : ""}</div>
+    <div><button class="btn ghost" data-c="\${p.muted ? "unmute" : "mute"} \${esc(p.name)}">\${p.muted ? "Unmute" : "Mute"}</button>
+    <button class="btn ghost" data-c="kick \${esc(p.name)}">Kick</button>
+    <button class="btn ghost" data-c="ban \${esc(p.name)}" data-confirm="Ban \${esc(p.name)}?">Ban</button></div></div>\`).join("") : "Nobody's online.";
+  bans.innerHTML = d.bans.length ? d.bans.map((b) => \`<div style="margin:6px 0">\${esc(b.name)} <button class="btn ghost" data-c="unban \${esc(b.name)}">Unban</button><div>\${esc(b.reason)}</div></div>\`).join("") : "Nobody.";
+}
+async function run(command) {
+  await fetch(api, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ command }) });
+  await refresh();
+  log.scrollTop = log.scrollHeight;
+}
+document.getElementById("cmd").onsubmit = (e) => { e.preventDefault(); const l = document.getElementById("line"); if (l.value.trim()) run(l.value); l.value = ""; };
+document.addEventListener("click", (e) => { const b = e.target.closest("[data-c]"); if (!b) return; if (b.dataset.confirm && !confirm(b.dataset.confirm)) return; run(b.dataset.c); });
+refresh(); setInterval(refresh, 2000);
+</script>`);
 }
 
 // ---------------- Data ----------------
@@ -384,7 +496,7 @@ ${form("privacy", `<label class="small" style="font-weight:400"><input type="che
 
 <div class="card"><h3 style="margin-top:0">Your mods</h3>${mods.length ? `<table>${mods.map((m) => `<tr><td><a href="/mods/${m.id}">${esc(m.name)}</a> ${esc(m.version)}</td><td style="text-align:right">${form("delete_mod", `<input type="hidden" name="id" value="${m.id}"><button class="btn ghost" type="submit">Delete</button>`, "Delete this mod? Servers using it will run without it.")}</td></tr>`).join("")}</table>` : '<p class="dim">None yet. <a href="/mods">Upload one.</a></p>'}</div>
 
-<div class="card"><h3 style="margin-top:0">Your servers</h3>${srv.length ? `<table>${srv.map((x) => `<tr><td><b>${esc(x.name)}</b> <code>${x.code}</code>${x.address ? ` <span class="pill">own server: ${esc(x.address)}</span>` : ""}<div class="dim small">${x.players}/${x.max} playing</div></td><td style="text-align:right">${form("delete_server", `<input type="hidden" name="code" value="${x.code}"><button class="btn ghost" type="submit">Delete</button>`, "Delete this server? Its code stops working.")}</td></tr>`).join("")}</table>` : '<p class="dim">None yet. <a href="/servers/new">Make one.</a></p>'}</div>
+<div class="card"><h3 style="margin-top:0">Your servers</h3>${srv.length ? `<table>${srv.map((x) => `<tr><td><b>${esc(x.name)}</b> <code>${x.code}</code>${x.address ? ` <span class="pill">own server: ${esc(x.address)}</span>` : ""}<div class="dim small">${x.players}/${x.max} playing</div></td><td style="text-align:right">${x.address ? "" : `<a class="btn ghost" href="/servers/${x.code}/console">Console</a> `}${form("delete_server", `<input type="hidden" name="code" value="${x.code}"><button class="btn ghost" type="submit">Delete</button>`, "Delete this server? Its code stops working.")}</td></tr>`).join("")}</table>` : '<p class="dim">None yet. <a href="/servers/new">Make one.</a></p>'}</div>
 
 <div class="card"><h3 style="margin-top:0">Password and sessions</h3>
 ${form("password", `<label>Current password</label><input type="password" name="current" required autocomplete="current-password"><label>New password <span class="dim small">(at least 8 characters)</span></label><input type="password" name="new" required minlength="8" autocomplete="new-password"><p><button class="btn ghost" type="submit">Change password</button></p>`)}
@@ -536,9 +648,22 @@ export default {
         const headers = new Headers(req.headers);
         headers.delete("X-HH-User-Id");
         headers.delete("X-HH-User-Name");
+        headers.delete("X-HH-Owner");
         headers.set("X-HH-User-Id", String(user.id));
         headers.set("X-HH-User-Name", user.name);
         return env.ROOMS.get(env.ROOMS.idFromName(room[1].toUpperCase())).fetch(new Request(req, { headers }));
+      }
+
+      // --- server console (the server's owner only) ---
+      const con = p.match(/^\/(api\/)?servers\/([A-Za-z0-9]{4,8})\/console$/);
+      if (con) {
+        const code = con[2].toUpperCase();
+        if (!user) return con[1] ? json({ error: "log in first" }, 401) : redirect("/login");
+        const srv = await env.DB.prepare("SELECT name, owner, address FROM servers WHERE code = ?").bind(code).first();
+        if (!srv || srv.owner !== user.id) return con[1] ? json({ error: "not your server" }, 403) : page("Console", user, '<div class="card"><p class="err">That isn\'t your server.</p></div>');
+        if (!con[1]) return consolePage(user, code, srv);
+        const headers = new Headers({ "X-HH-Owner": "1", "content-type": "application/json" });
+        return env.ROOMS.get(env.ROOMS.idFromName(code)).fetch(new Request(`https://room/${code}/console`, { method: req.method, headers, body: req.method === "POST" ? await req.text() : undefined }));
       }
 
       // --- lending Claude to your phone (your own account only) ---

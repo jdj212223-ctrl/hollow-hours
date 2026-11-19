@@ -1193,6 +1193,14 @@ fn network(g: &mut Game, dt: f32) {
                 }
             }
             Some("left") => g.remotes.retain(|x| x.id != from),
+            // From the server's console.
+            Some("announce") => {
+                let msg: String = m["msg"].as_str().unwrap_or("").chars().filter(|c| !c.is_control()).take(200).collect();
+                g.log.push(format!("[server] {msg}"));
+                g.sfx.radio();
+            }
+            Some("muted") => g.log.push(if m["on"].as_bool() == Some(true) { "The server muted you: your voice and radio don't reach anyone.".into() }
+                else { "The server unmuted you.".into() }),
             // A guest hit one of the infected (the host's game moves them).
             Some("hit") if !guest(g) => {
                 let i = m["i"].as_u64().unwrap_or(u64::MAX) as usize;

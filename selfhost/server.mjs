@@ -9,6 +9,9 @@
 
 import { WebSocketServer } from "ws";
 import { createPublicKey, verify } from "node:crypto";
+import { createInterface } from "node:readline";
+import { readFileSync, writeFileSync } from "node:fs";
+import { runCommand } from "./console.mjs";
 
 const SITE = (process.env.HH_SITE || "https://hollow-hours-mp.jdj212223.workers.dev").replace(/\/$/, "");
 const CODE = String(process.env.HH_CODE || "").toUpperCase();
@@ -40,6 +43,13 @@ function checkTicket(t) {
   return { uid: p.uid, name: String(p.name).slice(0, 16) };
 }
 
+// Bans and mutes survive restarts (in hh-lists.json next to this file).
+const LISTS = new URL("./hh-lists.json", import.meta.url);
+let lists = { bans: {}, mutes: {} };
+try { lists = JSON.parse(readFileSync(LISTS, "utf8")); } catch {}
+const saveLists = () => { try { writeFileSync(LISTS, JSON.stringify(lists, null, 2)); } catch (e) { console.error("couldn't save bans/mutes:", e.message); } };
+const log = (text) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${text}`);
+
 let order = 0;
 const players = new Map(); // ws → { id, uid, name, joined }
 const hostId = () => [...players.values()].sort((a, b) => a.joined - b.joined)[0]?.id ?? null;
@@ -51,22 +61,35 @@ wss.on("connection", (ws, req) => {
   const auth = req.headers["authorization"] || "";
   const who = path.toUpperCase() === `/ROOM/${CODE}` && auth.startsWith("Ticket ") ? checkTicket(auth.slice(7).trim()) : null;
   if (!who) { ws.close(4001, "log in first"); return; }
+  if (lists.bans[who.uid]) { ws.close(4003, `banned: ${lists.bans[who.uid].reason}`.slice(0, 100)); log(`${who.name} tried to join (banned)`); return; }
   for (const [old, p] of players) if (p.uid === who.uid) { old.send(JSON.stringify({ t: "error", msg: "you joined from somewhere else" })); old.close(4000, "replaced"); players.delete(old); }
   if (players.size >= MAX) { ws.close(4029, "room is full"); return; }
   const me = { id: Math.random().toString(36).slice(2, 10), uid: who.uid, name: who.name, joined: ++order };
   players.set(ws, me);
   ws.send(JSON.stringify({ t: "hello", you: me.id, host: hostId(), players: players.size, name: null, mods: [] }));
   broadcast({ t: "host", host: hostId(), players: players.size }, ws);
+  if (lists.mutes[me.uid]) ws.send(JSON.stringify({ t: "muted", on: true }));
+  log(`${me.name} joined (${players.size} online)`);
+  let lastVc = 0;
   ws.on("message", (data) => {
     let msg;
     try { msg = JSON.parse(String(data)); } catch { return; }
     msg.from = me.id;
     if (msg.t === "state") msg.name = me.name; // verified name only
     if (msg.t === "world" && me.id !== hostId()) return;
+    if (msg.t === "announce" || msg.t === "muted") return; // only the console sends those
+    if (msg.t === "vc") {
+      if (lists.mutes[me.uid]) return;
+      if (Date.now() - lastVc > 5000) log(`${me.name} is talking${msg.r ? " on the radio" : ""}`);
+      lastVc = Date.now();
+    }
     broadcast(msg, ws);
   });
   ws.on("close", () => {
-    if (players.delete(ws)) broadcast({ t: "left", from: me.id, host: hostId(), players: players.size });
+    if (players.delete(ws)) {
+      broadcast({ t: "left", from: me.id, host: hostId(), players: players.size });
+      log(`${me.name} left (${players.size} online)`);
+    }
   });
 });
 
@@ -82,3 +105,25 @@ async function heartbeat() {
 heartbeat();
 setInterval(heartbeat, 60_000);
 console.log(`Hollow Hours server ${CODE} on port ${PORT} (public address ${PUBLIC_URL})`);
+
+// The console: type commands right here in the terminal (help for the list).
+const sockOf = (uid) => [...players].filter(([, p]) => p.uid === uid).map(([ws]) => ws);
+const server = {
+  players: () => [...players.values()].map((p) => ({ uid: p.uid, name: p.name })),
+  get bans() { return lists.bans; },
+  get mutes() { return lists.mutes; },
+  kick: (uid, reason) => { for (const ws of sockOf(uid)) { ws.send(JSON.stringify({ t: "error", msg: reason })); ws.close(4003, reason.slice(0, 100)); } },
+  say: (text) => broadcast({ t: "announce", msg: text }),
+  stop: (reason) => { for (const ws of players.keys()) { ws.send(JSON.stringify({ t: "error", msg: reason })); ws.close(4004, reason.slice(0, 100)); } },
+  mutedChanged: (uid, on) => { for (const ws of sockOf(uid)) ws.send(JSON.stringify({ t: "muted", on })); },
+};
+if (process.stdin.isTTY || process.env.HH_CONSOLE) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
+  console.log("Console ready: type help.");
+  rl.prompt();
+  rl.on("line", (line) => {
+    for (const l of runCommand(line, server)) console.log(l);
+    saveLists();
+    rl.prompt();
+  });
+}

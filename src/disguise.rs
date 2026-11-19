@@ -1,5 +1,5 @@
 //! Disguises and the cure (Infection mode).
-//!  - Disguise kits (Helix Store, 3 uses): Z puts one on you for 90 seconds. The infected don't see or hear you unless
+//!  - Disguise kits (Helix Store, 20 uses): Z puts one on you for 90 seconds. The infected don't see or hear you unless
 //!    you walk right into them. Sprinting, fighting or frying blows your cover. Tell a Claude "disguise yourself" (or
 //!    "disguise everyone") and they get one for 2 minutes: the infected ignore them and can't infect them.
 //!  - Antidotes (Helix Store, or brewed on the stove from a Helix chip + some water): C uses one. On yourself: -60%

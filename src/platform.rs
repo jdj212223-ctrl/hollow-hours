@@ -50,6 +50,27 @@ pub fn private(path: &std::path::Path) {
 }
 
 /// Opens a web link in the browser.
+/// Browsers found on this computer (macOS: every known one in Applications; elsewhere: none, the default is used).
+pub fn browsers() -> Vec<String> {
+    if !cfg!(target_os = "macos") { return vec![]; }
+    const KNOWN: [&str; 30] = ["Safari", "Google Chrome", "Firefox", "Arc", "Microsoft Edge", "Brave Browser", "Opera", "Opera GX",
+        "Vivaldi", "Orion", "Zen", "Zen Browser", "DuckDuckGo", "Chromium", "Tor Browser", "Firefox Developer Edition", "Firefox Nightly",
+        "Google Chrome Canary", "Google Chrome Beta", "Floorp", "LibreWolf", "Waterfox", "Comet", "Dia", "SigmaOS", "Yandex", "Sidekick",
+        "Min", "Ladybird", "Safari Technology Preview"];
+    let home = std::env::var("HOME").unwrap_or_default();
+    let dirs = ["/Applications".to_string(), format!("{home}/Applications"), "/System/Volumes/Preboot/Cryptexes/App/System/Applications".into()];
+    KNOWN.iter().filter(|b| dirs.iter().any(|d| std::path::Path::new(&format!("{d}/{b}.app")).exists())).map(|b| b.to_string()).collect()
+}
+
+/// Opens a link in the browser the player picked in Settings (or their default browser).
+pub fn open_url_in(url: &str, browser: &str) {
+    if cfg!(target_os = "macos") && !browser.is_empty() && browsers().iter().any(|b| b == browser) {
+        let _ = Command::new("open").args(["-a", browser, url]).spawn();
+    } else {
+        open_url(url);
+    }
+}
+
 pub fn open_url(url: &str) {
     if cfg!(target_os = "macos") {
         let _ = Command::new("open").arg(url).spawn();

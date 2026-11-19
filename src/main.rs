@@ -466,6 +466,9 @@ struct Character {
     mimic: bool,
     /// A Claude in disguise (seconds left): the infected ignore it and can't infect it.
     disguise_t: f32,
+    /// Infected only: breath for sprinting (0..1) and how long the current sprint lasts.
+    stamina: f32,
+    sprint: f32,
 }
 
 fn characters() -> Vec<Character> {
@@ -473,7 +476,7 @@ fn characters() -> Vec<Character> {
         name, inspired, color, backend, model, personality, map,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, disguise_t: 0.0, claude: backend == "anthropic",
+        kind: false, infected: false, cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, disguise_t: 0.0, stamina: 1.0, sprint: 0.0, claude: backend == "anthropic",
     };
     vec![
         c("Clove", "a thoughtful, honest assistant AI", Color::new(0.85, 0.47, 0.32, 1.0), "anthropic", "qwen3:4b-instruct",
@@ -516,7 +519,7 @@ fn kind_characters() -> Vec<Character> {
         name, inspired, color, backend: "anthropic", model: "qwen3:4b-instruct", personality, map: 0,
         pos: vec2(x * T, y * T), target: vec2(x * T, y * T), crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
-        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, disguise_t: 0.0, claude: true,
+        kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, disguise_t: 0.0, stamina: 1.0, sprint: 0.0, claude: true,
     };
     vec![
         c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
@@ -1123,7 +1126,7 @@ fn mod_character(v: &serde_json::Value) -> Option<Character> {
         personality: Box::leak(personality.into_boxed_str()), map, pos, target: pos, crazy: 0.0, history: vec![],
         bubble: String::new(), via: String::new(), bubble_t: 0.0, thinking: false,
         kind: v["kind"].as_bool() == Some(true) && v["infected"].as_bool() != Some(true),
-        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, disguise_t: 0.0, claude: false,
+        infected: v["infected"].as_bool().unwrap_or(true), cloud: "", stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, disguise_t: 0.0, stamina: 1.0, sprint: 0.0, claude: false,
     })
 }
 
@@ -1820,8 +1823,10 @@ fn update_infection(g: &mut Game, dt: f32) {
     }
     // Touching you spreads the infection (fast); being right beside you spreads it slowly. Every player's own game
     // works this out for them (online too), from where the infected are.
+    // Disguised (and acting calm): they take you for one of them, so nothing spreads to you.
+    let disguised = g.disguise_t > 0.0;
     for c in g.chars.iter().filter(|c| c.infected && c.map == g.map && c.stun <= 0.0) {
-        if g.lost_control { break; }
+        if g.lost_control || disguised { break; }
         let d = c.pos.distance(g.pos);
         if d < 0.8 * T && (!g.hidden || d < 0.5 * T) {
             if g.inf < 0.02 { g.scare_t = 0.5; g.scare_face = c.color; g.vest.play(haptics::Effect::Chill); }
@@ -3235,10 +3240,26 @@ fn update(g: &mut Game, dt: f32) {
     let is_guest = guest(g);
     let infection_on = g.infection;
     let infected_speed = g.rules.infected_speed;
+    let mut sprinters: Vec<&'static str> = vec![];
     for c in &mut g.chars {
         if c.bubble_t > 0.0 { c.bubble_t -= dt; }
         if is_guest { continue; } // the host moves everyone
         let speed = if c.crazy > 0.0 { if c.infected { infected_speed } else { 1.9 } } else if c.kind { if c.spotted > 12.0 { 3.0 } else if c.task == roam::Task::Roam { 2.2 } else { 2.6 } } else { 1.0 } * T;
+        // The infected sprint too: a burst when they're chasing and close, then they're winded for a while.
+        let chasing = c.infected && c.crazy > 0.0 && c.stun <= 0.0;
+        if c.sprint > 0.0 {
+            c.sprint -= dt;
+            c.stamina = (c.stamina - dt * 0.35).max(0.0);
+            if c.stamina <= 0.0 || !chasing { c.sprint = 0.0; }
+        } else {
+            c.stamina = (c.stamina + dt * 0.1).min(1.0);
+            let d = c.pos.distance(c.target) / T;
+            if chasing && c.stamina > 0.7 && d > 2.0 && d < 9.0 && rand::gen_range(0.0, 1.0) < dt * 0.8 {
+                c.sprint = rand::gen_range(1.5, 2.6);
+                if c.map == g.map { sprinters.push(c.name); }
+            }
+        }
+        let speed = if c.sprint > 0.0 { speed * 1.6 } else { speed };
         if c.crazy > 0.0 && (c.map == g.map || infection_on) {
             c.target = if infection_on { c.chase } else { g.pos };
             c.crazy -= dt;
@@ -3262,6 +3283,10 @@ fn update(g: &mut Game, dt: f32) {
             if !solid(c.map, c.pos.x + step.x, c.pos.y) { c.pos.x += step.x; }
             if !solid(c.map, c.pos.x, c.pos.y + step.y) { c.pos.y += step.y; }
         }
+    }
+    for name in sprinters {
+        g.sfx.caption(&format!("[{name} breaks into a sprint]"));
+        g.log.push(format!("{name} is SPRINTING at you!"));
     }
 
     // Nobody stands inside anybody else: characters that get too close are pushed apart (two in the same spot

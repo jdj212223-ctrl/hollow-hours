@@ -72,7 +72,7 @@ impl Meta {
     /// Opens your web browser on one of the (fictional) Helix Dynamics pages on the Hollow Hours website.
     /// Nothing about you goes in the address: just which page.
     pub fn browser(&self, url: &str) {
-        if self.on() { crate::platform::open_url(url); }
+        if self.on() { crate::platform::open_url_in(url, &crate::settings::with(|s| s.browser.clone())); }
     }
 
     /// Switches the window: opens one of OUR files in TextEdit.

@@ -36,7 +36,7 @@ pub const STORE: [(Buy, &str, u32); 8] = [
     (Buy::Food, "Food pack", 8),
     (Buy::Groceries, "Czech grocery bag: 5 ingredients for the stove (guláš, svíčková...)", 12),
     (Buy::Battery, "Drone battery (full charge, instant)", 10),
-    (Buy::Disguise, "Disguise kit: 3 uses (Z, or tell a Claude to disguise), instant", 20),
+    (Buy::Disguise, "Disguise kit: 20 uses (Z, or tell a Claude to disguise), instant", 20),
     (Buy::Antidote, "Antidote: cures you or an infected Claude (C), instant", 60),
 ];
 
@@ -55,8 +55,8 @@ fn buy(g: &mut Game, k: usize) {
         g.drone_charge = 1.0;
         g.log.push("Drone battery swapped: 100%.".into());
     } else if what == Buy::Disguise {
-        g.kits += 3;
-        g.log.push(format!("Disguise kit: 3 more uses ({} in all). Z to wear one.", g.kits));
+        g.kits += 20;
+        g.log.push(format!("Disguise kit: 20 more uses ({} in all). Z to wear one.", g.kits));
     } else if what == Buy::Antidote {
         g.antidotes += 1;
         g.log.push(format!("Antidote bought ({} in all). C to use it.", g.antidotes));

@@ -58,6 +58,8 @@ pub struct Settings {
     pub mouse_sens: f32,
     pub invert_y: bool,
     pub flashing: bool,
+    /// Which browser opens the Helix pages ("" = your default browser).
+    pub browser: String,
     /// Rebound keys: action name -> key name.
     pub binds: std::collections::HashMap<String, String>,
 }
@@ -66,7 +68,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings { master: 1.0, ambience: 0.8, effects: 1.0, voices: 1.0, mic_on: false, hear_voice: true, ai_voices: true, captions: false,
             big_text: false, reduce_motion: false, high_contrast: false, jumpscares: true, toggle_sprint: false,
-            toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, binds: Default::default() }
+            toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, browser: String::new(), binds: Default::default() }
     }
 }
 
@@ -105,7 +107,7 @@ pub fn flashing_off() { change(|s| s.flashing = false); }
 
 // ---------------- The settings screen ----------------
 
-const TABS: [&str; 5] = ["Sound", "Voice chat", "Accessibility", "Flashing", "Controls"];
+const TABS: [&str; 5] = ["Sound", "Voice chat", "Accessibility", "Flashing & web", "Controls"];
 
 /// What the settings screen is doing: tab, row, waiting for a key to bind, the flashing warnings, where to go back.
 #[derive(Default)]
@@ -123,7 +125,7 @@ pub fn open(g: &mut Game, from_pause: bool) {
     g.screen = Screen::Settings;
 }
 
-enum Row { Slider(&'static str, f32, fn(&mut Settings, f32)), Toggle(&'static str, bool, fn(&mut Settings, bool), &'static str), Text(String) }
+enum Row { Slider(&'static str, f32, fn(&mut Settings, f32)), Toggle(&'static str, bool, fn(&mut Settings, bool), &'static str), Text(String), Browser(String) }
 
 fn rows(tab: usize, s: &Settings) -> Vec<Row> {
     use Row::*;
@@ -154,6 +156,7 @@ fn rows(tab: usize, s: &Settings) -> Vec<Row> {
         ],
         3 => vec![
             Toggle("Flashing lights", s.flashing, |s, v| s.flashing = v, "Strobing jumpscares and lightning on the beach. Off by default. PANIC turns it off at once."),
+            Browser(if s.browser.is_empty() { "Your default browser".into() } else { s.browser.clone() }),
         ],
         _ => {
             let mut v: Vec<Row> = ACTIONS.iter().map(|(name, d)| {
@@ -229,6 +232,14 @@ pub fn screen(g: &mut Game) {
                 draw_text(if *v { "ON" } else { "OFF" }, 600.0, y, size, if *v { Color::new(0.45, 0.95, 0.5, 1.0) } else { Color::new(0.95, 0.55, 0.5, 1.0) });
                 if on { desc = d.to_string(); }
             }
+            Row::Browser(b) => {
+                draw_text("Helix pages open in", 70.0, y, size, col);
+                draw_text(&format!("< {b} >"), 470.0, y, size, Color::new(0.85, 0.47, 0.32, 1.0));
+                if on {
+                    let n = platform::browsers().len();
+                    desc = format!("When the game opens a page (the Helix Dynamics site, only with Outside the window allowed): your default browser, or one of the {n} browsers found on this computer. Left/Right to choose.");
+                }
+            }
             Row::Text(t) => {
                 let waiting = g.settings_ui.tab == 4 && g.settings_ui.binding == Some(i);
                 draw_text(&if waiting { format!("{}   press the new key... (Esc cancels)", ACTIONS[i].0) } else { t.clone() }, 70.0, y, size, if waiting { YELLOW } else { col });
@@ -282,6 +293,18 @@ pub fn screen(g: &mut Game) {
                     let nv = !v;
                     change(|s| set(s, nv));
                 }
+            }
+        }
+        Row::Browser(cur) => {
+            if left || right || enter {
+                // "" (default) first, then every browser installed here.
+                let mut all = vec![String::new()];
+                all.extend(platform::browsers());
+                let cur = if cur == "Your default browser" { String::new() } else { cur.clone() };
+                let i = all.iter().position(|b| *b == cur).unwrap_or(0);
+                let j = if left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
+                let pick = all[j].clone();
+                change(|s| s.browser = pick);
             }
         }
         Row::Text(_) if g.settings_ui.tab == 4 && enter => {

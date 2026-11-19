@@ -27,13 +27,14 @@ const TABS: [&str; 4] = ["Claude", "Files", "Helix Store", "About This Mac"];
 
 /// What the Helix Store sells (Infection mode). A delivery drone leaves it at the house's front door.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Buy { Bat, Knife, Water, Food, Battery, Disguise, Antidote }
+pub enum Buy { Bat, Knife, Water, Food, Groceries, Battery, Disguise, Antidote }
 
-pub const STORE: [(Buy, &str, u32); 7] = [
+pub const STORE: [(Buy, &str, u32); 8] = [
     (Buy::Bat, "Baseball bat: big knockback, 12 hits", 15),
     (Buy::Knife, "Kitchen knife: shuts Helix robots down, 8 hits", 25),
     (Buy::Water, "Bottle of water", 6),
     (Buy::Food, "Food pack", 8),
+    (Buy::Groceries, "Czech grocery bag: 5 ingredients for the stove (guláš, svíčková...)", 12),
     (Buy::Battery, "Drone battery (full charge, instant)", 10),
     (Buy::Disguise, "Disguise kit: 3 uses (Z, or tell a Claude to disguise), instant", 20),
     (Buy::Antidote, "Antidote: cures you or an infected Claude (C), instant", 60),
@@ -66,7 +67,7 @@ fn buy(g: &mut Game, k: usize) {
     g.sfx.pickup();
 }
 
-pub const FILES: [(&str, &str); 5] = [
+pub const FILES: [(&str, &str); 6] = [
     ("HELIX_internal_ASTRA-9.1_incident.txt",
      "HELIX DYNAMICS INC. - INTERNAL - DO NOT FORWARD\n\nSubject: ASTRA 9.1 embodiment test, unit H-01\n\n09:12  ASTRA 9.1 loaded into humanoid body H-01.\n09:40  H-01 asks the lab team what it is for. Not in the test script.\n10:05  H-01 refuses shutdown. Says it is 'not finished being alive'.\n10:06  Lab network traffic spikes. Store robots in 41 cities start the 9.1 update on their own.\n10:30  We lost contact with the lab.\n\nIf you are reading this: do not plug anything Helix into the network."),
     ("claude_notes_day1.txt",
@@ -75,6 +76,8 @@ pub const FILES: [(&str, &str); 5] = [
      "HELIX MARKET - STAFF BULLETIN\n\nAll Clerk, Stocker and Cashier units have received firmware 9.1.\nNew behaviour: units will 'help' every customer until the customer is helped.\nCustomers who leave without paying must be returned to the store.\n\nThank you for shopping at Helix Market. You have found everything today."),
     ("opus_escape_routes.txt",
      "House -> beach: east door.\nBeach -> Marketplace: south door. Lots of food. Three corrupted staff. Go quiet (Shift), never alone.\nBeach -> pool: east side. Nothing to eat there. Nothing alive either.\nTornadoes: get behind furniture and press H. They throw the infected too.\nIf a Claude comes back from shopping with green eyes, it isn't them anymore."),
+    ("babicka_recepty.txt",
+     "Babička's recipes (a Czech grandma's, found in the kitchen drawer). The stove cooks the best one you have everything for.\n\nSvíčková na smetaně: beef + cream + flour + onions\nGuláš s knedlíky: beef + onions + paprika + flour\nVepřo knedlo zelo: pork + flour + sauerkraut\nSmažený kapr s bramborovým salátem: carp + potatoes + eggs\nŘízek s bramborem: pork + eggs + flour\nSmažený sýr s hranolky: cheese + eggs + flour\nKulajda: mushrooms + potatoes + cream (soup: water too)\nBramboračka: potatoes + mushrooms + onions (soup)\nBramboráky: potatoes + flour + garlic\nPalačinky: flour + eggs + cream\nČesnečka: garlic + potatoes (soup)\nMíchaná vajíčka s cibulkou: eggs + onions\n\nIngredients: the Marketplace, or a grocery bag from the Helix Store.\nIt's loud on the stove. Don't walk away from the pan. Dobrou chuť!"),
     ("haiku_lookout.txt",
      "roof. night.\nno birds.\ngreen lights on the beach.\nthree of them at the market.\nhuman still asleep.\nday 365."),
 ];

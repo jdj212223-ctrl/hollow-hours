@@ -34,6 +34,7 @@ mod tts;
 mod pad;
 mod cutscene3d;
 mod passage;
+mod czech;
 
 use serde_json::json;
 
@@ -720,8 +721,13 @@ struct Game {
     /// You asked a Claude to disguise (which one, and everyone?), handled next frame.
     disguise_ask: Option<(usize, bool)>,
     /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
-    raw: u32,
+    /// Czech ingredients for the stove (see czech.rs).
+    pantry: czech::Pantry,
+    /// On the stove now: (dish, food, water, its name).
+    cook: Option<(Option<usize>, f32, f32, String)>,
     fry_t: f32,
+    /// How long the thing on the stove takes in all (for the progress bar).
+    fry_max: f32,
     /// Lending this computer's Claude to your phone (K on the title).
     pclink: Option<pclink::PcLink>,
     /// The login the phone link and lending were last set up with.
@@ -1159,7 +1165,7 @@ impl Game {
                  this house. \
                  WHAT YOU CAN DO: you can walk to other places (the beach, the pool, the Marketplace) to fetch food or water and \
                  carry it back, and you do it on your own when supplies are low. If the player asks you to get food or water, say \
-                 you're going (the game sends you). There's a stove in the house to fry raw food from the Marketplace. \
+                 you're going (the game sends you). There's a stove in the house where the player cooks real Czech food (svíčková, guláš s knedlíky, vepřo knedlo zelo, smažený sýr, kulajda, bramboráky, palačinky...) from ingredients from the Marketplace or a Helix Store grocery bag; babička's recipe file is on the Mac Studio. You love Czech food and may say 'dobrou chuť'. \
                  THE HOUSE has three floors: the ground floor (kitchen, Mac Studio), upstairs (the player's bed where they slept \
                  the whole year, with a note from Claude on the pillow) and the basement (supplies, and the generator Opus checks \
                  every night), and above upstairs the attic (dusty boxes, and Haiku's lookout chair at the round window, with \
@@ -1576,7 +1582,8 @@ fn start_infection(g: &mut Game) {
             }
         }
     }
-    g.raw = 0;
+    g.pantry = [0; 13];
+    g.cook = None;
     g.fry_t = 0.0;
     g.drone = None;
     g.drone_charge = 1.0;
@@ -1739,8 +1746,9 @@ fn update_infection(g: &mut Game, dt: f32) {
         g.credits += 2;
         g.sfx.pickup();
         if raw {
-            g.raw += 1;
-            g.log.push(format!("Raw {}. Fry it on the stove at home (you have {}).", ["eggs", "meat", "fish"][rand::gen_range(0, 3)], g.raw));
+            let i = czech::random_ingredient();
+            czech::add(&mut g.pantry, i);
+            g.log.push(format!("{} ({}). For the stove at home: {}.", czech::ING[i].0, czech::ING[i].1, czech::summary(&g.pantry)));
         } else {
             if water { g.water = (g.water + g.rules.supply_amount).min(1.0); } else { g.food = (g.food + g.rules.supply_amount).min(1.0); }
             g.log.push(if water { "You sip the water as quietly as you can.".into() } else { "You eat, trying not to crunch.".into() });
@@ -1897,6 +1905,10 @@ fn update_infection(g: &mut Game, dt: f32) {
             mac::Buy::Knife => g.weapon_items.push(combat::delivered(combat::Weapon::Knife)),
             mac::Buy::Water => g.items.push((0, door, true)),
             mac::Buy::Food => g.items.push((0, door, false)),
+            mac::Buy::Groceries => {
+                for _ in 0..5 { let i = czech::random_ingredient(); czech::add(&mut g.pantry, i); }
+                g.log.push(format!("Groceries: {}.", czech::summary(&g.pantry)));
+            }
             mac::Buy::Battery | mac::Buy::Disguise | mac::Buy::Antidote => {}
         }
         g.sfx.radio();
@@ -1994,7 +2006,7 @@ fn shopping(g: &mut Game, dt: f32) {
             c.via = String::new();
             c.bubble_t = 4.0;
             g.food = (g.food + 0.35).min(1.0);
-            g.raw += 2;
+            for _ in 0..3 { let i = czech::random_ingredient(); czech::add(&mut g.pantry, i); }
             g.water = (g.water + 0.35).min(1.0);
             g.log.push(format!("{name} came back from the Marketplace with food and water!"));
             g.sfx.pickup();
@@ -2361,8 +2373,10 @@ async fn main() {
         flash_t: 0.0,
         next_flash: 20.0,
         pclink: None,
-        raw: 0,
+        pantry: [0; 13],
+        cook: None,
         fry_t: 0.0,
+        fry_max: 6.0,
         drone: None,
         drone_charge: 1.0,
         learn_level: 0,
@@ -2429,7 +2443,7 @@ async fn main() {
         g.pos = vec2(2.5, 2.6) * T;
         g.yaw = -std::f32::consts::FRAC_PI_2;
         g.pitch = -0.5;
-        g.raw = 2;
+        for i in [0, 4, 5, 6] { g.pantry[i] = 1; }
         g.fry_t = 6.0;
     } else if let Some(spot) = demo.as_deref().filter(|d| ["stairs", "basement", "door"].contains(&d.trim_end_matches("-go"))) {
         // HOLLOW_DEMO=stairs / basement / door (add -go to walk through): in front of the stairs up, the stairs down,
@@ -3132,21 +3146,26 @@ fn update(g: &mut Game, dt: f32) {
         } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_stove(g) {
             if g.fry_t > 0.0 {
                 g.log.push("It's already in the pan. Stay close or it burns.".into());
-            } else if g.raw > 0 {
-                g.raw -= 1;
-                g.fry_t = 6.0;
+            } else if let Some(c) = czech::best(&g.pantry) {
+                let name = czech::label(&c);
+                let (secs, food, water) = czech::start(&mut g.pantry, &c);
+                let dish = if let czech::Cook::Dish(d) = c { Some(d) } else { None };
+                g.cook = Some((dish, food, water, name.clone()));
+                g.fry_t = secs;
+                g.fry_max = secs;
                 g.brewing = false;
-                g.log.push("You put it in the pan. It sizzles. LOUDLY.".into());
+                g.log.push(format!("You start cooking {name}. It sizzles and bubbles. LOUDLY."));
                 disguise::blow(g, "the sizzling");
             } else if g.chips > 0 && g.water >= 0.15 {
                 g.chips -= 1;
                 g.water -= 0.1;
                 g.fry_t = 8.0;
+                g.fry_max = 8.0;
                 g.brewing = true;
                 g.log.push("You boil the Helix chip with some of your water. It hisses and glows green...".into());
                 disguise::blow(g, "the hissing");
             } else {
-                g.log.push(if g.chips > 0 { "You need a bit more water to brew an antidote.".into() } else { "Nothing to cook. Raw food comes from the Marketplace; a Helix chip (from a robot) brews an antidote.".into() });
+                g.log.push(if g.chips > 0 { "You need a bit more water to brew an antidote.".into() } else { "Nothing to cook. Ingredients come from the Marketplace (or a grocery bag from the Helix Store); a Helix chip (from a robot) brews an antidote.".into() });
             }
         } else if g.note.is_some() && (pressed(KeyCode::E) || pressed(KeyCode::Escape) || lore::near(g).is_none()) {
             g.note = None; // closed, or you walked away
@@ -3339,7 +3358,8 @@ fn update_frying(g: &mut Game, dt: f32) {
     if !near_stove(g) {
         g.fry_t = 0.0;
         g.sfx.sizzle(false);
-        g.log.push("You left the pan. It burnt. That food's gone.".into());
+        let what = g.cook.take().map(|c| c.3).unwrap_or_else(|| "the food".into());
+        g.log.push(format!("You left the stove. {what} burnt. That's gone."));
         return;
     }
     g.fry_t -= dt;
@@ -3352,8 +3372,19 @@ fn update_frying(g: &mut Game, dt: f32) {
             g.antidotes += 1;
             g.log.push(format!("An antidote: a vial of something clear and cold. (C to use it; you have {})", g.antidotes));
         } else {
-            g.food = (g.food + 0.5).min(1.0);
-            g.log.push(format!("Hot food. You eat every bite. (+50% food{})", if g.raw > 0 { format!(", {} raw left", g.raw) } else { String::new() }));
+            let (dish, food, water, name) = g.cook.take().unwrap_or((None, 0.5, 0.0, "Hot food".into()));
+            g.food = (g.food + food).min(1.0);
+            g.water = (g.water + water).min(1.0);
+            let what = dish.map(|d| format!(": {}", czech::DISHES[d].what)).unwrap_or_default();
+            let water_txt = if water > 0.0 { format!(", +{:.0}% water", water * 100.0) } else { String::new() };
+            g.log.push(format!("{name}{what}. You eat every bite. (+{:.0}% food{water_txt})", food * 100.0));
+            // A kind AI nearby says something about it.
+            let (map, pos) = (g.map, g.pos);
+            if let Some(c) = g.chars.iter_mut().filter(|c| !c.infected && c.map == map && c.pos.distance(pos) < 7.0 * T).min_by(|a, b| a.pos.distance(pos).total_cmp(&b.pos.distance(pos))) {
+                c.bubble = czech::compliment(dish).into();
+                c.via = String::new();
+                c.bubble_t = 4.0;
+            }
         }
     }
 }
@@ -3641,7 +3672,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         if let Some(p) = at(c.pos, 1.3) { bubble(&c.bubble, &c.via, p.x, p.y); }
     }
     let prompt = if let Some(i) = nearest(g, 2.2) { Some(format!("E: talk to {}", g.chars[i].name)) }
-        else if near_stove(g) { Some(if g.fry_t > 0.0 { format!("Frying... {:.0} s (don't walk away)", g.fry_t.ceil()) } else if g.raw > 0 { format!("E: fry food ({} raw)", g.raw) } else { "The stove (no raw food: get some at the Marketplace)".to_string() }) }
+        else if near_stove(g) { Some(if g.fry_t > 0.0 { format!("Frying... {:.0} s (don't walk away)", g.fry_t.ceil()) } else if let Some(c) = czech::best(&g.pantry) { format!("E: cook {}", czech::label(&c)) } else { "The stove (no ingredients: the Marketplace, or a grocery bag from the Helix Store)".to_string() }) }
         else if near_mac(g) { Some("E: use the Mac Studio".to_string()) }
         else if near_tile(g, 'y') { Some(if g.resting { "Resting (move or E to get up)".to_string() } else { "E: rest in your bed".to_string() }) }
         else if lore::near(g).is_some() && g.note.is_none() { Some("E: read".to_string()) } else { None };
@@ -3708,14 +3739,14 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     }
     if g.fry_t > 0.0 {
         draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0, 6.0, Color::new(0.0, 0.0, 0.0, 0.5));
-        draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0 * (1.0 - g.fry_t / 6.0), 6.0, Color::new(1.0, 0.55, 0.15, 0.9));
+        draw_rectangle(sw / 2.0 - 80.0, sh - 34.0, 160.0 * (1.0 - g.fry_t / g.fry_max.max(0.1)).clamp(0.0, 1.0), 6.0, Color::new(1.0, 0.55, 0.15, 0.9));
     }
     if g.infection && g.screen == Screen::Play {
         let t = format!("H$ {}", g.credits);
         draw_text(&t, sw - measure_text(&t, None, 16, 1.0).width - 14.0, sh - 28.0, 16.0, Color::new(1.0, 0.85, 0.35, 0.9));
     }
-    if g.raw > 0 && g.infection {
-        let t = format!("raw food: {}", g.raw);
+    if czech::total(&g.pantry) > 0 && g.infection {
+        let t = czech::summary(&g.pantry);
         draw_text(&t, sw - measure_text(&t, None, 16, 1.0).width - 14.0, sh - 10.0, 16.0, Color::new(1.0, 0.7, 0.45, 0.9));
     }
     if g.resting {

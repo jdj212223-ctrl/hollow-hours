@@ -586,6 +586,8 @@ struct Game {
     pitch: f32,
     /// The mouse is captured for looking around (click to capture, Esc to let go).
     grabbed: bool,
+    /// The mouse was captured before a chat or menu: capture it again when you're back in the game.
+    regrab: bool,
     last_mouse: Vec2,
     /// The Mac Studio on the desk.
     mac: mac::Mac,
@@ -2260,6 +2262,7 @@ async fn main() {
         yaw: 0.0,
         pitch: 0.0,
         grabbed: false,
+        regrab: false,
         last_mouse: Vec2::ZERO,
         mac: mac::Mac::default(),
         fullscreen: false,
@@ -2445,11 +2448,22 @@ async fn main() {
             }
         }
         clear_background(BLACK);
+        // Leaving the game for a moment (chat, the Mac Studio, the pause menu...): let the mouse go, and take it back
+        // when you return, like Minecraft.
         if g.grabbed && g.screen != Screen::Play {
             g.grabbed = false;
+            g.regrab = true;
             set_cursor_grab(false);
             show_mouse(true);
         }
+        if g.regrab && g.screen == Screen::Play && g.view3d && !pad::touch_mode() {
+            g.regrab = false;
+            g.grabbed = true;
+            set_cursor_grab(true);
+            show_mouse(false);
+            g.last_mouse = Vec2::from(mouse_position());
+        }
+        if g.regrab && matches!(g.screen, Screen::Title | Screen::Over | Screen::Safe) { g.regrab = false; }
 
         // P = panic, from anywhere in the game (not while typing a message: there it's a letter).
         if pressed(KeyCode::P) && matches!(g.screen, Screen::Play) {
@@ -2758,6 +2772,7 @@ async fn main() {
                 if pressed(KeyCode::Escape) && was_playing && g.screen == Screen::Play {
                     if g.grabbed {
                         g.grabbed = false;
+                        g.regrab = true;
                         set_cursor_grab(false);
                         show_mouse(true);
                     }

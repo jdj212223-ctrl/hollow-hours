@@ -43,7 +43,7 @@ pub const STORE: [(Buy, &str, u32); 8] = [
 /// Seconds until the delivery drone drops it at the door.
 pub const DELIVERY: f32 = 15.0;
 
-fn buy(g: &mut Game, k: usize) {
+pub fn buy(g: &mut Game, k: usize) {
     let (what, label, price) = STORE[k];
     if !g.infection { g.mac.lines.push((true, "The store only delivers during Infection.".into(), String::new())); return; }
     if g.credits < price {

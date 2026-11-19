@@ -683,6 +683,8 @@ struct Game {
     grabbed: bool,
     /// The mouse was captured before a chat or menu: capture it again when you're back in the game.
     regrab: bool,
+    /// Claude (through the bridge) asked to sprint while moving.
+    ai_sprint: bool,
     /// INSANE INFECTION (title: 5): 80 more infected, all much faster.
     insane: bool,
     /// Auto-updating (checks GitHub on launch, installs with U on the title).
@@ -1390,7 +1392,12 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
                 "mode": if g.infection { "infection" } else { "normal" },
                 "map": map_name(here), "you": {"at": tile(g.pos), "hidden": g.hidden, "can_hide_here": can_hide(g), "sneaking": g.sneaking,
                     "lost_control": g.lost_control, "infection": (g.inf * 100.0) as i32, "food": (g.food * 100.0) as i32, "water": (g.water * 100.0) as i32,
-                    "fear": (g.fear * 100.0) as i32, "noise": (g.noise * 100.0) as i32},
+                    "fear": (g.fear * 100.0) as i32, "noise": (g.noise * 100.0) as i32, "stamina": (g.stamina * 100.0) as i32,
+                    "disguised": g.disguise_t > 0.0, "intel": g.intel, "intel_needed": disguise::INTEL_NEEDED, "credits": g.credits,
+                    "kits": g.kits, "antidotes": g.antidotes, "helix_chips": g.chips, "pantry": czech::summary(&g.pantry),
+                    "curing": g.synth_t.map(|t| t.ceil() as i32), "near_mac_studio": near_mac(g), "at_lab_terminal": disguise::lab_ready(g),
+                    "insane": g.insane},
+                "recent_log": g.log.iter().rev().take(6).rev().cloned().collect::<Vec<_>>(),
                 "time": g.time_text(), "survived_s": g.survived as i32,
                 "characters": chars, "claude_family": family, "supplies_nearest_first": items.into_iter().take(6).map(|x| x.1).collect::<Vec<_>>(), "doors": doors,
                 "tornado": g.tornado.as_ref().map(|t| json!({"at": tile(t.pos), "warning": t.warn > 0.0})),
@@ -1419,15 +1426,42 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
                 _ => return Some(json!({"error": "direction: up/down/left/right or north/south/east/west (and north-east...)"})),
             };
             g.ai = Some(AiMove { dir: dir.normalize(), goto: None, t: secs, sneak: a["sneak"].as_bool().unwrap_or(false) });
+            g.ai_sprint = a["sprint"].as_bool().unwrap_or(false);
             json!({"ok": true, "walking": a["direction"], "seconds": secs})
         }
         "go_to" => {
             let (x, y) = (a["x"].as_f64().unwrap_or(-1.0) as f32, a["y"].as_f64().unwrap_or(-1.0) as f32);
             if !(0.0..MW as f32).contains(&x) || !(0.0..MH as f32).contains(&y) { return Some(json!({"error": "x 0-30, y 0-18 (tiles)"})); }
             g.ai = Some(AiMove { dir: Vec2::ZERO, goto: Some(vec2(x, y)), t: 12.0, sneak: a["sneak"].as_bool().unwrap_or(false) });
+            g.ai_sprint = a["sprint"].as_bool().unwrap_or(false);
             json!({"ok": true, "going_to": [x, y], "note": "walks straight there; walls stop it, so go around through gaps and doors"})
         }
         "stop" => { g.ai = None; json!({"ok": true}) }
+        "press" => {
+            // One key, one frame: E (use: stove, bed, read, Lab terminal), Z (disguise on/off), C (antidote),
+            // F / Q / X (fight), Tab (2D/3D), Escape. Shift (sprint) is held: pass "sprint": true to move / go_to.
+            let k = match a["key"].as_str().unwrap_or("").to_ascii_uppercase().as_str() {
+                "E" => KeyCode::E, "Z" => KeyCode::Z, "C" => KeyCode::C, "H" => KeyCode::H, "F" => KeyCode::F, "Q" => KeyCode::Q,
+                "X" => KeyCode::X, "R" => KeyCode::R, "TAB" => KeyCode::Tab, "ESCAPE" | "ESC" => KeyCode::Escape, "ENTER" => KeyCode::Enter,
+                "UP" => KeyCode::Up, "DOWN" => KeyCode::Down, "1" => KeyCode::Key1, "2" => KeyCode::Key2, "3" => KeyCode::Key3,
+                "4" => KeyCode::Key4, "5" => KeyCode::Key5,
+                _ => return Some(json!({"error": "key: E, Z, C, H, F, Q, X, R, Tab, Escape, Enter, Up, Down, 1-5"})),
+            };
+            inject_key(k);
+            json!({"ok": true, "pressed": a["key"]})
+        }
+        "buy" => {
+            // The Helix Store (like at the Mac Studio): by number (0..) or a word from its name ("disguise", "antidote").
+            let want = a["item"].as_str().unwrap_or("").to_lowercase();
+            let k = a["item"].as_u64().map(|n| n as usize).or_else(|| mac::STORE.iter().position(|(_, l, _)| l.to_lowercase().contains(&want) && !want.is_empty()));
+            let Some(k) = k.filter(|k| *k < mac::STORE.len()) else {
+                return Some(json!({"error": "item: a number or a word", "store": mac::STORE.iter().map(|(_, l, p)| format!("{l} (H$ {p})")).collect::<Vec<_>>()}));
+            };
+            if !near_mac(g) { return Some(json!({"error": "walk to the Mac Studio first (top-left room of the house, by the stove)"})); }
+            let before = g.credits;
+            mac::buy(g, k);
+            json!({"ok": g.credits < before, "credits": g.credits, "kits": g.kits, "antidotes": g.antidotes, "log": g.log.last()})
+        }
         "hide" => {
             if !g.infection { return Some(json!({"error": "hiding is for Infection mode"})); }
             if g.hidden { g.hidden = false; } else if can_hide(g) { g.hidden = true; } else { return Some(json!({"error": "no furniture right next to you to hide behind"})); }
@@ -1445,7 +1479,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
         "panic" => { g.panic(); g.ai = None; json!({"ok": true, "note": "everything stopped"}) }
         "back" => { if matches!(g.screen, Screen::Safe | Screen::Over) { g.screen = Screen::Title; } json!({"ok": true}) }
         "screenshot" => { g.shots.push(reply.clone()); return None; }
-        _ => json!({"error": "unknown command", "commands": ["state", "start", "move", "go_to", "stop", "hide", "talk", "panic", "back", "screenshot"]}),
+        _ => json!({"error": "unknown command", "commands": ["state", "start", "move", "go_to", "stop", "hide", "talk", "press", "buy", "panic", "back", "screenshot"]}),
     })
 }
 
@@ -2403,6 +2437,7 @@ async fn main() {
         pitch: 0.0,
         grabbed: false,
         regrab: false,
+        ai_sprint: false,
         insane: false,
         updater: update::Updater::default(),
         title_t: 0.0,
@@ -2606,6 +2641,7 @@ async fn main() {
         settings::set_playing(g.screen == Screen::Play);
         // Accessibility: a slower game (the menus and animations still run at full speed).
         let dt = get_frame_time().min(0.05) * if g.screen == Screen::Play { settings::with(|s| s.game_speed) } else { 1.0 };
+        inject_frame();
         // Memories (3.0): a night starts when you go into the game, ends at game over; saved as you play.
         if g.screen != last_screen {
             if g.screen == Screen::Play && matches!(last_screen, Screen::Title | Screen::Intro | Screen::PickPhobias | Screen::JoinRoom | Screen::Servers | Screen::Over) {
@@ -3010,7 +3046,16 @@ async fn main() {
 }
 
 /// A key pressed this frame, on the keyboard or by a controller button standing for it (see pad.rs).
-fn pressed(k: KeyCode) -> bool { macroquad::input::is_key_pressed(settings::bound(k)) || pad::pressed(k) }
+fn pressed(k: KeyCode) -> bool { macroquad::input::is_key_pressed(settings::bound(k)) || pad::pressed(k) || injected(k) }
+
+thread_local! {
+    /// Keys pressed through the bridge (Claude playing): waiting for the next frame, and pressed during this one.
+    static INJECT: std::cell::RefCell<(Vec<KeyCode>, Vec<KeyCode>)> = const { std::cell::RefCell::new((vec![], vec![])) };
+}
+fn injected(k: KeyCode) -> bool { INJECT.with(|i| i.borrow().1.contains(&k)) }
+/// Presses a key for exactly one frame (the next one).
+fn inject_key(k: KeyCode) { INJECT.with(|i| i.borrow_mut().0.push(k)); }
+fn inject_frame() { INJECT.with(|i| { let mut i = i.borrow_mut(); i.1 = std::mem::take(&mut i.0); }); }
 /// A key held down, on the keyboard or the controller.
 fn down(k: KeyCode) -> bool { macroquad::input::is_key_down(settings::bound(k)) || pad::down(k) }
 
@@ -3187,7 +3232,7 @@ fn update(g: &mut Game, dt: f32) {
                     d = a.dir;
                 }
                 if a.sneak { g.sneaking = true; }
-                if a.t <= 0.0 { g.ai = None; d = Vec2::ZERO; }
+                if a.t <= 0.0 { g.ai = None; g.ai_sprint = false; d = Vec2::ZERO; }
             }
         } else {
             g.ai = None;
@@ -3203,6 +3248,7 @@ fn update(g: &mut Game, dt: f32) {
         if drone::fly(g, d, dt) { d = Vec2::ZERO; }
         // Sprint: hold Space (L3 on a controller). Fast and loud, and it tires you out.
         let sprint_key = if settings::with(|s| s.toggle_sprint) { g.sprint_on } else { down(KeyCode::Space) };
+        let sprint_key = sprint_key || (g.ai.is_some() && g.ai_sprint);
         g.sprinting = d != Vec2::ZERO && !g.sneaking && !g.winded && sprint_key;
         if g.sprinting {
             g.stamina -= dt / 5.0;

@@ -123,7 +123,7 @@ pub fn walk_toward(c: &mut Character, goal_map: usize, goal: Vec2) -> bool {
 
 /// A random spot to wander to: mostly around the house, sometimes the beach or further.
 fn roam_spot() -> (usize, Vec2) {
-    let m = match rand::gen_range(0, 10) { 0..=4 => 0, 5..=7 => 1.min(maps_len() - 1), _ => rand::gen_range(0, maps_len()) };
+    let m = if rand::gen_range(0, 10) < 8 { 0 } else { 1.min(maps_len() - 1) };
     (m, random_floor(m).unwrap_or(vec2(3.5, 6.0) * T))
 }
 
@@ -151,8 +151,10 @@ pub fn update(g: &mut Game, dt: f32) {
         if g.chars[i].task_t <= 0.0 && g.chars[i].carry.is_none() {
             let was = g.chars[i].task;
             let roll = rand::gen_range(0.0, 1.0);
-            let forage_chance = if low { 0.6 } else { 0.25 };
-            let mut task = if roll < forage_chance { Task::Forage } else if roll < forage_chance + 0.35 { Task::Roam } else { Task::Follow };
+            // Only go out for supplies when they're actually needed, and never two at once.
+            let foraging = kinds.iter().filter(|&&j| g.chars[j].task == Task::Forage).count();
+            let forage_chance = if low && foraging == 0 { 0.5 } else { 0.0 };
+            let mut task = if roll < forage_chance { Task::Forage } else if roll < forage_chance + 0.3 { Task::Roam } else { Task::Follow };
             // Always keep a bodyguard with you.
             if was == Task::Follow && task != Task::Follow && guards <= 1 { task = Task::Follow; }
             if was == Task::Follow && task != Task::Follow { guards -= 1; }
@@ -171,13 +173,15 @@ pub fn update(g: &mut Game, dt: f32) {
         let items = &g.items;
         let c = &mut g.chars[i];
         // An infected close by (or you, once you've turned): run away from it, whatever the task.
-        if let Some(t) = threats.iter().filter(|t| t.0 == c.map && t.1.distance(c.pos) < 4.0 * T).map(|t| t.1)
+        if let Some(t) = threats.iter().filter(|t| t.0 == c.map && t.1.distance(c.pos) < 6.0 * T).map(|t| t.1)
             .min_by(|a, b| a.distance(c.pos).partial_cmp(&b.distance(c.pos)).unwrap()) {
             c.target = c.pos + (c.pos - t).normalize_or_zero() * 4.0 * T;
             if c.spotted <= 0.0 && c.map != player.0 {
                 events.push((c.name.to_string(), format!("Green eyes in {}! I'm getting away.", map_name(c.map))));
             }
             c.spotted = 20.0;
+            // Out there with green eyes around: forget the errand and head back to you (dropping nothing).
+            if c.map != player.0 && c.carry.is_none() { c.task = Task::Follow; c.task_t = 30.0; c.goal = None; c.want = None; }
             continue;
         }
         c.spotted = (c.spotted - dt).max(0.0);
@@ -213,9 +217,13 @@ pub fn update(g: &mut Game, dt: f32) {
                 } else {
                     // The nearest food or water nobody else has picked (same map first).
                     let want = c.want;
-                    let pick = items.iter().enumerate().filter(|(j, x)| !taken.contains(j) && want.map_or(true, |w| x.2 == w))
+                    // Never supplies with an infected standing near them.
+                    let pick = items.iter().enumerate().filter(|(j, x)| !taken.contains(j) && want.map_or(true, |w| x.2 == w)
+                        && !threats.iter().any(|t| t.0 == x.0 && t.1.distance(x.1) < 6.0 * T))
                         .min_by(|a, b| {
-                            let d = |x: &(usize, Vec2, bool)| if x.0 == c.map { x.1.distance(c.pos) } else { 1e6 + (x.0 as f32) * 1e3 };
+                            // Same map first; other maps cost more, the more infected roam there.
+                            let d = |x: &(usize, Vec2, bool)| if x.0 == c.map { x.1.distance(c.pos) }
+                                else { 1e6 + threats.iter().filter(|t| t.0 == x.0).count() as f32 * 1e5 + (x.0 as f32) * 1e3 };
                             d(a.1).partial_cmp(&d(b.1)).unwrap()
                         }).map(|(j, x)| (j, *x));
                     match pick {

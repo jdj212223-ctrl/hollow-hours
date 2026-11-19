@@ -1740,7 +1740,7 @@ fn shopping(g: &mut Game, dt: f32) {
         }
     }
     let away = g.chars.iter().any(|c| c.shop > 0.0);
-    if !away && g.shop_t <= 0.0 && (g.food < 0.35 || g.water < 0.35) && g.map != market {
+    if !away && g.shop_t <= 0.0 && (g.food < 0.25 || g.water < 0.25) && g.map != market {
         // Never leaves you alone: at least one other kind AI stays.
         let helpers: Vec<usize> = (0..g.chars.len()).filter(|&i| g.chars[i].kind && !g.chars[i].infected).collect();
         if helpers.len() >= 2 {
@@ -2812,7 +2812,7 @@ fn update(g: &mut Game, dt: f32) {
     for c in &mut g.chars {
         if c.bubble_t > 0.0 { c.bubble_t -= dt; }
         if is_guest { continue; } // the host moves everyone
-        let speed = if c.crazy > 0.0 { if c.infected { infected_speed } else { 1.9 } } else if c.kind { if c.task == roam::Task::Roam { 1.7 } else { 2.6 } } else { 1.0 } * T;
+        let speed = if c.crazy > 0.0 { if c.infected { infected_speed } else { 1.9 } } else if c.kind { if c.spotted > 12.0 { 3.0 } else if c.task == roam::Task::Roam { 2.2 } else { 2.6 } } else { 1.0 } * T;
         if c.crazy > 0.0 && (c.map == g.map || infection_on) {
             c.target = if infection_on { c.chase } else { g.pos };
             c.crazy -= dt;

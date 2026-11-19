@@ -12,6 +12,12 @@ on:
 permissions:
   contents: write
 
+# A newer push to the same branch replaces the older build still running (the newest one has every change and
+# releases them all), so Mac runners don't pile up and get cancelled.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:

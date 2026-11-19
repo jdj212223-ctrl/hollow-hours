@@ -31,7 +31,7 @@ javac --release 11 -cp "$PLATFORM/android.jar" -d "$OUT/classes" "$OUT/java/quad
 # 3. Pack, align, sign.
 "$BT/aapt2" compile --dir android/res -o "$OUT/res.zip"
 "$BT/aapt2" link -o "$OUT/base.apk" -I "$PLATFORM/android.jar" --manifest android/AndroidManifest.xml "$OUT/res.zip" \
-  --min-sdk-version 26 --target-sdk-version 34 --version-code 22 --version-name 2.2
+  --min-sdk-version 26 --target-sdk-version 34 --version-code 23 --version-name 2.3
 (cd "$OUT" && zip -q base.apk classes.dex && zip -qr base.apk lib)
 "$BT/zipalign" -f -p 4 "$OUT/base.apk" "$OUT/aligned.apk"
 KS=${HH_KEYSTORE:-$OUT/debug.keystore}

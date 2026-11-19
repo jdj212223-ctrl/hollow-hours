@@ -100,11 +100,16 @@ jobs:
         with:
           name: Hollow-Hours-Linux
       - run: tar xzf Hollow-Hours-Linux-x86_64.tar.gz
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      # Built directly with the runtime already in the image (the ready-made action tried to update it and failed).
+      - name: Build the Flatpak
+        run: |
+          flatpak-builder --disable-rofiles-fuse --force-clean --repo=repo build flatpak/io.github.jdj212223_ctrl.HollowHours.yml
+          flatpak build-bundle repo Hollow-Hours.flatpak io.github.jdj212223_ctrl.HollowHours
+          ls -la Hollow-Hours.flatpak
+      - uses: actions/upload-artifact@v4
         with:
-          bundle: Hollow-Hours.flatpak
-          manifest-path: flatpak/io.github.jdj212223_ctrl.HollowHours.yml
-          upload-artifact: true
+          name: Hollow-Hours-Flatpak
+          path: Hollow-Hours.flatpak
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

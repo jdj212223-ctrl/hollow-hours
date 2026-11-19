@@ -39,6 +39,8 @@ mod title;
 mod memories;
 mod music;
 mod aware;
+mod update;
+mod insane;
 
 use serde_json::json;
 
@@ -412,6 +414,7 @@ fn door(c: char, from: usize) -> Option<(usize, Vec2)> {
 
 // ---------------- Characters ----------------
 
+#[derive(Clone)]
 struct Character {
     name: &'static str,
     /// Shown in the "who's who" list: what kind of AI they're inspired by.
@@ -680,6 +683,10 @@ struct Game {
     grabbed: bool,
     /// The mouse was captured before a chat or menu: capture it again when you're back in the game.
     regrab: bool,
+    /// INSANE INFECTION (title: 5): 80 more infected, all much faster.
+    insane: bool,
+    /// Auto-updating (checks GitHub on launch, installs with U on the title).
+    updater: update::Updater,
     /// The 3.0 title screen: time on it, the highlighted entry, the mouse's, who's talking (char, line, seconds).
     title_t: f32,
     title_sel: usize,
@@ -1631,6 +1638,7 @@ fn start_infection(g: &mut Game) {
         "The Marketplace (south door on the beach) has lots of food... and corrupted Helix robots.".into()];
     g.shop_t = 30.0;
     g.screen = Screen::Play;
+    if g.insane { insane::spawn(g); }
 }
 
 enum MetaEvent {
@@ -1799,7 +1807,7 @@ fn update_infection(g: &mut Game, dt: f32) {
             if g.disguise_t > 0.0 || g.resting { humans.push((g.pos, true, 0.0)); } else { humans.push((g.pos, g.hidden, g.noise)); }
         }
         humans.extend(g.remotes.iter().filter(|r| r.map == me.0 && !r.lc).map(|r| (r.pos, r.hid, r.noise)));
-        let (sight, hearing) = (g.rules.sight, g.rules.hearing);
+        let (sight, hearing) = (g.rules.sight * insane::senses(g), g.rules.hearing * insane::senses(g));
         let target = humans.iter().filter(|(p, hid, noise)| sees_at(me.0, me.1, *p, *hid, sight) || (*noise > 0.05 && me.1.distance(*p) < noise * hearing * T))
             .min_by(|a, b| a.0.distance(me.1).partial_cmp(&b.0.distance(me.1)).unwrap()).map(|h| h.0);
         if let Some(t) = target { g.chars[i].chase = t; }
@@ -1825,14 +1833,15 @@ fn update_infection(g: &mut Game, dt: f32) {
     // works this out for them (online too), from where the infected are.
     // Disguised (and acting calm): they take you for one of them, so nothing spreads to you.
     let disguised = g.disguise_t > 0.0;
+    let spread = insane::spread(g);
     for c in g.chars.iter().filter(|c| c.infected && c.map == g.map && c.stun <= 0.0) {
         if g.lost_control || disguised { break; }
         let d = c.pos.distance(g.pos);
         if d < 0.8 * T && (!g.hidden || d < 0.5 * T) {
             if g.inf < 0.02 { g.scare_t = 0.5; g.scare_face = c.color; g.vest.play(haptics::Effect::Chill); }
-            g.inf += dt * g.rules.infect_touch;
+            g.inf += dt * g.rules.infect_touch * spread;
         } else if d < 2.0 * T && !g.hidden {
-            g.inf += dt * g.rules.infect_near;
+            g.inf += dt * g.rules.infect_near * spread;
         }
     }
     // The infection spreads to the Claude family too: any infected (you included, once you've turned) near them.
@@ -1841,7 +1850,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         .chain(g.remotes.iter().filter(|r| r.lc).map(|r| (r.map, r.pos))).collect();
     let mut turned = vec![];
     let is_guest = guest(g);
-    let claude_rate = g.rules.claude_infect;
+    let claude_rate = g.rules.claude_infect * insane::spread(g);
     for (i, c) in g.chars.iter_mut().enumerate() {
         if !c.claude || c.infected || is_guest || c.disguise_t > 0.0 { continue; }
         let near = spreaders.iter().filter(|(m, p)| *m == c.map && p.distance(c.pos) < 0.9 * T).count();
@@ -2054,6 +2063,7 @@ fn shopping(g: &mut Game, dt: f32) {
 // ---------------- 2.0: the story ----------------
 
 fn begin_intro(g: &mut Game, join: Option<String>) {
+    g.insane = false;
     g.intro_t = 0.0;
     g.intro_cue = 0;
     g.intro_join = join;
@@ -2375,6 +2385,8 @@ async fn main() {
         pitch: 0.0,
         grabbed: false,
         regrab: false,
+        insane: false,
+        updater: update::Updater::default(),
         title_t: 0.0,
         title_sel: 0,
         title_hover: None,
@@ -2457,6 +2469,9 @@ async fn main() {
         g.screen = Screen::Consent;
     }
 
+    // Auto-update: look for a newer release in the background (official builds only).
+    g.updater.start(settings::with(|s| s.auto_update));
+
     // HOLLOW_DEMO=1: start playing at once next to Clove and ask her something (for screenshots and quick checks).
     let demo = std::env::var("HOLLOW_DEMO").ok();
     if let Some(tab) = demo.as_deref().and_then(|d| d.strip_prefix("mac")) {
@@ -2490,6 +2505,10 @@ async fn main() {
         if spot.ends_with("-go") {
             g.ai = Some(AiMove { dir: vec2(yaw.cos(), yaw.sin()), goto: None, sneak: false, t: 3.0 });
         }
+    } else if demo.as_deref() == Some("insane") {
+        // HOLLOW_DEMO=insane: INSANE INFECTION at once.
+        g.insane = true;
+        start_infection(&mut g);
     } else if demo.as_deref() == Some("intro") {
         begin_intro(&mut g, None);
     } else if demo.as_deref() == Some("market") {
@@ -2637,6 +2656,15 @@ async fn main() {
                 if act == Some('2') { g.courage = Courage::Normal; g.screen = Screen::Play; }
                 if act == Some('3') { g.courage = Courage::Phobias; g.screen = Screen::PickPhobias; }
                 if act == Some('4') { let local = local_mods(); apply_contents(&mut g, &local); begin_intro(&mut g, None); }
+                if act == Some('5') {
+                    // INSANE INFECTION: straight in, no story.
+                    let local = local_mods();
+                    apply_contents(&mut g, &local);
+                    g.insane = true;
+                    start_infection(&mut g);
+                    g.screen = Screen::Play;
+                }
+                if act == Some('U') && g.updater.install() { memories::save(); break; }
                 if act == Some('I') { begin_intro(&mut g, None); }
                 if act == Some('M') { g.screen = Screen::Consent; }
                 if act == Some('O') { settings::open(&mut g, false); }
@@ -2674,7 +2702,7 @@ async fn main() {
                 if pressed(KeyCode::V) && g.vest.found { g.vest.enabled = !g.vest.enabled; }
                 if pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
                 if pressed(KeyCode::RightBracket) { g.vest.strength = (g.vest.strength + 0.1).min(1.0); }
-                if act == Some('Q') { memories::save(); break; }
+                if act == Some('Q') { memories::save(); g.updater.install(); break; }
             }
             Screen::PickPhobias => {
                 draw_phobias(&g);
@@ -3239,7 +3267,9 @@ fn update(g: &mut Game, dt: f32) {
     let crowds_on = g.on(4);
     let is_guest = guest(g);
     let infection_on = g.infection;
-    let infected_speed = g.rules.infected_speed;
+    let infected_speed = g.rules.infected_speed * insane::speed(g);
+    // INSANE: they get their breath back twice as fast and sprint three times as often.
+    let (breath, burst) = if g.insane { (2.0, 3.0) } else { (1.0, 1.0) };
     let mut sprinters: Vec<&'static str> = vec![];
     for c in &mut g.chars {
         if c.bubble_t > 0.0 { c.bubble_t -= dt; }
@@ -3252,9 +3282,9 @@ fn update(g: &mut Game, dt: f32) {
             c.stamina = (c.stamina - dt * 0.35).max(0.0);
             if c.stamina <= 0.0 || !chasing { c.sprint = 0.0; }
         } else {
-            c.stamina = (c.stamina + dt * 0.1).min(1.0);
+            c.stamina = (c.stamina + dt * 0.1 * breath).min(1.0);
             let d = c.pos.distance(c.target) / T;
-            if chasing && c.stamina > 0.7 && d > 2.0 && d < 9.0 && rand::gen_range(0.0, 1.0) < dt * 0.8 {
+            if chasing && c.stamina > 0.7 && d > 2.0 && d < 9.0 && rand::gen_range(0.0, 1.0) < dt * 0.8 * burst {
                 c.sprint = rand::gen_range(1.5, 2.6);
                 if c.map == g.map { sprinters.push(c.name); }
             }

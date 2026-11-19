@@ -18,6 +18,10 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+# The release number goes into the game itself, so official builds know when a newer release is out (auto-update).
+env:
+  HH_BUILD: ${{ github.run_number }}
+
 jobs:
   build:
     strategy:

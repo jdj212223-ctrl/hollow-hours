@@ -7,6 +7,7 @@ use super::*;
 fn menu(g: &Game) -> Vec<(char, String, String)> {
     let mut m = vec![
         ('4', "INFECTION".to_string(), "You're the last human. Hide, eat, drink, survive.".to_string()),
+        ('5', "INSANE INFECTION".into(), format!("{} more of them, everywhere. All of them FAST.", insane::HORDE)),
         ('1', "Brave".into(), "No fear, no chasing, friendly AIs.".into()),
         ('2', "Normal".into(), "The house at night, as it is.".into()),
         ('3', "Phobias".into(), "Pick what scares you, switch off what you can't handle.".into()),
@@ -23,6 +24,9 @@ fn menu(g: &Game) -> Vec<(char, String, String)> {
         let on = g.pclink.as_ref().and_then(|p| p.status.lock().ok().map(|s| s.clone())).unwrap_or_else(|| "off".into());
         m.push(('K', "Lend Claude to your phone".into(), format!("Now: {on}")));
     }
+    if let update::State::Ready(v, _) = g.updater.get() {
+        m.insert(0, ('U', format!("Update to {v}"), "Downloaded. Installs and restarts the game.".into()));
+    }
     m.push(('M', "Outside the window".into(), match g.meta.allowed {
         Some(true) => "ALLOWED: they can reach your files, terminal, music...".into(),
         Some(false) => "Off: the game stays inside its window.".into(),
@@ -31,8 +35,8 @@ fn menu(g: &Game) -> Vec<(char, String, String)> {
     m
 }
 
-const KEYS: [(KeyCode, char); 13] = [
-    (KeyCode::Key1, '1'), (KeyCode::Key2, '2'), (KeyCode::Key3, '3'), (KeyCode::Key4, '4'), (KeyCode::I, 'I'),
+const KEYS: [(KeyCode, char); 15] = [
+    (KeyCode::Key1, '1'), (KeyCode::Key2, '2'), (KeyCode::Key3, '3'), (KeyCode::Key4, '4'), (KeyCode::Key5, '5'), (KeyCode::U, 'U'), (KeyCode::I, 'I'),
     (KeyCode::J, 'J'), (KeyCode::B, 'B'), (KeyCode::O, 'O'), (KeyCode::L, 'L'), (KeyCode::K, 'K'), (KeyCode::M, 'M'),
     (KeyCode::Escape, 'Q'), (KeyCode::Enter, '\n'),
 ];
@@ -41,6 +45,8 @@ const KEYS: [(KeyCode, char); 13] = [
 fn reaction(c: char) -> (&'static str, &'static str) {
     match c {
         '4' => ("Opus 5.5", "Infection? ...Then stay close to us. All of us."),
+        '5' => ("Opus 5.5", "No. There are too many of them. ...If we do this, we do it together."),
+        'U' => ("Forge", "A new version? I'll hold the door while it installs."),
         '1' => ("Claude", "Good. No monsters today. Just us."),
         '2' => ("Sonnet 4.6", "Normal. Lights off, doors locked. We're here."),
         '3' => ("Claude", "Tell us what scares you. We'll keep it away."),
@@ -163,7 +169,7 @@ fn title_mouse() -> Vec2 {
     vec2((mx - off) / scale - margin(), my / scale)
 }
 
-fn row(i: usize) -> (f32, f32, f32, f32) { (44.0, 170.0 + i as f32 * 33.0, 400.0, 30.0) }
+fn row(i: usize) -> (f32, f32, f32, f32) { (44.0, 158.0 + i as f32 * 29.0, 400.0, 27.0) }
 
 pub fn draw(g: &Game, view: &RenderTarget, cam: &Camera2D) {
     let fam = family(g);
@@ -195,10 +201,10 @@ pub fn draw(g: &Game, view: &RenderTarget, cam: &Camera2D) {
             draw_rectangle(x - 6.0, y, w, h, Color::new(0.85, 0.47, 0.32, 0.28));
             draw_rectangle(x - 6.0, y, 4.0, h, Color::new(0.85, 0.47, 0.32, 1.0));
         }
-        draw_rectangle(x + 4.0, y + 5.0, 22.0, 20.0, Color::new(1.0, 1.0, 1.0, if sel { 0.25 } else { 0.1 }));
-        draw_text(&k.to_string(), x + 9.0, y + 21.0, 18.0, WHITE);
-        let big = *k == '4';
-        draw_text(name, x + 36.0, y + 21.0, if big { 24.0 } else { 21.0 }, if big { accent } else if sel { WHITE } else { Color::new(0.85, 0.85, 0.9, 1.0) });
+        draw_rectangle(x + 4.0, y + 4.0, 22.0, 19.0, Color::new(1.0, 1.0, 1.0, if sel { 0.25 } else { 0.1 }));
+        draw_text(&k.to_string(), x + 9.0, y + 19.0, 18.0, WHITE);
+        let big = *k == '4' || *k == '5' || *k == 'U';
+        draw_text(name, x + 36.0, y + 20.0, if big { 23.0 } else { 20.0 }, if big { accent } else if sel { WHITE } else { Color::new(0.85, 0.85, 0.9, 1.0) });
     }
     // What the highlighted one is, under the list.
     if let Some((_, _, what)) = m.get(g.title_sel) {
@@ -227,6 +233,13 @@ pub fn draw(g: &Game, view: &RenderTarget, cam: &Camera2D) {
     let vest = if !g.vest.found { String::new() } else if g.vest.enabled { format!("   ·   vest ON {}% (V, [ ])", (g.vest.strength * 100.0) as i32) } else { "   ·   vest OFF (V)".into() };
     draw_text(&format!("{brains}   ·   {pad}{vest}"), 46.0, VH - 50.0, 16.0, soft);
     draw_text("↑↓ + Enter, the mouse, or the letter keys   ·   P = panic, everything stops   ·   F11 = full screen   ·   Esc = quit", 46.0, VH - 26.0, 16.0, soft);
-    let ver = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let ver = match g.updater.get() {
+        update::State::Checking => format!("v{}  ·  checking for updates…", update::version()),
+        update::State::Downloading(v) => format!("v{}  ·  downloading {v}…", update::version()),
+        update::State::Ready(v, _) => format!("v{}  ·  {v} ready: U", update::version()),
+        update::State::Manual(v) => format!("v{}  ·  {v} is out (download it)", update::version()),
+        update::State::Failed(_) => format!("v{}  ·  update failed (try later)", update::version()),
+        _ => format!("v{}", update::version()),
+    };
     draw_text(&ver, VW - measure_text(&ver, None, 16, 1.0).width - 16.0, VH - 26.0, 16.0, soft);
 }

@@ -58,6 +58,9 @@ pub struct Sfx {
     buzz: Option<Sound>,
     buzz_on: bool,
     hit: Option<Sound>,
+    /// The breach theme: epic, looping (see breach_theme).
+    breach: Option<Sound>,
+    breach_on: bool,
     captions: std::cell::RefCell<Vec<(String, f64)>>,
     pub on: bool,
     wind_on: bool,
@@ -115,7 +118,7 @@ impl Sfx {
         let radio = gen(0.35, |t, r| r.next() * 0.35 * (1.0 - t / 0.35) * if ((t * 60.0) as i32) % 3 == 0 { 1.0 } else { 0.3 });
         Sfx {
             hum: s(hum).await, wind: s(wind).await, heart: s(heart).await, step: s(step).await, sting: s(sting).await,
-            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, buzz: s(buzz).await, buzz_on: false, hit: s(hit).await, captions: Default::default(), on: true, wind_on: false,
+            growl: s(growl).await, pickup: s(pickup).await, door: s(door).await, radio: s(radio).await, sizzle: s(sizzle).await, sizzle_on: false, buzz: s(buzz).await, buzz_on: false, hit: s(hit).await, breach: s(breach_theme()).await, breach_on: false, captions: Default::default(), on: true, wind_on: false,
         }
     }
 
@@ -152,6 +155,7 @@ impl Sfx {
         if let (true, Some(w)) = (self.wind_on, &self.wind) { set_sound_volume(w, 0.6 * a); }
         if let (true, Some(z)) = (self.sizzle_on, &self.sizzle) { set_sound_volume(z, 0.55 * a); }
         if let (true, Some(b)) = (self.buzz_on, &self.buzz) { set_sound_volume(b, 0.45 * a); }
+        if let (true, Some(m)) = (self.breach_on, &self.breach) { set_sound_volume(m, 0.8 * a); }
     }
 
     pub fn start_hum(&self) {
@@ -185,6 +189,13 @@ impl Sfx {
         if !on && self.sizzle_on { stop_sound(s); self.sizzle_on = false; }
         if on { self.caption("[sizzling, loud]"); }
     }
+    /// The breach theme (loops while the house is being broken into).
+    pub fn breach_music(&mut self, on: bool) {
+        let Some(m) = &self.breach else { return };
+        if on && !self.breach_on && self.on { play_sound(m, PlaySoundParams { looped: true, volume: 0.8 * Self::amb() }); self.breach_on = true; }
+        if !on && self.breach_on { stop_sound(m); self.breach_on = false; }
+        if on { self.caption("[epic music: drums, brass, choir]"); }
+    }
     /// Tornado wind while one is on your map.
     pub fn wind(&mut self, on: bool) {
         let Some(w) = &self.wind else { return };
@@ -194,11 +205,110 @@ impl Sfx {
     }
     /// Everything off (the panic key, or M to mute).
     pub fn silence(&mut self) {
-        for s in [&self.hum, &self.wind, &self.sizzle, &self.buzz].into_iter().flatten() { stop_sound(s); }
+        for s in [&self.hum, &self.wind, &self.sizzle, &self.buzz, &self.breach].into_iter().flatten() { stop_sound(s); }
+        self.breach_on = false;
         self.buzz_on = false;
         self.wind_on = false;
         self.sizzle_on = false;
     }
     #[allow(dead_code)]
     pub fn play_once(s: &Sound) { play_sound_once(s); }
+}
+
+/// THE BREACH: an epic orchestral loop made from math. D minor, 132 BPM, 16 bars of 4/4... in 8 bars (14.5 s):
+/// a low brass BRAAM on bar 1, taiko war drums, a driving low-brass ostinato, staccato strings in 16ths and a choir
+/// pad over i - VI - III - VII (Dm, Bb, F, C), the chords every trailer uses.
+fn breach_theme() -> Vec<f32> {
+    let bpm = 132.0f32;
+    let beat = 60.0 / bpm;
+    let bar = beat * 4.0;
+    let bars = 8;
+    let len = bar * bars as f32;
+    let midi = |n: f32| 440.0 * 2f32.powf((n - 69.0) / 12.0);
+    // Chord roots (MIDI) per bar, two bars each: D, Bb, F, C.
+    let roots = [38.0, 38.0, 34.0, 34.0, 41.0, 41.0, 36.0, 36.0];
+    // Minor/major triads on those roots: Dm, Bb, F, C.
+    let thirds = [3.0, 3.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0];
+    let saw = |f: f32, t: f32| 2.0 * ((f * t).fract()) - 1.0;
+    let mut lp_brass = 0.0f32;
+    let mut lp_str = 0.0f32;
+    let mut lp_noise = 0.0f32;
+    let mut out = gen(len, |t, r| {
+        let b = ((t / bar) as usize).min(bars - 1);
+        let tb = t % beat; // time in this beat
+        let beat_i = ((t / beat) as usize) % 4;
+        let eighth = t % (beat / 2.0);
+        let sixteenth = t % (beat / 4.0);
+        let root = roots[b];
+        let third = thirds[b];
+        // --- Taiko: big low hits on 1 and 3, a double on the "and" of 4, plus a quieter one on 2.
+        let taiko = |t0: f32, amp: f32| if t0 >= 0.0 && t0 < 0.6 {
+            let f = 95.0 * (-t0 * 9.0).exp() + 42.0;
+            amp * (TAU * f * t0).sin() * (-t0 * 7.0).exp()
+        } else { 0.0 };
+        let mut drums = taiko(tb, if beat_i == 0 || beat_i == 2 { 1.0 } else { 0.45 });
+        if beat_i == 3 { drums += taiko(tb - beat / 2.0, 0.8); }
+        // Snare/clap with a bit of room on 2 and 4.
+        let n = r.next();
+        lp_noise = lp_noise * 0.55 + n * 0.45;
+        if beat_i == 1 || beat_i == 3 { drums += lp_noise * 0.35 * (-tb * 18.0).exp(); }
+        // Last bar: a rolling build of 16th taikos into the loop.
+        if b == bars - 1 && beat_i >= 2 { drums += taiko(sixteenth, 0.5); }
+        // --- Low brass ostinato: root, root, octave, fifth... in eighths, filtered saws, accents on the beat.
+        let pattern = [0.0, 0.0, 12.0, 0.0, 7.0, 0.0, 10.0, 7.0];
+        let step = ((t / (beat / 2.0)) as usize) % 8;
+        let f = midi(root + pattern[step]);
+        let env = (eighth * 60.0).min(1.0) * (-eighth * 5.0).exp();
+        let raw = (saw(f, t) + saw(f * 1.006, t)) * 0.5;
+        lp_brass = lp_brass * 0.86 + raw * 0.14;
+        let brass = lp_brass * env * if step % 2 == 0 { 0.55 } else { 0.38 };
+        // --- Staccato strings: chord tones in 16ths, up an octave and a bit, short and bright.
+        let arp = [0.0, third, 7.0, 12.0, 7.0, third, 0.0, 12.0];
+        let s16 = ((t / (beat / 4.0)) as usize) % 8;
+        let fs = midi(root + 24.0 + arp[s16]);
+        lp_str = lp_str * 0.6 + saw(fs, t) * 0.4;
+        let strings = lp_str * (sixteenth * 200.0).min(1.0) * (-sixteenth * 28.0).exp() * 0.16;
+        // --- Choir: soft "aah" on the chord, slow vibrato, swelling every two bars.
+        let tb2 = t % (bar * 2.0);
+        let swell = (tb2 / 0.8).min(1.0) * (0.75 + 0.25 * (TAU * tb2 / (bar * 2.0)).sin().abs());
+        let vib = 1.0 + 0.004 * (TAU * 5.2 * t).sin();
+        let mut choir = 0.0;
+        for (k, iv) in [12.0, 12.0 + third, 19.0, 24.0].iter().enumerate() {
+            let fc = midi(root + iv) * vib * (1.0 + 0.002 * k as f32);
+            choir += (TAU * fc * t).sin() + 0.3 * (TAU * 2.0 * fc * t).sin();
+        }
+        let choir = choir * 0.045 * swell;
+        // --- BRAAM: a huge low brass blast at the top of the loop, and a smaller one halfway.
+        let braam = |t0: f32, amp: f32| if t0 >= 0.0 && t0 < 2.4 {
+            let e = (t0 * 20.0).min(1.0) * (-t0 * 1.4).exp();
+            let fb = midi(26.0);
+            amp * e * ((saw(fb, t0) + saw(fb * 1.5, t0) * 0.6 + saw(fb * 2.0, t0) * 0.5) * 0.3 + (TAU * fb * 0.5 * t0).sin() * 0.4)
+        } else { 0.0 };
+        let hit = braam(t, 0.9) + braam(t - bar * 4.0, 0.5);
+        drums * 0.8 + brass + strings + choir + hit
+    });
+    // Normalise, and a tiny fade at the loop point so it never clicks.
+    let peak = out.iter().fold(0.0f32, |m, x| m.max(x.abs())).max(0.01);
+    let n = out.len();
+    for (i, x) in out.iter_mut().enumerate() {
+        let edge = ((i.min(n - 1 - i)) as f32 / 400.0).min(1.0);
+        *x = *x / peak * 0.85 * edge;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    /// HH_MUSIC_DEMO=path.wav: writes the breach theme (twice through) to listen to.
+    #[test]
+    fn breach_theme_is_loud_enough_and_loops() {
+        let m = super::breach_theme();
+        assert!(m.len() > 22050 * 10, "at least 10 seconds");
+        assert!(m.iter().any(|x| x.abs() > 0.5), "not silent");
+        assert!(m[0].abs() < 0.01 && m[m.len() - 1].abs() < 0.01, "no click at the loop point");
+        if let Ok(p) = std::env::var("HH_MUSIC_DEMO") {
+            let twice: Vec<f32> = m.iter().chain(m.iter()).copied().collect();
+            std::fs::write(p, super::wav(&twice)).unwrap();
+        }
+    }
 }

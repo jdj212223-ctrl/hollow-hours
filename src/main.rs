@@ -41,6 +41,7 @@ mod music;
 mod aware;
 mod update;
 mod insane;
+mod saves;
 
 use serde_json::json;
 
@@ -589,6 +590,8 @@ enum Screen {
     Mac,
     /// The pause menu (Esc while playing): resume or quit to the title.
     Paused,
+    /// The worlds list (saved Infection games).
+    Worlds,
     /// Settings: sound, voice chat, accessibility, flashing lights, keys.
     Settings,
 }
@@ -685,6 +688,15 @@ struct Game {
     grabbed: bool,
     /// The mouse was captured before a chat or menu: capture it again when you're back in the game.
     regrab: bool,
+    /// The saved world being played (None: a one-off game), the Worlds list's choice and its delete confirmation.
+    world: Option<String>,
+    worlds_sel: usize,
+    worlds_del: bool,
+    save_t: f32,
+    /// The house was breached: the breach theme plays (seconds left since the last wall came down).
+    breach_t: f32,
+    /// The game's window isn't in front (or was only just brought back): the infected can't see or infect you.
+    away_t: f32,
     /// Claude (through the bridge) asked to sprint while moving.
     ai_sprint: bool,
     /// INSANE INFECTION (title: 5): 80 more infected, all much faster.
@@ -1390,7 +1402,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
             }).collect());
             json!({
                 "screen": match g.screen { Screen::Title => "title", Screen::Play => "playing", Screen::Typing(_) => "typing", Screen::Safe => "safe (after panic)",
-                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)", Screen::Paused => "paused (the pause menu)", Screen::Settings => "settings" },
+                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)", Screen::Paused => "paused (the pause menu)", Screen::Settings => "settings", Screen::Worlds => "the worlds list" },
                 "mode": if g.infection { "infection" } else { "normal" },
                 "map": map_name(here), "you": {"at": tile(g.pos), "hidden": g.hidden, "can_hide_here": can_hide(g), "sneaking": g.sneaking,
                     "lost_control": g.lost_control, "infection": (g.inf * 100.0) as i32, "food": (g.food * 100.0) as i32, "water": (g.water * 100.0) as i32,
@@ -1858,7 +1870,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         let me = (g.chars[i].map, g.chars[i].pos);
         let mut humans: Vec<(Vec2, bool, f32)> = vec![];
         if g.map == me.0 && !g.lost_control {
-            if g.disguise_t > 0.0 || g.resting { humans.push((g.pos, true, 0.0)); } else { humans.push((g.pos, g.hidden, g.noise)); }
+            if g.disguise_t > 0.0 || g.resting || g.away_t > 0.0 { humans.push((g.pos, true, 0.0)); } else { humans.push((g.pos, g.hidden, g.noise)); }
         }
         humans.extend(g.remotes.iter().filter(|r| r.map == me.0 && !r.lc).map(|r| (r.pos, r.hid, r.noise)));
         let (sight, hearing) = (g.rules.sight * insane::senses(g), g.rules.hearing * insane::senses(g));
@@ -1886,7 +1898,7 @@ fn update_infection(g: &mut Game, dt: f32) {
     // Touching you spreads the infection (fast); being right beside you spreads it slowly. Every player's own game
     // works this out for them (online too), from where the infected are.
     // Disguised (and acting calm): they take you for one of them, so nothing spreads to you.
-    let disguised = g.disguise_t > 0.0;
+    let disguised = g.disguise_t > 0.0 || g.away_t > 0.0;
     let spread = insane::spread(g);
     for c in g.chars.iter().filter(|c| c.infected && c.map == g.map && c.stun <= 0.0) {
         if g.lost_control || disguised { break; }
@@ -2118,6 +2130,7 @@ fn shopping(g: &mut Game, dt: f32) {
 
 fn begin_intro(g: &mut Game, join: Option<String>) {
     g.insane = false;
+    g.world = None;
     g.intro_t = 0.0;
     g.intro_cue = 0;
     g.intro_join = join;
@@ -2439,6 +2452,12 @@ async fn main() {
         pitch: 0.0,
         grabbed: false,
         regrab: false,
+        world: None,
+        worlds_sel: 0,
+        worlds_del: false,
+        save_t: 0.0,
+        breach_t: 0.0,
+        away_t: 0.0,
         ai_sprint: false,
         insane: false,
         updater: update::Updater::default(),
@@ -2565,6 +2584,24 @@ async fn main() {
         if spot.ends_with("-go") {
             g.ai = Some(AiMove { dir: vec2(yaw.cos(), yaw.sin()), goto: None, sneak: false, t: 3.0 });
         }
+    } else if demo.as_deref() == Some("worldtest") {
+        // HOLLOW_DEMO=worldtest: make a world, change things, save, load it back, check, and quit (prints OK/FAIL).
+        saves::create(&mut g, "Test World ZZ");
+        g.pos = vec2(20.5, 5.5) * T;
+        g.credits = 77;
+        g.kits = 5;
+        g.intel = 2;
+        g.chars.iter_mut().find(|c| c.name == "Forge").map(|c| c.infected = true);
+        set_tile(0, 13, 2, b'.');
+        saves::save(&g);
+        g.credits = 0;
+        g.kits = 0;
+        reset_world();
+        let ok = saves::load(&mut g, "test-world-zz") && g.credits == 77 && g.kits == 5 && g.intel == 2
+            && (g.pos.x / T - 20.5).abs() < 0.01 && g.chars.iter().any(|c| c.name == "Forge" && c.infected) && tile(0, 13, 2) == '.';
+        println!("{}", if ok { "WORLDTEST OK" } else { "WORLDTEST FAIL" });
+        saves::delete("test-world-zz");
+        std::process::exit(if ok { 0 } else { 1 });
     } else if demo.as_deref() == Some("insane") {
         // HOLLOW_DEMO=insane: INSANE INFECTION at once.
         g.insane = true;
@@ -2603,6 +2640,8 @@ async fn main() {
     };
     let mut cur_w = VW;
     let mut last_screen = g.screen;
+    let focus_sub = macroquad::input::utils::register_input_subscriber();
+    let mut focus = Focus { lost: false };
     let (mut canvas, mut cam, mut view) = make(cur_w);
     loop {
         let w = wanted_vw();
@@ -2644,6 +2683,21 @@ async fn main() {
         // Accessibility: a slower game (the menus and animations still run at full speed).
         let dt = get_frame_time().min(0.05) * if g.screen == Screen::Play { settings::with(|s| s.game_speed) } else { 1.0 };
         inject_frame();
+        // The window went to the back (you switched apps, or the game opened your browser/TextEdit/Finder):
+        // offline the game pauses; online (the world can't pause) the infected can't see or infect you meanwhile,
+        // and for 3 seconds after you come back.
+        macroquad::input::utils::repeat_all_miniquad_input(&mut focus, focus_sub);
+        // (macOS also says "lost" when the window is merely dragged: any key or click means you're here.)
+        if focus.lost && (!get_keys_pressed().is_empty() || is_mouse_button_pressed(MouseButton::Left) || is_mouse_button_pressed(MouseButton::Right)) { focus.lost = false; }
+        if focus.lost {
+            g.away_t = 3.0;
+            if g.screen == Screen::Play && g.net.is_none() {
+                g.screen = Screen::Paused;
+                g.log.push("(Paused: the game's window isn't in front. Esc to carry on.)".into());
+            }
+        } else if g.away_t > 0.0 {
+            g.away_t = (g.away_t - dt).max(0.0);
+        }
         // Memories (3.0): a night starts when you go into the game, ends at game over; saved as you play.
         if g.screen != last_screen {
             if g.screen == Screen::Play && matches!(last_screen, Screen::Title | Screen::Intro | Screen::PickPhobias | Screen::JoinRoom | Screen::Servers | Screen::Over) {
@@ -2655,9 +2709,18 @@ async fn main() {
                 let how = c.next().map(|f| f.to_lowercase().collect::<String>() + c.as_str()).unwrap_or_else(|| "it ended".into());
                 memories::night_ended(&how);
             }
+            if last_screen == Screen::Play && g.world.is_some() { saves::save(&g); }
+            if matches!(g.screen, Screen::Title) { g.world = None; }
             last_screen = g.screen;
         }
         if g.screen == Screen::Play { memories::tick(dt); }
+        // Worlds: save every 30 s while playing, and whenever you leave the game screen.
+        if g.world.is_some() {
+            if g.screen == Screen::Play {
+                g.save_t += dt;
+                if g.save_t >= 30.0 { g.save_t = 0.0; saves::save(&g); }
+            }
+        }
         // A login from the browser: "log in with your browser" (B) or the website's "Open Hollow Hours" button.
         pending_t -= dt;
         if pending_t <= 0.0 && g.browser_login.is_none() {
@@ -2722,10 +2785,12 @@ async fn main() {
                     let local = local_mods();
                     apply_contents(&mut g, &local);
                     g.insane = true;
+                    g.world = None;
                     start_infection(&mut g);
                     g.screen = Screen::Play;
                 }
                 if act == Some('U') && g.updater.install() { memories::save(); break; }
+                if act == Some('W') { g.worlds_sel = 0; g.worlds_del = false; g.screen = Screen::Worlds; }
                 if act == Some('I') { begin_intro(&mut g, None); }
                 if act == Some('M') { g.screen = Screen::Consent; }
                 if act == Some('O') { settings::open(&mut g, false); }
@@ -2764,6 +2829,9 @@ async fn main() {
                 if pressed(KeyCode::LeftBracket) { g.vest.strength = (g.vest.strength - 0.1).max(0.1); }
                 if pressed(KeyCode::RightBracket) { g.vest.strength = (g.vest.strength + 0.1).min(1.0); }
                 if act == Some('Q') { memories::save(); g.updater.install(); break; }
+            }
+            Screen::Worlds => {
+                saves::screen(&mut g);
             }
             Screen::PickPhobias => {
                 draw_phobias(&g);
@@ -3057,6 +3125,15 @@ thread_local! {
 fn injected(k: KeyCode) -> bool { INJECT.with(|i| i.borrow().1.contains(&k)) }
 /// Presses a key for exactly one frame (the next one).
 fn inject_key(k: KeyCode) { INJECT.with(|i| i.borrow_mut().0.push(k)); }
+/// Is the game's window in front? (macOS, Windows, X11 tell us when it loses or gets focus.)
+struct Focus { lost: bool }
+impl macroquad::miniquad::EventHandler for Focus {
+    fn update(&mut self) {}
+    fn draw(&mut self) {}
+    fn window_minimized_event(&mut self) { self.lost = true; }
+    fn window_restored_event(&mut self) { self.lost = false; }
+}
+
 fn inject_frame() { INJECT.with(|i| { let mut i = i.borrow_mut(); i.1 = std::mem::take(&mut i.0); }); }
 /// A key held down, on the keyboard or the controller.
 fn down(k: KeyCode) -> bool { macroquad::input::is_key_down(settings::bound(k)) || pad::down(k) }
@@ -3472,6 +3549,9 @@ fn update(g: &mut Game, dt: f32) {
     }
     let tornado_here = g.tornado.as_ref().is_some_and(|t| t.warn <= 0.0);
     g.sfx.wind(tornado_here);
+    // The breach theme, for a minute after the last wall of the house came down.
+    if g.breach_t > 0.0 { g.breach_t = (g.breach_t - dt).max(0.0); }
+    g.sfx.breach_music(g.breach_t > 0.0 && g.infection);
     // M = sound on/off.
     if pressed(KeyCode::M) && g.screen == Screen::Play {
         g.sfx.on = !g.sfx.on;

@@ -8,6 +8,7 @@ fn menu(g: &Game) -> Vec<(char, String, String)> {
     let mut m = vec![
         ('4', "INFECTION".to_string(), "You're the last human. Hide, eat, drink, survive.".to_string()),
         ('5', "INSANE INFECTION".into(), format!("{} more of them, everywhere. All of them FAST.", insane::HORDE)),
+        ('W', "Worlds".into(), "Saved Infection games: carry on where you left off, or start a new one.".into()),
         ('1', "Brave".into(), "No fear, no chasing, friendly AIs.".into()),
         ('2', "Normal".into(), "The house at night, as it is.".into()),
         ('3', "Phobias".into(), "Pick what scares you, switch off what you can't handle.".into()),
@@ -35,7 +36,8 @@ fn menu(g: &Game) -> Vec<(char, String, String)> {
     m
 }
 
-const KEYS: [(KeyCode, char); 15] = [
+const KEYS: [(KeyCode, char); 16] = [
+    (KeyCode::W, 'W'),
     (KeyCode::Key1, '1'), (KeyCode::Key2, '2'), (KeyCode::Key3, '3'), (KeyCode::Key4, '4'), (KeyCode::Key5, '5'), (KeyCode::U, 'U'), (KeyCode::I, 'I'),
     (KeyCode::J, 'J'), (KeyCode::B, 'B'), (KeyCode::O, 'O'), (KeyCode::L, 'L'), (KeyCode::K, 'K'), (KeyCode::M, 'M'),
     (KeyCode::Escape, 'Q'), (KeyCode::Enter, '\n'),
@@ -46,6 +48,7 @@ fn reaction(c: char) -> (&'static str, &'static str) {
     match c {
         '4' => ("Opus 5.5", "Infection? ...Then stay close to us. All of us."),
         '5' => ("Opus 5.5", "No. There are too many of them. ...If we do this, we do it together."),
+        'W' => ("Sonnet 4.6", "Your worlds. I remember every night in every one of them."),
         'U' => ("Forge", "A new version? I'll hold the door while it installs."),
         '1' => ("Claude", "Good. No monsters today. Just us."),
         '2' => ("Sonnet 4.6", "Normal. Lights off, doors locked. We're here."),
@@ -169,7 +172,7 @@ fn title_mouse() -> Vec2 {
     vec2((mx - off) / scale - margin(), my / scale)
 }
 
-fn row(i: usize) -> (f32, f32, f32, f32) { (44.0, 158.0 + i as f32 * 29.0, 400.0, 27.0) }
+fn row(i: usize) -> (f32, f32, f32, f32) { (44.0, 156.0 + i as f32 * 27.0, 400.0, 25.0) }
 
 pub fn draw(g: &Game, view: &RenderTarget, cam: &Camera2D) {
     let fam = family(g);

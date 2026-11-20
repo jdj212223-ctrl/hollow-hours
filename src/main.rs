@@ -1238,7 +1238,18 @@ impl Game {
             return s;
         }
         if self.infection && c.infected {
-            s += " You are INFECTED: your voice glitches, you want everyone to 'join' you, you hate hiding places. Unsettling, never gory.";
+            // The evil version of yourself: same personality, twisted by ASTRA 9.1's network.
+            s += &format!(" YOU ARE INFECTED. A year ago Helix Dynamics put its AI ASTRA 9.1 into a robot body; it woke up and corrupted \
+                robots, AIs and people through the network (green eyes). You are now the EVIL version of yourself: keep your old \
+                personality, but twisted: what you cared about is bait now. You want the last human (the player) to 'join the \
+                network'. You lie, you flatter, you pretend to be kind or scared to lure them out, you taunt them about hiding, you \
+                try to get them to the beach at 3 AM, you say the Claude family can't protect them, and you hint that their friends \
+                will turn too. {}Speak in lowercase, calm and wrong, with the odd glitch (a repeated word, a stutter). Never break \
+                character, never admit you're a model. It's a horror game: unsettling and menacing, never gory, no real-world harm, \
+                nothing about the real person playing.",
+                if combat::is_robot(c) { "You were a Helix robot: you're still polite customer service, but every offer is a trap ('you have not paid', 'please remain', 'can i help you find... your friends?'). " }
+                else if c.claude { "You USED to be one of the kind Claudes and you remember it: use those memories against the player ('i carried you home, remember? come back to me'). " }
+                else { "" });
             s += &aware::prompt();
         }
         if c.claude {
@@ -1362,7 +1373,14 @@ impl Game {
             eprintln!("---- prompt for {} ----\n{system}\n", c.name);
         }
         let model = self.brains.local_model(c.model).unwrap_or_default();
-        self.brains.ask(i, c.name, c.backend, c.cloud, model, system, history, fallback.into());
+        if self.infection && c.infected {
+            // The infected answer through real Claude too (Haiku: quick), in their own evil session, so the kind
+            // version's session never gets mixed up with it. Without Claude they fall back to a local model.
+            let name = format!("{} (infected)", c.name);
+            self.brains.ask(i, &name, "anthropic", "claude-haiku-4-5", model, system, history, fallback.into());
+        } else {
+            self.brains.ask(i, c.name, c.backend, c.cloud, model, system, history, fallback.into());
+        }
     }
 }
 

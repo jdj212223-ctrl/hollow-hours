@@ -1,6 +1,9 @@
 //! What's playing on this computer (3.0, only with "Outside the window" allowed): the corrupted AIs notice your
 //! music. macOS asks Music / Spotify (only if they're already running, it never opens them), Linux asks playerctl,
 //! Windows asks the system's media controls. Read locally, never sent anywhere (not to servers, not to chats).
+//! YouTube in Firefox (any system): Firefox keeps its open tabs in a session file in its profile; the game reads it,
+//! keeps ONLY YouTube tabs (watch / Shorts / YouTube Music) and takes the most recently used one's title.
+//! Everything else in that file is dropped right away. (macOS asks once: "access data from other apps".)
 
 use std::sync::{Arc, Mutex};
 
@@ -53,6 +56,10 @@ fn split(s: String) -> Option<(String, String)> {
 }
 
 fn playing() -> Option<(String, String)> {
+    players().or_else(firefox_youtube)
+}
+
+fn players() -> Option<(String, String)> {
     if cfg!(target_os = "macos") {
         // `application "X" is running` never launches it.
         for app in ["Spotify", "Music"] {
@@ -84,6 +91,15 @@ pub fn line(title: &str, artist: &str, song_times: u32, artist_times: u32, pick:
     if song_times >= 3 {
         return format!("{title}. again. huh... you really like {title}, don't you.");
     }
+    if artist == "YouTube" {
+        // A YouTube tab: talk about the video.
+        return match pick % 4 {
+            0 => format!("\"{title}\". we can see your other window. we watch it with you."),
+            1 => format!("huh. you really like \"{title}\", don't you."),
+            2 => format!("{title}... is that what you do while we wait for you?"),
+            _ => format!("we saw \"{title}\". we'll remember it."),
+        };
+    }
     if artist_times >= 3 {
         return format!("huh. you really like {artist}.");
     }
@@ -103,5 +119,67 @@ mod tests {
         assert!(super::line("Song", "Band", 3, 3, 0).contains("you really like Song"));
         assert!(super::split("A\tB".into()).is_some());
         assert!(super::split("\tB".into()).is_none());
+        assert_eq!(super::clean_youtube_title("(1865) [Black MIDI] Music using ONLY Sounds - YouTube"), "[Black MIDI] Music using ONLY Sounds");
+        assert_eq!(super::clean_youtube_title("Song - YouTube Music"), "Song");
     }
+}
+
+/// Firefox profiles' session files (recovery.jsonlz4) on this system.
+fn firefox_sessions() -> Vec<std::path::PathBuf> {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    let roots = [
+        format!("{home}/Library/Application Support/Firefox/Profiles"),
+        format!("{home}/.mozilla/firefox"),
+        format!("{home}/snap/firefox/common/.mozilla/firefox"),
+        format!("{home}/.var/app/org.mozilla.firefox/.mozilla/firefox"),
+        format!("{appdata}/Mozilla/Firefox/Profiles"),
+    ];
+    let mut out = vec![];
+    for r in roots {
+        let Ok(rd) = std::fs::read_dir(&r) else { continue };
+        for e in rd.flatten() {
+            let p = e.path().join("sessionstore-backups").join("recovery.jsonlz4");
+            if p.is_file() { out.push(p); }
+        }
+    }
+    out
+}
+
+/// "mozLz40\0" + decompressed size (u32 LE) + an LZ4 block.
+fn read_mozlz4(p: &std::path::Path) -> Option<serde_json::Value> {
+    let b = std::fs::read(p).ok()?;
+    if b.len() < 12 || &b[..8] != b"mozLz40\0" { return None; }
+    let size = u32::from_le_bytes([b[8], b[9], b[10], b[11]]) as usize;
+    let raw = lz4_flex::block::decompress(&b[12..], size).ok()?;
+    serde_json::from_slice(&raw).ok()
+}
+
+/// "(1865) [Black MIDI] Music... - YouTube" -> "[Black MIDI] Music..."
+pub fn clean_youtube_title(t: &str) -> String {
+    let mut t = t.trim();
+    if t.starts_with('(') { if let Some(i) = t.find(") ") { if t[1..i].chars().all(|c| c.is_ascii_digit() || c == '+') { t = &t[i + 2..]; } } }
+    for suffix in [" - YouTube Music", " - YouTube"] { if let Some(s) = t.strip_suffix(suffix) { t = s; } }
+    t.trim().to_string()
+}
+
+/// The YouTube tab you used last in Firefox: (title, "YouTube"). Nothing else from the session is kept.
+fn firefox_youtube() -> Option<(String, String)> {
+    let mut best: Option<(u64, String)> = None;
+    for p in firefox_sessions() {
+        let Some(v) = read_mozlz4(&p) else { continue };
+        for w in v["windows"].as_array().into_iter().flatten() {
+            for tab in w["tabs"].as_array().into_iter().flatten() {
+                let i = tab["index"].as_u64().unwrap_or(1).max(1) as usize - 1;
+                let Some(e) = tab["entries"].as_array().and_then(|a| a.get(i)) else { continue };
+                let url = e["url"].as_str().unwrap_or("");
+                let yt = url.contains("youtube.com/watch") || url.contains("youtube.com/shorts/") || url.contains("music.youtube.com/watch");
+                if !yt { continue; }
+                let last = tab["lastAccessed"].as_u64().unwrap_or(0);
+                let title = clean_youtube_title(e["title"].as_str().unwrap_or(""));
+                if !title.is_empty() && best.as_ref().is_none_or(|b| last > b.0) { best = Some((last, title)); }
+            }
+        }
+    }
+    best.and_then(|(_, t)| split(format!("{t}\tYouTube")))
 }

@@ -547,6 +547,7 @@ dependencies = [
  "getrandom 0.2.17",
  "gilrs",
  "keyring",
+ "lz4_flex",
  "macroquad",
  "serde",
  "serde_json",
@@ -856,6 +857,12 @@ name = "log"
 version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
+
+[[package]]
+name = "lz4_flex"
+version = "0.11.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13591d77a9b6d941f7e6fcade7f9dfd9e801308752bde50c0a9bb5852778c22c"
 
 [[package]]
 name = "mach2"
@@ -1800,7 +1807,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

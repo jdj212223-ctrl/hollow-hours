@@ -108,7 +108,7 @@ pub fn update(g: &mut Game, dt: f32) {
     }
     // C: an antidote (an infected Claude next to you, otherwise yourself).
     if pressed(KeyCode::C) && g.cure.is_none() {
-        if g.antidotes == 0 { g.log.push("No antidotes. Buy one (H$ 60) or brew one on the stove from a Helix chip.".into()); return; }
+        if g.antidotes == 0 { g.log.push("No antidotes. Buy 20 (H$ 40) or brew one on the stove from a Helix chip.".into()); return; }
         let near = (0..g.chars.len()).filter(|&i| {
             let c = &g.chars[i];
             c.infected && c.claude && c.map == g.map && c.pos.distance(g.pos) < 1.4 * T

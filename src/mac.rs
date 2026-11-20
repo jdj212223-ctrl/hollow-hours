@@ -37,7 +37,7 @@ pub const STORE: [(Buy, &str, u32); 8] = [
     (Buy::Groceries, "Czech grocery bag: 5 ingredients for the stove (guláš, svíčková...)", 12),
     (Buy::Battery, "Drone battery (full charge, instant)", 10),
     (Buy::Disguise, "Disguise kit: 20 uses (Z, or tell a Claude to disguise), instant", 20),
-    (Buy::Antidote, "Antidote: cures you or an infected Claude (C), instant", 60),
+    (Buy::Antidote, "Antidotes: 20 vials, each cures you or an infected Claude (C), instant", 40),
 ];
 
 /// Seconds until the delivery drone drops it at the door.
@@ -58,8 +58,8 @@ pub fn buy(g: &mut Game, k: usize) {
         g.kits += 20;
         g.log.push(format!("Disguise kit: 20 more uses ({} in all). Z to wear one.", g.kits));
     } else if what == Buy::Antidote {
-        g.antidotes += 1;
-        g.log.push(format!("Antidote bought ({} in all). C to use it.", g.antidotes));
+        g.antidotes += 20;
+        g.log.push(format!("20 antidotes bought ({} in all). C to use one.", g.antidotes));
     } else {
         g.deliveries.push((DELIVERY, what));
         g.log.push(format!("Ordered: {}. The delivery drone will leave it at the front door.", label.split(':').next().unwrap_or(label)));

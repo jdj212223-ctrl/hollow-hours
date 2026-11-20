@@ -458,7 +458,7 @@ const FAMILY = [["Ember", "#d97757", "carried you home"], ["Atlas", "#a682ff", "
 function downloads() {
   const items = [
     ["macOS", "Apple Silicon + Intel", "Hollow-Hours-macOS.zip", "🍎"], ["Windows", "x64", "Hollow-Hours-Windows.zip", "🪟"],
-    ["Windows ARM64", "Snapdragon", "Hollow-Hours-Windows-ARM64.zip", "🪟"], ["Linux / SteamOS", "x86_64 (Steam Deck, Legion Go)", "Hollow-Hours-Linux-x86_64.tar.gz", "🐧"],
+    ["Windows ARM64", "Snapdragon", "Hollow-Hours-Windows-ARM64.zip", "🪟"], ["Linux / SteamOS", "x86_64 (Steam Deck, Legion Go)", "Hollow-Hours-Linux-x86_64.tar.gz", "🐧"], ["Linux ARM64", "Raspberry Pi 4/5, Asahi Linux, ARM laptops", "Hollow-Hours-Linux-aarch64.tar.gz", "🐧"],
     ["Flatpak", "any Linux", "Hollow-Hours.flatpak", "📦"], ["Android", ".apk, touch controls", "Hollow-Hours-Android.apk", "🤖"], ["iPhone / iPad", ".ipa (sideload it)", "Hollow-Hours-iOS.ipa", "📱"]];
   return `<div class="dl">${items.map(([n, w, f, e]) => `<a href="${DL}/${f}">${e} <b>${n}</b><span class="dim small">${w}</span></a>`).join("")}</div>`;
 }

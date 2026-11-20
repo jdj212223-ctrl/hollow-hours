@@ -39,6 +39,9 @@ jobs:
           # An older Ubuntu, so the game also runs on older Linux and SteamOS (glibc 2.35+).
           - os: ubuntu-22.04
             name: Linux
+          # ARM Linux (Raspberry Pi 4/5, Asahi Linux on Apple Silicon, ARM laptops), built natively.
+          - os: ubuntu-22.04-arm
+            name: Linux-ARM64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -81,7 +84,7 @@ jobs:
           mkdir -p hollow-hours
           cp target/release/hollow-hours target/release/hh-mcp linux/hollow-hours.desktop linux/hollow-hours.png linux/README.txt hollow-hours/
           chmod +x hollow-hours/hollow-hours hollow-hours/hh-mcp
-          tar czf Hollow-Hours-Linux-x86_64.tar.gz hollow-hours
+          tar czf "Hollow-Hours-Linux-$(uname -m).tar.gz" hollow-hours
 
       - uses: actions/upload-artifact@v4
         with:
@@ -211,7 +214,7 @@ jobs:
             echo "**What's new**"
             if [ -n "$last" ]; then git log --pretty='- %s' "$last"..HEAD; else git log -20 --pretty='- %s'; fi
             echo
-            echo "**Downloads:** macOS (Apple Silicon + Intel), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Flatpak, Android (.apk), iPhone/iPad (.ipa, sideload)."
+            echo "**Downloads:** macOS (Apple Silicon + Intel), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Linux ARM64 (Raspberry Pi, Asahi), Flatpak, Android (.apk), iPhone/iPad (.ipa, sideload)."
             echo "First launch: macOS right-click → Open; Windows \"More info\" → \"Run anyway\"."
             echo
             echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"

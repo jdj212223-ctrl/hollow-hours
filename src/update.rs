@@ -58,6 +58,7 @@ fn asset() -> Option<&'static str> {
     else if cfg!(all(windows, target_arch = "aarch64")) { Some("Hollow-Hours-Windows-ARM64.zip") }
     else if cfg!(windows) { Some("Hollow-Hours-Windows.zip") }
     else if cfg!(all(target_os = "linux", target_arch = "x86_64")) { Some("Hollow-Hours-Linux-x86_64.tar.gz") }
+    else if cfg!(all(target_os = "linux", target_arch = "aarch64")) { Some("Hollow-Hours-Linux-aarch64.tar.gz") }
     else { None }
 }
 

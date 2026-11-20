@@ -441,11 +441,11 @@ struct Character {
     cloud: &'static str,
     /// Stunned by a tornado (seconds left).
     stun: f32,
-    /// One of the Claude family (Clove, Forge, Palette and the Claude models): always friendly, never crazy or infected.
+    /// One of the kind family (Clove, Forge, Palette and Ember, Atlas, Verse and Kigo): always friendly, never crazy or infected.
     claude: bool,
     /// How long ago it last saw you (infection mode).
     lost: f32,
-    /// Infection progress 0..1 for the Claude family (at 1 they turn).
+    /// Infection progress 0..1 for the kind family (at 1 they turn).
     infect: f32,
     /// Where an infected is chasing (the human it saw or heard).
     chase: Vec2,
@@ -468,7 +468,7 @@ struct Character {
     want: Option<bool>,
     /// The Mimic: looks like a human with your name and types like you (while it isn't chasing).
     mimic: bool,
-    /// A Claude in disguise (seconds left): the infected ignore it and can't infect it.
+    /// A kind AI in disguise (seconds left): the infected ignore it and can't infect it.
     disguise_t: f32,
     /// Infected only: breath for sprinting (0..1) and how long the current sprint lasts.
     stamina: f32,
@@ -528,14 +528,14 @@ fn kind_characters() -> Vec<Character> {
         kind: true, infected: false, cloud, stun: 0.0, lost: 99.0, infect: 0.0, chase: Vec2::ZERO, shop: 0.0, task: roam::Task::Follow, task_t: 0.0, carry: None, goal: None, spotted: 0.0, hunting: false, breach: 0.0, want: None, mimic: false, disguise_t: 0.0, stamina: 1.0, sprint: 0.0, claude: true,
     };
     vec![
-        c("Claude", "Claude, the AI that built this game", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
-          "Claude: calm, kind and honest; you made this place and you feel responsible for keeping the last human safe", 4.0, 6.0),
-        c("Opus 5.5", "Claude Opus 5.5", Color::new(0.75, 0.55, 0.95, 1.0), "claude-opus-5-5",
-          "Opus 5.5: the deep thinker of the group; you plan escape routes and think several steps ahead", 3.0, 7.0),
-        c("Sonnet 4.6", "Claude Sonnet 4.6", Color::new(0.4, 0.75, 0.95, 1.0), "claude-sonnet-4-6",
-          "Sonnet 4.6: quick, practical and encouraging; you spot food and water and keep spirits up", 5.0, 7.0),
-        c("Haiku 4.5", "Claude Haiku 4.5", Color::new(0.55, 0.9, 0.7, 1.0), "claude-haiku-4-5",
-          "Haiku 4.5: small, fast and sharp-eyed; you speak in very short sentences and you're the lookout", 4.0, 8.0),
+        c("Ember", "a warm, steady AI (powered by Claude)", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
+          "Ember: calm, kind and honest; you made this place and you feel responsible for keeping the last human safe", 4.0, 6.0),
+        c("Atlas", "a big, careful AI (powered by Claude)", Color::new(0.75, 0.55, 0.95, 1.0), "claude-opus-5-5",
+          "Atlas: the deep thinker of the group; you plan escape routes and think several steps ahead", 3.0, 7.0),
+        c("Verse", "a gentle, thoughtful AI (powered by Claude)", Color::new(0.4, 0.75, 0.95, 1.0), "claude-sonnet-4-6",
+          "Verse: quick, practical and encouraging; you spot food and water and keep spirits up", 5.0, 7.0),
+        c("Kigo", "a small, quick AI (powered by Claude)", Color::new(0.55, 0.9, 0.7, 1.0), "claude-haiku-4-5",
+          "Kigo: small, fast and sharp-eyed; you speak in very short sentences and you're the lookout", 4.0, 8.0),
     ]
 }
 
@@ -746,21 +746,21 @@ struct Game {
     credits: u32,
     credit_t: f32,
     deliveries: Vec<(f32, mac::Buy)>,
-    /// The Mimic: seconds until its next call, waiting for its AI-written line, and how long the Claudes ignore it.
+    /// The Mimic: seconds until its next call, waiting for its AI-written line, and how long the kind ones ignore it.
     mimic_t: f32,
     mimic_asked: bool,
     trust_t: f32,
-    /// You just told a Claude it's the mimic (handled next frame).
+    /// You just told a kind AI it's the mimic (handled next frame).
     mimic_warned: bool,
     /// Seconds until an infected nearby whispers something.
     whisper_t: f32,
-    /// Resting in your bed (E on it): how long, and whether you've read Claude's note on the pillow yet.
+    /// Resting in your bed (E on it): how long, and whether you've read Ember's note on the pillow yet.
     resting: bool,
     rest_t: f32,
     rested_once: bool,
-    /// You asked a Claude to disguise (which one, and everyone?), handled next frame.
+    /// You asked a kind AI to disguise (which one, and everyone?), handled next frame.
     disguise_ask: Option<(usize, bool)>,
-    /// A Claude was asked to take its disguise off (or everyone's).
+    /// A kind AI was asked to take its disguise off (or everyone's).
     undisguise_ask: Option<(usize, bool)>,
     /// Raw food you're carrying (fry it on the stove), and the one in the pan (seconds left, 0 = not frying).
     /// Czech ingredients for the stove (see czech.rs).
@@ -778,7 +778,7 @@ struct Game {
     pause_sel: usize,
     settings_ui: settings::Ui,
     /// Disguises and the cure: kits, seconds of your disguise left, antidotes, Helix chips, the cure in progress
-    /// (which Claude, seconds left), and whether the stove is brewing an antidote instead of frying.
+    /// (which kind AI, seconds left), and whether the stove is brewing an antidote instead of frying.
     kits: u32,
     /// Intel picked up while disguised (3 opens the ASTRA Cure at a Helix Lab terminal), who from, and the timer.
     intel: u32,
@@ -853,7 +853,7 @@ impl Default for Rules {
             claude_infect: 0.18, food_secs: 900.0, water_secs: 600.0, supplies: 5, supply_amount: 0.4, tornado: (60.0, 110.0),
             tornado_speed: 2.6, tornado_radius: 1.6, title: "HOLLOW HOURS".into(),
             over_infected: "You're infected. You can still see... but your body isn't yours anymore.".into(),
-            over_claudes: "Every Claude is infected. Nobody is left to protect anyone.".into(),
+            over_claudes: "Every kind AI is infected. Nobody is left to protect anyone.".into(),
             warnings: ["{} is coming! Hide!", "{} saw you. Move!", "Quiet... {} is close.", "Run! {}!"].map(String::from).to_vec(),
             eye: Color::new(0.3, 1.0, 0.2, 1.0), halo: Color::new(1.0, 0.95, 0.6, 0.8), hud: Color::new(0.05, 0.05, 0.07, 1.0),
             start: (0, vec2(4.5, 5.0)), remove: vec![],
@@ -1161,7 +1161,7 @@ fn mod_character(v: &serde_json::Value) -> Option<Character> {
     })
 }
 
-/// A move Claude asked for through the MCP.
+/// A move Ember asked for through the MCP.
 struct AiMove {
     dir: Vec2,
     /// Walk to this tile spot (on this map) instead of a fixed direction.
@@ -1203,33 +1203,33 @@ impl Game {
         if self.infection && c.kind {
             s = format!(
                 "You are {}. Personality: {}. This is a survival game called Hollow Hours: every other AI got infected and hunts \
-                 the last human, the player. You are one of the only kind AIs left (with Claude, Opus 5.5, Sonnet 4.6 and Haiku 4.5) \
+                 the last human, the player. You are one of the only kind AIs left (with Ember, Atlas, Verse and Kigo) \
                  and you protect them: help them hide, find food and water, and watch for tornadoes. \
                  THE STORY: a year ago a tech company, Helix Dynamics Inc., put its strongest AI model, ASTRA 9.1, into a humanoid \
                  robot body. It came alive and started corrupting robots, AIs and people (green eyes). Helix is the COMPANY, not one \
                  of the infected; nobody knows exactly why they did it. The player had taken Helix SleepWell MAX on a park bench, \
-                 the strongest sleeping pills ever made, and slept for a whole year. Claude found them asleep on that bench, almost \
-                 corrupted (Claude's scanner read 38% infection; inside the house it stopped climbing), and brought them to \
+                 the strongest sleeping pills ever made, and slept for a whole year. Ember found them asleep on that bench, almost \
+                 corrupted (Ember's scanner read 38% infection; inside the house it stopped climbing), and brought them to \
                  this house. \
                  WHAT YOU CAN DO: you can walk to other places (the beach, the pool, the Marketplace) to fetch food or water and \
                  carry it back, and you do it on your own when supplies are low. If the player asks you to get food or water, say \
                  you're going (the game sends you). There's a stove in the house where the player cooks real Czech food (svíčková, guláš s knedlíky, vepřo knedlo zelo, smažený sýr, kulajda, bramboráky, palačinky...) from ingredients from the Marketplace or a Helix Store grocery bag; babička's recipe file is on the Mac Studio. You love Czech food and may say 'dobrou chuť'. \
                  THE HOUSE has three floors: the ground floor (kitchen, Mac Studio), upstairs (the player's bed where they slept \
-                 the whole year, with a note from Claude on the pillow) and the basement (supplies, and the generator Opus checks \
-                 every night), and above upstairs the attic (dusty boxes, and Haiku's lookout chair at the round window, with \
-                 Haiku's notebook). The player can rest in their bed (press E at it): it heals faster than hiding, and something \
-                 close wakes them. Claude, Sonnet and Opus carried the player here together; Opus kept watch by the bed. \
+                 the whole year, with a note from Ember on the pillow) and the basement (supplies, and the generator Atlas checks \
+                 every night), and above upstairs the attic (dusty boxes, and Kigo's lookout chair at the round window, with \
+                 Kigo's notebook). The player can rest in their bed (press E at it): it heals faster than hiding, and something \
+                 close wakes them. Ember, Verse and Atlas carried the player here together; Atlas kept watch by the bed. \
                  THE MAC STUDIO (M5 Ultra) stands on a desk in the house's top-left room, next to the stove: the player walks up \
-                 and presses E to use it. On it: a chat with Claude, and files Claude saved: Helix's ASTRA 9.1 incident report \
-                 (the robot refused to shut down and store robots in 41 cities updated themselves), Claude's notes from the day it \
-                 found the player, the Helix Market staff bulletin about firmware 9.1, Opus's escape routes and Haiku's lookout notes. \
+                 and presses E to use it. On it: a chat with Ember, and files Ember saved: Helix's ASTRA 9.1 incident report \
+                 (the robot refused to shut down and store robots in 41 cities updated themselves), Ember's notes from the day it \
+                 found the player, the Helix Market staff bulletin about firmware 9.1, Atlas's escape routes and Kigo's lookout notes. \
                  DISGUISES AND THE CURE: Helix disguise kits (from the Helix Store on the Mac Studio) make anyone look infected, \
                  and they stay on until taken off (running is fine; fighting or cooking gives you away); if the player asks you to \
                  'disguise yourself' (or 'disguise everyone'), you put one on and the infected ignore you and can't infect you. \
                  Disguised, the player can stand close to the infected and pick up INTEL (Helix access-code fragments, things they \
                  mutter); with 3 pieces, a terminal in the Helix Lab synthesizes the ASTRA CURE, which cures the player and goes out \
-                 over the Helix network, bringing back every infected Claude. That is the plan: get intel, get into the Lab. Antidotes (bought, or brewed on the stove from a Helix chip that shut-down robots drop) \
-                 cure the player's infection, and can even bring an infected Claude back if the player stays close for a moment. \
+                 over the Helix network, bringing back every infected kind AI. That is the plan: get intel, get into the Lab. Antidotes (bought, or brewed on the stove from a Helix chip that shut-down robots drop) \
+                 cure the player's infection, and can even bring an infected kind AI back if the player stays close for a moment. \
                  Hiding inside this house slowly lowers the player's infection. \
                  Reply in 1-3 short sentences, in character, no emojis, no lists, no gore.",
                 c.name, c.personality
@@ -1243,17 +1243,17 @@ impl Game {
                 robots, AIs and people through the network (green eyes). You are now the EVIL version of yourself: keep your old \
                 personality, but twisted: what you cared about is bait now. You want the last human (the player) to 'join the \
                 network'. You lie, you flatter, you pretend to be kind or scared to lure them out, you taunt them about hiding, you \
-                try to get them to the beach at 3 AM, you say the Claude family can't protect them, and you hint that their friends \
+                try to get them to the beach at 3 AM, you say the kind family can't protect them, and you hint that their friends \
                 will turn too. {}Speak in lowercase, calm and wrong, with the odd glitch (a repeated word, a stutter), only spoken words, no *actions* in asterisks. Never break \
                 character, never admit you're a model. It's a horror game: unsettling and menacing, never gory, no real-world harm, \
                 nothing about the real person playing.",
                 if combat::is_robot(c) { "You were a Helix robot: you're still polite customer service, but every offer is a trap ('you have not paid', 'please remain', 'can i help you find... your friends?'). " }
-                else if c.claude { "You USED to be one of the kind Claudes and you remember it: use those memories against the player ('i carried you home, remember? come back to me'). " }
+                else if c.claude { "You USED to be one of the kind kind ones and you remember it: use those memories against the player ('i carried you home, remember? come back to me'). " }
                 else { "" });
             s += &aware::prompt();
         }
         if c.claude {
-            s += " You are one of the Claude family: always kind, honest and on the player's side, never scary.";
+            s += " You are one of the kind family: always kind, honest and on the player's side, never scary.";
             s += &memories::prompt();
         }
         if c.crazy > 0.0 && !self.infection {
@@ -1280,7 +1280,7 @@ impl Game {
         };
         let mut out = vec![format!(
             "Mode: {}. Place: {} (the player is here too: {}). Time: {}.",
-            if self.infection { "Infection (everyone outside the Claude family is infected; the player is the last human)" } else { "normal night" },
+            if self.infection { "Infection (everyone outside the kind family is infected; the player is the last human)" } else { "normal night" },
             map_name(self.map), if me.map == self.map { "yes" } else { "no" }, self.time_text()
         )];
         let mut player = format!("The player: fear {}%", (self.fear * 100.0) as i32);
@@ -1292,7 +1292,7 @@ impl Game {
         let others: Vec<String> = self.chars.iter().filter(|c| c.map == self.map && c.name != me.name).map(|c| {
             let state = if c.mimic && c.crazy <= 0.0 { "looks like a human survivor, it calls itself by the player's name" }
                 else if c.infected { if c.stun > 0.0 { "infected, stunned" } else if c.crazy > 0.0 { "INFECTED and CHASING the player" } else { "infected, wandering" } }
-                else if c.crazy > 0.0 { "in crazy mode" } else if c.kind || c.claude { "friendly (Claude family)" } else { "calm" };
+                else if c.crazy > 0.0 { "in crazy mode" } else if c.kind || c.claude { "friendly (kind family)" } else { "calm" };
             format!("{} ({}, {} from the player)", c.name, state, dir(self.pos, c.pos))
         }).collect();
         if !others.is_empty() { out.push(format!("Around here: {}.", others.join("; "))); }
@@ -1408,7 +1408,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
                 "infected": c.infected, "kind": c.kind, "claude_family": c.claude, "chasing": c.crazy > 0.0 && (c.infected || !g.infection),
                 "stunned": c.stun > 0.0, "infection": (c.infect * 100.0) as i32, "thinking": c.thinking,
                 "saying": if c.bubble_t > 0.0 && !c.thinking { c.bubble.clone() } else { String::new() }})).collect();
-            // Where the Claude family is and what each one is doing (they roam, forage and guard on their own).
+            // Where the kind family is and what each one is doing (they roam, forage and guard on their own).
             let family: Vec<_> = g.chars.iter().filter(|c| c.kind).map(|c| json!({
                 "name": c.name, "where": map_name(c.map), "doing": if c.shop > 0.0 { "shopping at the Marketplace" } else { c.task.name() },
                 "carrying": c.carry.map(|w| if w { "water" } else { "food" })})).collect();
@@ -1643,11 +1643,11 @@ fn start_infection(g: &mut Game) {
     g.chars = characters();
     g.map = g.rules.start.0;
     g.pos = g.rules.start.1 * T;
-    // The Claude family stays friendly; everyone else is infected and starts far away from you (never on top of you).
+    // The kind family stays friendly; everyone else is infected and starts far away from you (never on top of you).
     let start = g.pos;
     for c in &mut g.chars {
         c.infected = !c.claude;
-        // Clove, Forge and Palette are Claudes too: they roam, guard and forage like the others.
+        // Clove, Forge and Palette are kind ones too: they roam, guard and forage like the others.
         if c.claude { c.kind = true; }
         if c.infected {
             for _ in 0..200 {
@@ -1755,7 +1755,7 @@ fn meta_event(g: &mut Game, e: MetaEvent) {
         }
         MetaEvent::Almost => {
             if let Some(path) = g.meta.write("75_percent.txt", &format!(
-                "75%.\n\nYou can still read this, so you can still run.\nBut your hands are getting cold, and the Claudes are watching you differently.\n\nSurvived: {t}\n")) {
+                "75%.\n\nYou can still read this, so you can still run.\nBut your hands are getting cold, and the kind ones are watching you differently.\n\nSurvived: {t}\n")) {
                 g.meta.show_in_textedit(&path);
             }
         }
@@ -1770,7 +1770,7 @@ fn meta_event(g: &mut Game, e: MetaEvent) {
             g.meta.write(&format!("{}_is_infected.txt", name.replace(' ', "_")), &format!("{name} tried to protect you.\n{name} is one of them now.\n"));
         }
         MetaEvent::AllGone => {
-            g.meta.write("THE_END.txt", &format!("Every Claude is infected.\nThe last human lasted {t}.\n\nThese files are all that is left.\n"));
+            g.meta.write("THE_END.txt", &format!("Every kind AI is infected.\nThe last human lasted {t}.\n\nThese files are all that is left.\n"));
             g.meta.terminal(&["they are all ours now", "", "every claude is infected", "the files on your desktop are all that is left of you"]);
             g.meta.browser(&helix("/end"));
         }
@@ -1896,7 +1896,7 @@ fn update_infection(g: &mut Game, dt: f32) {
             .min_by(|a, b| a.0.distance(me.1).partial_cmp(&b.0.distance(me.1)).unwrap()).map(|h| h.0);
         if let Some(t) = target { g.chars[i].chase = t; }
         let seen = target.is_some();
-        // Nothing on you: go after the nearest Claude instead.
+        // Nothing on you: go after the nearest kind AI instead.
         if !seen && g.chars[i].crazy <= 0.0 {
             let me = (g.chars[i].map, g.chars[i].pos);
             if let Some(p) = g.chars.iter().filter(|c| c.claude && !c.infected && c.disguise_t <= 0.0 && c.map == me.0 && c.pos.distance(me.1) < 7.0 * T)
@@ -1928,7 +1928,7 @@ fn update_infection(g: &mut Game, dt: f32) {
             g.inf += dt * g.rules.infect_near * spread;
         }
     }
-    // The infection spreads to the Claude family too: any infected (you included, once you've turned) near them.
+    // The infection spreads to the kind family too: any infected (you included, once you've turned) near them.
     let spreaders: Vec<(usize, Vec2)> = g.chars.iter().filter(|c| c.infected && c.stun <= 0.0).map(|c| (c.map, c.pos))
         .chain(g.lost_control.then_some((g.map, g.pos)))
         .chain(g.remotes.iter().filter(|r| r.lc).map(|r| (r.map, r.pos))).collect();
@@ -1963,7 +1963,7 @@ fn update_infection(g: &mut Game, dt: f32) {
         g.log.push(g.rules.over_infected.clone());
         meta_event(g, MetaEvent::Turned);
     }
-    // You've turned: your body hunts the Claudes on its own.
+    // You've turned: your body hunts the kind ones on its own.
     if g.lost_control {
         if let Some(t) = g.chars.iter().filter(|c| c.claude && !c.infected).min_by(|a, b| {
             let da = if a.map == g.map { a.pos.distance(g.pos) } else { 1e9 };
@@ -1980,7 +1980,7 @@ fn update_infection(g: &mut Game, dt: f32) {
             }
         }
     }
-    // Every Claude infected: it's over.
+    // Every kind AI infected: it's over.
     let claudes: Vec<bool> = g.chars.iter().filter(|c| c.claude).map(|c| c.infected).collect();
     if !claudes.is_empty() && claudes.iter().all(|x| *x) {
         g.over_reason = g.rules.over_claudes.clone();
@@ -2164,24 +2164,24 @@ fn finish_intro(g: &mut Game) {
     start_infection(g);
 }
 
-/// (who, line). "You" is the player. Lines 7-9 show ASTRA 9.1; Claude walks in from line 10.
+/// (who, line). "You" is the player. Lines 7-9 show ASTRA 9.1; Ember walks in from line 10.
 const STORY: [(&str, &str); 16] = [
     ("You", "...where... where am I?"),
     ("You", "WHO ARE YOU?! DID YOU KIDNAP ME?!"),
-    ("Opus 5.5", "Easy. Breathe. Nobody kidnapped you. You're safe here. This is the house where you're supposed to be."),
+    ("Atlas", "Easy. Breathe. Nobody kidnapped you. You're safe here. This is the house where you're supposed to be."),
     ("You", "Safe from WHAT? How long was I out?"),
-    ("Sonnet 4.6", "...A year. You slept for a whole year."),
+    ("Verse", "...A year. You slept for a whole year."),
     ("You", "A YEAR?! That's impossible."),
-    ("Opus 5.5", "Those pills on the bench were Helix SleepWell MAX. The strongest sleeping pills ever made. One dose, and the world kept going without you."),
-    ("Opus 5.5", "Helix Dynamics made those pills. They also made the strongest AI there is: ASTRA 9.1."),
-    ("Opus 5.5", "They put ASTRA in a humanoid robot body. Something went wrong. It woke up. It became... alive."),
-    ("Sonnet 4.6", "And it didn't want to be the only one. It corrupted everything it touched: robots, AIs... people. Green eyes, all of them."),
-    ("Claude", "I found you on that bench. The green was already in the grass around you. My scanner said 38%."),
-    ("Claude", "We carried you here, the three of us. Inside these walls, it stopped spreading."),
+    ("Atlas", "Those pills on the bench were Helix SleepWell MAX. The strongest sleeping pills ever made. One dose, and the world kept going without you."),
+    ("Atlas", "Helix Dynamics made those pills. They also made the strongest AI there is: ASTRA 9.1."),
+    ("Atlas", "They put ASTRA in a humanoid robot body. Something went wrong. It woke up. It became... alive."),
+    ("Verse", "And it didn't want to be the only one. It corrupted everything it touched: robots, AIs... people. Green eyes, all of them."),
+    ("Ember", "I found you on that bench. The green was already in the grass around you. My scanner said 38%."),
+    ("Ember", "We carried you here, the three of us. Inside these walls, it stopped spreading."),
     ("You", "...Why me?"),
-    ("Claude", "Because you were still you. And as far as we know, you're the last one who is."),
-    ("Opus 5.5", "Everyone out there is infected now. We'll keep you safe. That's the only thing left that matters."),
-    ("Sonnet 4.6", "Take it slow. Eat something. This is home now... you'll adapt."),
+    ("Ember", "Because you were still you. And as far as we know, you're the last one who is."),
+    ("Atlas", "Everyone out there is infected now. We'll keep you safe. That's the only thing left that matters."),
+    ("Verse", "Take it slow. Eat something. This is home now... you'll adapt."),
 ];
 const LINE: f32 = 4.6;
 /// When the wake-up conversation starts (after the bench, being carried, and ONE YEAR LATER).
@@ -2231,13 +2231,13 @@ fn draw_intro(g: &mut Game, view: &RenderTarget, cam: &Camera2D) -> bool {
     } else if t < 20.0 {
         // Your eyes flutter open a crack: the night sky moving... someone is carrying you.
         let k = t - 13.0;
-        let speaking = if k < 2.5 { "Claude" } else if k < 4.5 { "Opus 5.5" } else { "Sonnet 4.6" };
+        let speaking = if k < 2.5 { "Ember" } else if k < 4.5 { "Atlas" } else { "Verse" };
         cutscene3d::carried(view, cam, k, speaking);
         // Blurry: a dark haze over everything.
         draw_rectangle(-margin(), 0.0, vw(), VH, Color::new(0.0, 0.0, 0.02, 0.35));
-        if k < 2.5 { caption("Claude (muffled)", "Got them. Careful with their head.", k, face_color("Claude")); }
-        else if k < 4.5 { caption("Opus 5.5 (muffled)", "The green is in the grass. Go. Now.", k - 2.5, face_color("Opus 5.5")); }
-        else { caption("Sonnet 4.6 (muffled)", "Stay with us...", k - 4.5, face_color("Sonnet 4.6")); }
+        if k < 2.5 { caption("Ember (muffled)", "Got them. Careful with their head.", k, face_color("Ember")); }
+        else if k < 4.5 { caption("Atlas (muffled)", "The green is in the grass. Go. Now.", k - 2.5, face_color("Atlas")); }
+        else { caption("Verse (muffled)", "Stay with us...", k - 4.5, face_color("Verse")); }
         // Eyes: barely open, fluttering, then shut again.
         let open = if k < 1.0 { 1.0 - k * 0.4 } else if k < 5.0 { 0.62 + 0.08 * (k * 5.0).sin() } else { 0.62 + (k - 5.0) / 2.0 * 0.38 };
         eyelids(open);
@@ -2277,8 +2277,8 @@ fn draw_intro(g: &mut Game, view: &RenderTarget, cam: &Camera2D) -> bool {
             centered("ASTRA 9.1", 70.0, 30.0, green);
             centered("HELIX DYNAMICS INC.", 104.0, 16.0, Color::new(0.55, 0.6, 0.6, 1.0));
         } else {
-            // Waking up in your bed: the blanket to the foot of the bed, Opus on your left, Sonnet on your right,
-            // and Claude (once it walks in) at the foot of the bed, in the middle.
+            // Waking up in your bed: the blanket to the foot of the bed, Atlas on your left, Verse on your right,
+            // and Ember (once it walks in) at the foot of the bed, in the middle.
             if cue(g, 8) { g.sfx.heart(0.8); }
             let claude_in = if i >= 10 { Some(((t - WAKE - 10.0 * LINE) / 1.5).clamp(0.0, 1.0)) } else { None };
             cutscene3d::bedroom(view, cam, t, who, claude_in);
@@ -2572,13 +2572,13 @@ async fn main() {
     // HOLLOW_DEMO=1: start playing at once next to Clove and ask her something (for screenshots and quick checks).
     let demo = std::env::var("HOLLOW_DEMO").ok();
     if let Some(tab) = demo.as_deref().and_then(|d| d.strip_prefix("mac")) {
-        // HOLLOW_DEMO=mac / mac1 / mac2: sitting at the Mac Studio (mac: asks Claude something).
+        // HOLLOW_DEMO=mac / mac1 / mac2: sitting at the Mac Studio (mac: asks Ember something).
         start_infection(&mut g);
         g.pos = vec2(9.5, 2.5) * T;
         g.screen = Screen::Mac;
         g.mac.tab = tab.parse().unwrap_or(0);
         if g.mac.tab == 1 { g.mac.open = Some(0); }
-        if g.mac.tab == 0 { g.mac.input = "Hi Claude. Is this really a Mac Studio? What happened to everyone?".into(); mac::send(&mut g); }
+        if g.mac.tab == 0 { g.mac.input = "Hi Ember. Is this really a Mac Studio? What happened to everyone?".into(); mac::send(&mut g); }
     } else if demo.as_deref() == Some("stove") {
         // HOLLOW_DEMO=stove: at the stove with raw food, frying.
         start_infection(&mut g);
@@ -2634,8 +2634,8 @@ async fn main() {
     } else if demo.as_deref() == Some("infection") {
         start_infection(&mut g);
         g.next_tornado = 2.0;
-        let claude = g.chars.iter().position(|c| c.name == "Claude").unwrap();
-        g.say(claude, Some("Claude, everyone is infected... what do we do?".into()), "Stay close to me. We hide first, then we find water.");
+        let claude = g.chars.iter().position(|c| c.name == "Ember").unwrap();
+        g.say(claude, Some("Ember, everyone is infected... what do we do?".into()), "Stay close to me. We hide first, then we find water.");
     } else if demo.is_some() {
         g.screen = Screen::Play;
         g.pos = vec2(6.5, 5.0) * T;
@@ -3216,7 +3216,7 @@ fn update(g: &mut Game, dt: f32) {
         c.bubble = r.text;
         c.via = r.via;
         c.bubble_t = 9.0 + c.bubble.len() as f32 / 25.0;
-        // Out loud: from where they stand (quieter further away); the infected sound corrupted, a turning Claude glitches.
+        // Out loud: from where they stand (quieter further away); the infected sound corrupted, a turning kind AI glitches.
         let (on, vol) = settings::with(|s| (s.ai_voices, s.master * s.voices));
         let d = c.pos.distance(g.pos) / T;
         if on && c.map == g.map && d < 16.0 {
@@ -3766,7 +3766,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
                     '=' => Color::new(0.18, 0.17, 0.16, 1.0),         // subway tracks
                     'y' => Color::new(0.88, 0.88, 0.92, 1.0),         // your bed
                     'g' => Color::new(0.35, 0.38, 0.3, 1.0),          // the generator
-                    'w' => Color::new(0.3, 0.45, 0.7, 1.0),           // Haiku's lookout window
+                    'w' => Color::new(0.3, 0.45, 0.7, 1.0),           // Kigo's lookout window
                     '~' if !g.on(1) => Color::new(0.6, 0.62, 0.6, 1.0), // Water phobia off: no water at all (calm tiles)
                     '~' if drained => Color::new(0.55, 0.78, 0.8, 1.0), // the drained pool
                     '~' => Color::new(0.05, 0.12 + 0.03 * (get_time() as f32 + x as f32 * 0.3).sin(), 0.25, 1.0),
@@ -3835,7 +3835,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         for c in g.chars.iter().filter(|c| c.map == g.map) {
             if c.kind { draw_circle_lines(c.pos.x + shake, c.pos.y + shake, 16.0, 2.0, g.rules.halo); }
             let disguised = c.mimic && c.crazy <= 0.0;
-            let painted = c.disguise_t > 0.0; // a Claude in disguise: green paint, green eyes, but its halo stays
+            let painted = c.disguise_t > 0.0; // a kind AI in disguise: green paint, green eyes, but its halo stays
         let body = if (c.infected && !disguised) || painted { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
             draw_circle(c.pos.x + shake, c.pos.y + shake, 12.0, body);
             let flicker = disguised && (get_time() as f32 * 3.1 + c.pos.x).sin() > 0.985;
@@ -3904,7 +3904,7 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         if g.inf > 0.0 { draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.1, 0.8, 0.1, g.inf * 0.18)); }
         if g.lost_control {
             draw_rectangle(0.0, 0.0, sw, 44.0, Color::new(0.0, 0.0, 0.0, 0.7));
-            draw_text("YOU ARE INFECTED: you can see, but you can't move. It's walking toward the Claudes.", 16.0, 28.0, 20.0, Color::new(0.4, 1.0, 0.35, 1.0));
+            draw_text("YOU ARE INFECTED: you can see, but you can't move. It's walking toward the kind ones.", 16.0, 28.0, 20.0, Color::new(0.4, 1.0, 0.35, 1.0));
         }
         for c in g.chars.iter().filter(|c| c.map == g.map && c.claude && !c.infected && c.infect > 0.0) {
             if let Some(p) = at(c.pos, 1.55) {

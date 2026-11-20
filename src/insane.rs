@@ -1,6 +1,6 @@
 //! INSANE INFECTION (title: 5): the whole world turned. 80 more corrupted AIs ("the Hollow") spread over every map,
 //! and every infected is much faster, sees and hears further, sprints more often and infects quicker.
-//! The Claude family is still on your side. Good luck.
+//! The kind family is still on your side. Good luck.
 
 use super::*;
 
@@ -52,5 +52,5 @@ pub fn spawn(g: &mut Game) {
         g.chars.push(c);
     }
     g.log.push(format!("INSANE INFECTION: {} more of them, all over the world. They're FAST. They hear everything.", HORDE));
-    g.log.push("Claude (radio): Stay with us. Don't stop moving. I mean it this time.".into());
+    g.log.push("Ember (radio): Stay with us. Don't stop moving. I mean it this time.".into());
 }

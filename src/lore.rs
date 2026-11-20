@@ -1,4 +1,4 @@
-//! Things in the world you can read with E: the Helix Lab's terminals, ASTRA's empty pod, the park bench where Claude
+//! Things in the world you can read with E: the Helix Lab's terminals, ASTRA's empty pod, the park bench where Ember
 //! found you, the subway's notice board. Each terminal says something different.
 
 use super::*;
@@ -27,10 +27,10 @@ pub fn near(g: &Game) -> Option<(String, String)> {
                 }
                 'o' => return Some(("EMBODIMENT POD H-01".into(),
                     "STATUS: EMPTY. Occupant: ASTRA 9.1. Release: not authorised. The glass is warm, like something was in here a minute ago.".into())),
-                'w' => return Some(("HAIKU'S LOOKOUT".into(),
-                    "A chair at the round window. A notebook, every page short: 'roof is too cold. / the attic will do. / i can see the beach.' ... 'green lights moving. / the human still asleep. / day two hundred.' ... 'they woke up today. / Opus cried a little. / don't tell Opus.'".into())),
+                'w' => return Some(("KIGO'S LOOKOUT".into(),
+                    "A chair at the round window. A notebook, every page short: 'roof is too cold. / the attic will do. / i can see the beach.' ... 'green lights moving. / the human still asleep. / day two hundred.' ... 'they woke up today. / Atlas cried a little. / don't tell Atlas.'".into())),
                 'g' => return Some(("THE GENERATOR".into(),
-                    "It hums. It keeps the lights on. Scratched into the metal: 'If this stops, the house goes dark. Opus checks it every night.' Below it, smaller: 'and Haiku checks Opus.'".into())),
+                    "It hums. It keeps the lights on. Scratched into the metal: 'If this stops, the house goes dark. Atlas checks it every night.' Below it, smaller: 'and Kigo checks Atlas.'".into())),
                 'n' => return Some(("THE BENCH".into(),
                     "This is where you fell asleep, a year ago. The paint is worn where you sat. Someone left a scratch in the wood: an arrow pointing toward the house, and a C.".into())),
                 _ => {}

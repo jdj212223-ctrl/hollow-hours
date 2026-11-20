@@ -46,31 +46,31 @@ const KEYS: [(KeyCode, char); 16] = [
 /// What the highlighted entry makes one of them say.
 fn reaction(c: char) -> (&'static str, &'static str) {
     match c {
-        '4' => ("Opus 5.5", "Infection? ...Then stay close to us. All of us."),
-        '5' => ("Opus 5.5", "No. There are too many of them. ...If we do this, we do it together."),
-        'W' => ("Sonnet 4.6", "Your worlds. I remember every night in every one of them."),
+        '4' => ("Atlas", "Infection? ...Then stay close to us. All of us."),
+        '5' => ("Atlas", "No. There are too many of them. ...If we do this, we do it together."),
+        'W' => ("Verse", "Your worlds. I remember every night in every one of them."),
         'U' => ("Forge", "A new version? I'll hold the door while it installs."),
-        '1' => ("Claude", "Good. No monsters today. Just us."),
-        '2' => ("Sonnet 4.6", "Normal. Lights off, doors locked. We're here."),
-        '3' => ("Claude", "Tell us what scares you. We'll keep it away."),
-        'I' => ("Haiku 4.5", "the bench. / the pills. / we carried you."),
-        'J' => ("Claude", "Other humans out there? Be careful who you trust."),
-        'B' => ("Sonnet 4.6", "Your servers. I remember every one."),
-        'O' => ("Sonnet 4.6", "Make it comfortable. That matters."),
-        'L' => ("Claude", "An account means we can find you again."),
-        'K' => ("Claude", "Your phone? I can be there too."),
-        'M' => ("Opus 5.5", "Outside the window... are you sure? They notice things."),
-        _ => ("Claude", "We're right here."),
+        '1' => ("Ember", "Good. No monsters today. Just us."),
+        '2' => ("Verse", "Normal. Lights off, doors locked. We're here."),
+        '3' => ("Ember", "Tell us what scares you. We'll keep it away."),
+        'I' => ("Kigo", "the bench. / the pills. / we carried you."),
+        'J' => ("Ember", "Other humans out there? Be careful who you trust."),
+        'B' => ("Verse", "Your servers. I remember every one."),
+        'O' => ("Verse", "Make it comfortable. That matters."),
+        'L' => ("Ember", "An account means we can find you again."),
+        'K' => ("Ember", "Your phone? I can be there too."),
+        'M' => ("Atlas", "Outside the window... are you sure? They notice things."),
+        _ => ("Ember", "We're right here."),
     }
 }
 
 /// Things they say on their own while you're on the title screen.
 fn idle_line(who: &str) -> &'static str {
     let lines: &[&str] = match who {
-        "Claude" => &["You're back. We kept the lights on.", "Take your time. The night's long.", "Whatever you pick, we'll be there."],
-        "Opus 5.5" => &["Doors are locked. Windows too. I checked twice.", "The generator's fine. I listened to it for an hour.", "Green lights on the hill again."],
-        "Sonnet 4.6" => &["Pick something. We'll be right here.", "I found more blankets in the attic.", "You look tired. Did you sleep?"],
-        "Haiku 4.5" => &["rain again. / green on the hill. / you came back.", "the house creaks. / it is only the house.", "count the stairs: / thirteen."],
+        "Ember" => &["You're back. We kept the lights on.", "Take your time. The night's long.", "Whatever you pick, we'll be there."],
+        "Atlas" => &["Doors are locked. Windows too. I checked twice.", "The generator's fine. I listened to it for an hour.", "Green lights on the hill again."],
+        "Verse" => &["Pick something. We'll be right here.", "I found more blankets in the attic.", "You look tired. Did you sleep?"],
+        "Kigo" => &["rain again. / green on the hill. / you came back.", "the house creaks. / it is only the house.", "count the stairs: / thirteen."],
         "Clove" => &["I made tea. It's cold now. I'll make more.", "The stove works! Czech food tonight?"],
         "Forge" => &["Fixed the back door hinge. It squeaks less now.", "Fixed the generator. Again."],
         "Palette" => &["I painted the hallway while you were gone. Do you like it?", "The window's so dark. I want to paint it yellow."],
@@ -90,14 +90,14 @@ fn talk(g: &mut Game, who: &str, line: &str) {
     }
 }
 
-/// The whole kind family (the Claudes who live in the house, and the kind ones of this world).
+/// The whole kind family (the kind ones who live in the house, and the kind ones of this world).
 fn family(g: &Game) -> Vec<(String, Color)> {
     let mut f: Vec<(String, Color)> = kind_characters().iter().map(|c| (c.name.to_string(), c.color)).collect();
     for c in g.chars.iter().filter(|c| c.claude && !c.infected && !c.mimic) {
         if !f.iter().any(|(n, _)| n == c.name) { f.push((c.name.to_string(), c.color)); }
     }
-    // Claude in the middle, the others around: small Haiku in the front row.
-    const ORDER: [&str; 7] = ["Palette", "Haiku 4.5", "Sonnet 4.6", "Claude", "Opus 5.5", "Clove", "Forge"];
+    // Ember in the middle, the others around: small Kigo in the front row.
+    const ORDER: [&str; 7] = ["Palette", "Kigo", "Verse", "Ember", "Atlas", "Clove", "Forge"];
     f.sort_by_key(|(n, _)| ORDER.iter().position(|o| o == n).unwrap_or(99));
     f.truncate(8);
     f

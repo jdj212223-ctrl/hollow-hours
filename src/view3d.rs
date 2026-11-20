@@ -140,7 +140,7 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     if (x + y) % 2 == 0 { draw_cube(center + vec3(0.0, 0.55, -0.3), vec3(0.6, 0.1, 0.3), None, fog.at(WHITE, center)); }
                 }
                 'w' => {
-                    // Haiku's lookout: a chair facing a round window full of night.
+                    // Kigo's lookout: a chair facing a round window full of night.
                     draw_cube(center + vec3(0.0, 0.25, 0.2), vec3(0.5, 0.5, 0.5), None, fog.at(Color::new(0.4, 0.3, 0.2, 1.0), center));
                     draw_cube(center + vec3(0.0, 0.6, 0.42), vec3(0.5, 0.6, 0.06), None, fog.at(Color::new(0.4, 0.3, 0.2, 1.0), center));
                     draw_sphere(center + vec3(0.0, 1.15, -0.45), 0.42, None, Color::new(0.12, 0.2, 0.45, 0.9));
@@ -151,7 +151,7 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     draw_sphere(center + vec3(0.0, 1.05, 0.0), 0.06, None, Color::new(1.0, 0.6 + 0.3 * (t * 4.0).sin(), 0.2, 1.0));
                 }
                 'n' => {
-                    // The park bench (where Claude found you).
+                    // The park bench (where Ember found you).
                     let wood = Color::new(0.45, 0.32, 0.2, 1.0);
                     draw_cube(center + vec3(0.0, 0.42, 0.0), vec3(1.0, 0.06, 0.5), None, fog.at(wood, center));
                     draw_cube(center + vec3(0.0, 0.75, -0.24), vec3(1.0, 0.3, 0.05), None, fog.at(wood, center));
@@ -235,7 +235,7 @@ pub fn render(g: &Game, view: &RenderTarget) {
         // flickers: stripes, a photosensitivity risk).
         let grow = 1.0 + (k % 13) as f32 * 0.012;
         let disguised = c.mimic && c.crazy <= 0.0;
-        let painted = c.disguise_t > 0.0; // a Claude in disguise: green paint, green eyes, but its halo stays
+        let painted = c.disguise_t > 0.0; // a kind AI in disguise: green paint, green eyes, but its halo stays
         let body = if (c.infected && !disguised) || painted { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
         let sway = if c.infected { 0.04 * (t * 3.0 + base.x).sin() } else { 0.0 };
         draw_cylinder(base, 0.2 * grow, 0.26 * grow, 0.8 * grow, None, fog.at(body, base));
@@ -322,7 +322,7 @@ fn mac_studio(fog: &Fog, c: Vec3, t: f32) {
     draw_cube(c + vec3(0.3, 0.82, 0.05), vec3(0.24, 0.12, 0.24), None, fog.at(silver, c));
     draw_cube(c + vec3(-0.08, 0.76, 0.12), vec3(0.04, 0.04, 0.04), None, fog.at(silver, c));
     draw_cube(c + vec3(-0.08, 0.95, 0.15), vec3(0.62, 0.36, 0.03), None, fog.at(Color::new(0.1, 0.1, 0.11, 1.0), c));
-    // The screen: Claude's warm orange, breathing slowly.
+    // The screen: Ember's warm orange, breathing slowly.
     let glow = 0.75 + 0.25 * (t * 1.5).sin();
     draw_cube(c + vec3(-0.08, 0.95, 0.13), vec3(0.58, 0.32, 0.01), None, Color::new(0.85 * glow, 0.47 * glow, 0.32 * glow, 1.0));
     draw_cube(c + vec3(-0.08, 0.76, -0.12), vec3(0.4, 0.02, 0.14), None, fog.at(silver, c));

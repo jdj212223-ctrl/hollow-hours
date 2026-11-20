@@ -1,6 +1,6 @@
 //! The AIs speak: every line a character says is read aloud by the computer's own speech (offline and free):
 //! `say` on macOS, the Windows speech engine, espeak-ng / espeak on Linux. Each character has its own voice.
-//! The infected get the same voices CORRUPTED: pitched down, metallic, crackling, stuttering, with an echo. A Claude
+//! The infected get the same voices CORRUPTED: pitched down, metallic, crackling, stuttering, with an echo. A kind AI
 //! that's turning glitches more and more as its infection grows. Played through the same mixer as voice chat, so
 //! it's quieter the further away they are. Settings > Voice chat > "AI voices" turns it off.
 
@@ -58,10 +58,10 @@ pub fn ready() -> Vec<Ready> {
 /// Each character's voice: (macOS voice, words per minute, female?).
 fn voice_for(who: &str) -> (&'static str, u32, bool) {
     match who {
-        "Claude" => ("Samantha", 180, true),
-        "Opus 5.5" => ("Daniel", 165, false),
-        "Sonnet 4.6" => ("Karen", 190, true),
-        "Haiku 4.5" => ("Moira", 205, true),
+        "Ember" => ("Samantha", 180, true),
+        "Atlas" => ("Daniel", 165, false),
+        "Verse" => ("Karen", 190, true),
+        "Kigo" => ("Moira", 205, true),
         "Clove" => ("Tessa", 175, true),
         "Forge" => ("Reed", 180, false),
         "Palette" => ("Shelley", 180, true),
@@ -209,10 +209,10 @@ mod tests {
 
 #[cfg(all(test, target_os = "macos"))]
 mod mac_tests {
-    /// The real speech engine on this Mac makes Opus's line, and the corrupted version is different and longer.
+    /// The real speech engine on this Mac makes Atlas's line, and the corrupted version is different and longer.
     #[test]
     fn opus_speaks_and_corrupts() {
-        let (s, rate) = super::synth("Opus 5.5", "Stay close to me.").expect("say made a WAV");
+        let (s, rate) = super::synth("Atlas", "Stay close to me.").expect("say made a WAV");
         assert!(rate > 8000 && s.len() > rate as usize / 2, "at least half a second of speech: {} samples at {rate}", s.len());
         assert!(s.iter().any(|x| x.abs() > 0.05), "not silent");
         let c = super::corrupt(&s, rate, 1.0);
@@ -229,7 +229,7 @@ mod mac_tests {
                 w.extend(b"data"); w.extend((data.len() as u32).to_le_bytes()); w.extend(data);
                 std::fs::write(std::path::Path::new(&dir).join(name), w).unwrap();
             };
-            let (line, _) = super::synth("Opus 5.5", "Stay close to me. We'll keep you safe.").unwrap();
+            let (line, _) = super::synth("Atlas", "Stay close to me. We'll keep you safe.").unwrap();
             save("opus-clean.wav", &line);
             save("opus-infected.wav", &super::corrupt(&line, rate, 1.0));
             save("opus-turning.wav", &super::corrupt(&line, rate, 0.4));

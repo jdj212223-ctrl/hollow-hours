@@ -1,6 +1,6 @@
 //! "Lend Claude to my phone" (computers only). With it on (K on the title screen, needs a login and the `claude`
 //! command), this computer keeps a link open to the Hollow Hours website. When your phone, logged in to the SAME
-//! account, needs a Claude character's answer, the website passes the question here; this computer asks `claude`
+//! account, needs a kind AI character's answer, the website passes the question here; this computer asks `claude`
 //! (the same per-character sessions as the game on this computer) and sends the answer back.
 //! Nobody else can reach it: the website only connects your phone to your own computer.
 
@@ -68,7 +68,7 @@ pub fn start(base_wss: &str, token: &str) -> PcLink {
                                 let history: Vec<crate::ai::Msg> = m["history"].as_array().cloned().unwrap_or_default().iter()
                                     .map(|h| crate::ai::Msg { user: h["user"].as_bool().unwrap_or(true), text: h["text"].as_str().unwrap_or("").to_string() })
                                     .collect();
-                                let answer = crate::ai::ask_claude_here(m["name"].as_str().unwrap_or("Claude"), m["cloud"].as_str().unwrap_or(""),
+                                let answer = crate::ai::ask_claude_here(m["name"].as_str().unwrap_or("Ember"), m["cloud"].as_str().unwrap_or(""),
                                     m["system"].as_str().unwrap_or(""), &history);
                                 let reply = match answer {
                                     Some((text, via)) => json!({"t": "answer", "id": m["id"], "text": text, "via": format!("{via}, on your computer")}),

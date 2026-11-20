@@ -1,9 +1,9 @@
-//! The Claude family's own lives (Infection mode). Instead of trailing behind you, each kind AI has a task:
+//! The kind family's own lives (Infection mode). Instead of trailing behind you, each kind AI has a task:
 //!  - Follow: stay close and guard you (there's always at least one bodyguard).
 //!  - Roam: walk around the house and the other places, checking on things.
 //!  - Forage: go and find food or water anywhere (walking through doors), pick it up and carry it back to you.
 //! They find their way with a path search over the tiles and the doors between maps, run from the infected, and
-//! report over the radio ("(radio) Haiku 4.5: green eyes on the beach").
+//! report over the radio ("(radio) Kigo: green eyes on the beach").
 
 use super::*;
 

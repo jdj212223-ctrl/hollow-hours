@@ -1,12 +1,12 @@
 //! Disguises and the cure (Infection mode).
 //!  - Disguise kits (Helix Store, 20 uses): Z puts one on you, and it stays on until you take it off (Z again).
 //!    The infected don't see or hear you and can't infect you. Fighting or cooking blows your cover (running doesn't).
-//!    Tell a Claude "disguise yourself" (or "disguise everyone") and they wear one too, for good.
+//!    Tell a kind AI "disguise yourself" (or "disguise everyone") and they wear one too, for good.
 //!  - Intel: disguised, stand close to an infected for a few seconds and you pick something up (an access-code
 //!    fragment, something overheard). With 3, a terminal in the Helix Lab synthesizes the ASTRA Cure: it cures you,
-//!    gives 3 antidotes, and goes out over the Helix network: every infected Claude comes back.
+//!    gives 3 antidotes, and goes out over the Helix network: every infected kind AI comes back.
 //!  - Antidotes (Helix Store, or brewed on the stove from a Helix chip + some water): C uses one. On yourself: -60%
-//!    infection (even at 100%: one last chance). Next to an infected Claude: stay close 3 seconds and they come back.
+//!    infection (even at 100%: one last chance). Next to an infected kind AI: stay close 3 seconds and they come back.
 //!  - Hiding (H) inside the cozy house slowly heals you (below 75%): inside these walls it doesn't spread.
 
 use super::*;
@@ -28,7 +28,7 @@ pub fn blow(g: &mut Game, why: &str) {
     }
 }
 
-/// You asked a Claude to disguise itself (or everyone). Returns what happened, for the log.
+/// You asked a kind AI to disguise itself (or everyone). Returns what happened, for the log.
 pub fn give_claudes(g: &mut Game, first: usize, everyone: bool) {
     let mut who: Vec<usize> = if everyone {
         (0..g.chars.len()).filter(|&i| g.chars[i].kind && !g.chars[i].infected).collect()
@@ -68,7 +68,7 @@ pub fn update(g: &mut Game, dt: f32) {
     if g.hidden && map_name(g.map).starts_with("The cozy house") && g.inf > 0.0 && g.inf < 0.75 && !g.lost_control {
         g.inf = (g.inf - dt / 300.0).max(0.0);
     }
-    // Curing a Claude: stay close until it's done.
+    // Curing a kind AI: stay close until it's done.
     if let Some((i, t)) = g.cure.as_mut() {
         let i = *i;
         let close = g.chars.get(i).is_some_and(|c| c.infected && c.map == g.map && c.pos.distance(g.pos) < 1.8 * T);
@@ -106,7 +106,7 @@ pub fn update(g: &mut Game, dt: f32) {
             g.log.push(format!("Helix staff clothes, green eye paint. You look like one of them until you take it off (Z). Don't fight, don't cook. (Kits left: {})", g.kits));
         }
     }
-    // C: an antidote (an infected Claude next to you, otherwise yourself).
+    // C: an antidote (an infected kind AI next to you, otherwise yourself).
     if pressed(KeyCode::C) && g.cure.is_none() {
         if g.antidotes == 0 { g.log.push("No antidotes. Buy 20 (H$ 40) or brew one on the stove from a Helix chip.".into()); return; }
         let near = (0..g.chars.len()).filter(|&i| {
@@ -130,7 +130,7 @@ pub fn update(g: &mut Game, dt: f32) {
             }
             g.sfx.pickup();
         } else {
-            g.log.push("You're not infected. Save it for a Claude.".into());
+            g.log.push("You're not infected. Save it for a kind AI.".into());
         }
     }
 }

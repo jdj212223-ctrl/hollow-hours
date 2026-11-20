@@ -108,7 +108,7 @@ pub fn carried(view: &RenderTarget, canvas_cam: &Camera2D, k: f32, speaking: &st
                 draw_sphere(p, 1.0, None, Color::new(0.03, 0.09, 0.05, 1.0));
             }
         }
-        for (name, off) in [("Claude", vec3(0.0, 1.0, 0.9)), ("Sonnet 4.6", vec3(-0.75, 0.85, 0.45)), ("Opus 5.5", vec3(0.75, 0.85, 0.45))] {
+        for (name, off) in [("Ember", vec3(0.0, 1.0, 0.9)), ("Verse", vec3(-0.75, 0.85, 0.45)), ("Atlas", vec3(0.75, 0.85, 0.45))] {
             let head = eye + off + vec3(0.0, 0.03 * (k * 3.2 + off.x).sin(), 0.0);
             let col = face_color(name);
             let glow = if name == speaking { 1.0 } else { 0.85 };
@@ -119,14 +119,14 @@ pub fn carried(view: &RenderTarget, canvas_cam: &Camera2D, k: f32, speaking: &st
     let _ = cam;
 }
 
-/// Waking up in your bed upstairs: the blanket in front of you, Opus on your left, Sonnet on your right, and Claude
+/// Waking up in your bed upstairs: the blanket in front of you, Atlas on your left, Verse on your right, and Ember
 /// (from line 10, walking in) at the foot of the bed. `who` is talking.
 pub fn bedroom(view: &RenderTarget, canvas_cam: &Camera2D, t: f32, who: &str, claude_in: Option<f32>) {
     let eye = vec3(0.0, 0.95 + 0.01 * (t * 0.9).sin(), -0.2);
     let look = vec3(0.0, 1.0, 2.5);
     let pos = |name: &str| match name {
-        "Opus 5.5" => vec3(1.05, 0.0, 1.0), // +x is screen-left looking down +z
-        "Sonnet 4.6" => vec3(-1.05, 0.0, 1.0),
+        "Atlas" => vec3(1.05, 0.0, 1.0), // +x is screen-left looking down +z
+        "Verse" => vec3(-1.05, 0.0, 1.0),
         _ => vec3(0.0, 0.0, 3.1),
     };
     let speaker = if who == "You" { eye } else { pos(who) + vec3(0.0, 1.0, 0.0) };
@@ -145,18 +145,18 @@ pub fn bedroom(view: &RenderTarget, canvas_cam: &Camera2D, t: f32, who: &str, cl
         let face = |name: &str| face_color(name);
         let lean = |x: f32| vec3(0.0, 0.0, 0.04 * (t * 0.8 + x).sin());
         let at = |me: &str| if who == me { eye } else { speaker };
-        person(pos("Opus 5.5") + lean(1.0), face("Opus 5.5"), at("Opus 5.5"), 1.05);
-        person(pos("Sonnet 4.6") + lean(2.0), face("Sonnet 4.6"), at("Sonnet 4.6"), 1.05);
+        person(pos("Atlas") + lean(1.0), face("Atlas"), at("Atlas"), 1.05);
+        person(pos("Verse") + lean(2.0), face("Verse"), at("Verse"), 1.05);
         if let Some(a) = claude_in {
-            let c = face("Claude");
-            let p = pos("Claude") + vec3((1.0 - a) * 2.2, 0.0, 0.0);
-            person(p, Color::new(c.r, c.g, c.b, a.max(0.05)), at("Claude"), 1.0);
+            let c = face("Ember");
+            let p = pos("Ember") + vec3((1.0 - a) * 2.2, 0.0, 0.0);
+            person(p, Color::new(c.r, c.g, c.b, a.max(0.05)), at("Ember"), 1.0);
         }
     });
-    for (name, show) in [("Opus 5.5", true), ("Sonnet 4.6", true), ("Claude", claude_in.is_some())] {
+    for (name, show) in [("Atlas", true), ("Verse", true), ("Ember", claude_in.is_some())] {
         if !show { continue; }
-        let a = if name == "Claude" { claude_in.unwrap_or(0.0) } else { 1.0 };
-        let p = pos(name) + vec3(if name == "Claude" { (1.0 - a) * 2.2 } else { 0.0 }, 1.55, 0.0);
+        let a = if name == "Ember" { claude_in.unwrap_or(0.0) } else { 1.0 };
+        let p = pos(name) + vec3(if name == "Ember" { (1.0 - a) * 2.2 } else { 0.0 }, 1.55, 0.0);
         label(&cam, p, name, a);
     }
 }
@@ -241,14 +241,14 @@ pub fn title(view: &RenderTarget, canvas_cam: &Camera2D, t: f32, who: &[(String,
         // The family.
         for (i, (name, col, talking)) in who.iter().enumerate() {
             let base = spot(i);
-            let scale = if name.contains("Haiku") { 0.8 } else if name.contains("Opus") { 1.08 } else { 1.0 };
+            let scale = if name.contains("Kigo") { 0.8 } else if name.contains("Atlas") { 1.08 } else { 1.0 };
             let bob = if calm { 0.0 } else { 0.015 * (t * 1.6 + i as f32).sin() };
             let hop = if *talking && !calm { 0.04 * (t * 9.0).sin().abs() } else { 0.0 };
             person(base + vec3(0.0, bob + hop, 0.0), *col, eye, scale);
         }
     });
     for (i, (name, _, talking)) in who.iter().enumerate() {
-        let scale = if name.contains("Haiku") { 0.8 } else { 1.0 };
+        let scale = if name.contains("Kigo") { 0.8 } else { 1.0 };
         // Name tags at three heights in turn, so neighbours' names never run into each other.
         let up = (i % 3) as f32 * 0.27 + if row_back(i, n) { 0.12 } else { 0.0 };
         label(&cam, spot(i) + vec3(0.0, 1.45 * scale + up, 0.0), name, if *talking { 1.0 } else { 0.75 });

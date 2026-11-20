@@ -84,13 +84,13 @@ pub fn update(g: &mut Game, dt: f32) {
         g.fear = (g.fear + 0.3).min(1.0);
         g.vest.play(haptics::Effect::Tense);
         g.log.push(format!("CRACK! {name} smashed through the wall."));
-        // Into the house: Haiku sounds the alarm from the attic, and the music kicks in.
+        // Into the house: Kigo sounds the alarm from the attic, and the music kicks in.
         if map_name(m).starts_with("The cozy house") {
             if g.breach_t <= 0.0 {
                 let name = map_name(m);
                 let floor = name.strip_prefix("The cozy house: ").unwrap_or("ground floor");
-                g.log.push(format!("(radio) Haiku 4.5: BREACH. / {floor}. / basement, now."));
-                g.log.push("(radio) Claude: We'll lead them around the house. Get to the basement and stay quiet. You never do the circling.".into());
+                g.log.push(format!("(radio) Kigo: BREACH. / {floor}. / basement, now."));
+                g.log.push("(radio) Ember: We'll lead them around the house. Get to the basement and stay quiet. You never do the circling.".into());
             }
             g.breach_t = 60.0;
         }

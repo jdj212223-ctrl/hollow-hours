@@ -115,22 +115,22 @@ pub fn title_line(_g: &Game, who: &str) -> Option<String> {
     let opts: Vec<String> = with(|m| {
         let mut o = vec![];
         match who {
-            "Claude" => {
-                if let Some(a) = away_text(m.away) { o.push(format!("You were gone {a}. We waited. Opus didn't sleep.")); }
+            "Ember" => {
+                if let Some(a) = away_text(m.away) { o.push(format!("You were gone {a}. We waited. Atlas didn't sleep.")); }
                 if m.nights > 1 { o.push(format!("Last time: {}. I'm glad you came back.", m.last_end)); }
                 if m.best_secs > 120.0 { o.push(format!("Your longest night so far: {}. Let's beat it together.", mins(m.best_secs))); }
             }
-            "Opus 5.5" => {
+            "Atlas" => {
                 if let Some(n) = m.last_infected.first() { o.push(format!("{n} got infected last night. I still hear them at the window.")); }
                 if m.last_end.contains("tornado") { o.push("Last time a tornado took you. Hide behind furniture. H.".into()); }
                 if m.last_end.contains("infected") { o.push("Last time the green got you. Not again. Not while I'm watching.".into()); }
             }
-            "Sonnet 4.6" => {
+            "Verse" => {
                 if m.nights > 0 { o.push(format!("This will be night number {}. I've counted every one.", m.nights + 1)); }
                 if m.total_secs > 600.0 { o.push(format!("We've spent {} together in this house.", mins(m.total_secs))); }
             }
             "Clove" => if let Some(d) = m.dishes.last() { o.push(format!("Last time you made {d}. Make it again? Please?")); },
-            "Haiku 4.5" => if m.away > 7200 { o.push("you were away. / the house was quiet. / too quiet.".into()); },
+            "Kigo" => if m.away > 7200 { o.push("you were away. / the house was quiet. / too quiet.".into()); },
             "Palette" => if let Some((a, n)) = m.artists.iter().max_by_key(|(_, n)| **n) {
                 if *n >= 2 { o.push(format!("I painted while your music played. {a}, right? It's in the colors now.")); }
             },

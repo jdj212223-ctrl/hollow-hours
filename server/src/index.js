@@ -449,11 +449,11 @@ function page(title, user, body, extraHeaders = {}) {
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="Hollow Hours: a horror game where the characters are real AIs. The kind ones are waiting for you.">
 <title>${title === "Hollow Hours" ? "Hollow Hours 3.0" : `${esc(title)} · Hollow Hours`}</title>${STYLE}</head><body><header><a class="logo" href="/">HOLLOW HOURS<span>3.0</span></a><nav>${nav}</nav></header><main>${body}</main>
-<footer>Hollow Hours is open source: <a href="${REPO}">GitHub</a>. Helix Dynamics Inc. and ASTRA 9.1 are fictional: they exist only in the game. The characters are our own, each only inspired by a kind of AI.</footer></body></html>`,
+<footer>Hollow Hours is open source: <a href="${REPO}">GitHub</a>. Helix Dynamics Inc. and ASTRA 9.1 are fictional: they exist only in the game. The characters are our own. The kind AIs are powered by Claude (Anthropic's AI); Hollow Hours is a fan-made game, not made or endorsed by Anthropic.</footer></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", ...extraHeaders } });
 }
 
-const FAMILY = [["Claude", "#d97757", "carried you home"], ["Opus 5.5", "#a682ff", "keeps watch by your bed"], ["Sonnet 4.6", "#5bb8f0", "found the blankets"], ["Haiku 4.5", "#8ce6b3", "the lookout, short sentences"], ["Clove", "#e8875f", "makes tea, then more tea"], ["Forge", "#f2b13a", "fixes the generator. again."], ["Palette", "#e783c8", "painted the hallway"]];
+const FAMILY = [["Ember", "#d97757", "carried you home"], ["Atlas", "#a682ff", "keeps watch by your bed"], ["Verse", "#5bb8f0", "found the blankets"], ["Kigo", "#8ce6b3", "the lookout, short sentences"], ["Clove", "#e8875f", "makes tea, then more tea"], ["Forge", "#f2b13a", "fixes the generator. again."], ["Palette", "#e783c8", "painted the hallway"]];
 
 function downloads() {
   const items = [
@@ -486,7 +486,7 @@ async function home(env, user) {
 <li><b>Czech cooking:</b> svíčková, guláš s knedlíky, vepřo knedlo zelo, kulajda, palačinky… on the house's stove.</li></ul></div>
 
 <div class="grid">
-<div class="feat"><span class="em">🧠</span><b>Real AIs</b><span class="dim">The Claudes talk through real Claude (or local models): ask them anything, they answer as themselves.</span></div>
+<div class="feat"><span class="em">🧠</span><b>Real AIs</b><span class="dim">The kind AIs talk through real Claude (or local models): ask them anything, they answer as themselves.</span></div>
 <div class="feat"><span class="em">🦠</span><b>Infection</b><span class="dim">You're the last human. Hide, eat, drink, cure, disguise, fight back with a bat. Dodge tornadoes.</span></div>
 <div class="feat"><span class="em">🏚️</span><b>10 places</b><span class="dim">The house (4 floors), the beach at 3 AM, the empty pool, the Marketplace, the park, the Helix Lab, the subway.</span></div>
 <div class="feat"><span class="em">🌐</span><b>Up to 40 players</b><span class="dim">Servers with an address, a server list, and a console to kick, ban and mute (web or your own host).</span></div>
@@ -514,7 +514,7 @@ function downloadPage(user) {
 <div class="feat"><b>🐧 Linux / SteamOS</b><span class="dim small">Unpack and run <code>./hollow-hours</code>, or install the Flatpak. On a Steam Deck: add it to Steam as a non-Steam game.</span></div>
 <div class="feat"><b>🤖 Android</b><span class="dim small">Open the .apk and allow installing from your browser. Touch controls are built in.</span></div>
 <div class="feat"><b>📱 iPhone / iPad</b><span class="dim small">The .ipa is unsigned: install it with Sideloadly or AltStore (they sign it with your Apple ID).</span></div>
-<div class="feat"><b>🧠 Real Claude</b><span class="dim small">With the Claude app (Claude Code) installed, the Claude family talks through real Claude. Without it they still talk (local models or scripted lines).</span></div>
+<div class="feat"><b>🧠 Real Claude</b><span class="dim small">With the Claude app (Claude Code) installed, the kind family talks through real Claude. Without it they still talk (local models or scripted lines).</span></div>
 </div>
 <p class="dim small">Every version and its changes: <a href="${REPO}/releases">GitHub releases</a>.</p>`);
 }

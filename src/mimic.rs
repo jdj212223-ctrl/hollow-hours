@@ -1,7 +1,7 @@
 //! The Mimic (Infection mode): an infected that looks like a human, wears YOUR name, and types like you. It learns
-//! from what you've typed to the Claudes (lowercase, "u", "plz", typos...) and, after a few minutes, calls them over
+//! from what you've typed to the kind ones (lowercase, "u", "plz", typos...) and, after a few minutes, calls them over
 //! the radio as if it were you: "guys come to the beach i found water". The ones who trust it walk over... and get
-//! infected. Counters: stay near your Claudes (they won't leave the real you), or tell one of them "that's the mimic"
+//! infected. Counters: stay near your kind ones (they won't leave the real you), or tell one of them "that's the mimic"
 //! / "not me" / "fake", and they ignore the calls for a while. Get too close and it drops the act.
 
 use super::*;
@@ -61,7 +61,7 @@ fn system_prompt(examples: &[String], place: &str, thing: &str) -> String {
              the others to come to {place} because they found {thing}. Output only the message, nothing else.")
 }
 
-/// Every frame: wait, call the Claudes in your voice, wait for them... and drop the act if you come too close.
+/// Every frame: wait, call the kind ones in your voice, wait for them... and drop the act if you come too close.
 pub fn update(g: &mut Game, dt: f32) {
     if g.mimic_warned { g.mimic_warned = false; warned(g); }
     if guest(g) { return; }
@@ -106,7 +106,7 @@ pub fn reply(g: &mut Game, text: String) {
     if !line.is_empty() { call(g, line); }
 }
 
-/// It speaks on the radio as you, and the Claudes who aren't with the real you go to it.
+/// It speaks on the radio as you, and the kind ones who aren't with the real you go to it.
 fn call(g: &mut Game, line: String) {
     let Some(i) = g.chars.iter().position(|c| c.mimic && c.crazy <= 0.0) else { return };
     let (name, mm, mp) = (g.chars[i].name, g.chars[i].map, g.chars[i].pos);
@@ -133,7 +133,7 @@ fn call(g: &mut Game, line: String) {
     }
 }
 
-/// You told a Claude it's the mimic: they stop trusting the radio for a while and come back.
+/// You told a kind AI it's the mimic: they stop trusting the radio for a while and come back.
 pub fn warned(g: &mut Game) {
     g.trust_t = 90.0;
     let mimic_at = g.chars.iter().find(|c| c.mimic).map(|c| (c.map, c.pos));

@@ -1,5 +1,5 @@
 //! Worlds (title: W): Infection games you can leave and come back to, like Minecraft worlds. Each world is a file in
-//! the game's folder (worlds/<name>.json): where you are, your supplies, the Claudes (who's infected), the broken
+//! the game's folder (worlds/<name>.json): where you are, your supplies, the kind ones (who's infected), the broken
 //! walls, your kits, antidotes, intel, credits and pantry. It saves every 30 s while you play and when you leave.
 
 use super::*;
@@ -147,7 +147,7 @@ pub fn load(g: &mut Game, slug_: &str) -> bool {
     }
     let mins = (g.survived / 60.0) as u32;
     g.log = vec![format!("Back in {}. ({mins} min survived so far.)", g.world.clone().unwrap_or_default()),
-        "Claude (radio): You're back. We kept your place.".into()];
+        "Ember (radio): You're back. We kept your place.".into()];
     g.screen = Screen::Play;
     true
 }

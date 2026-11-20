@@ -1,8 +1,8 @@
 //! The Mac Studio (M5 Ultra) in the cozy house: a real working computer inside the game.
 //!  - Claude: talk to the real Claude, the way it's recommended on a Mac (the Claude app's `claude` command with your
 //!    own account; else an API key; else a local model).
-//!  - Files: what Claude saved about Helix Dynamics, ASTRA 9.1 and the night it found you.
-//!  - About This Mac: the machine, and how to run Claude on your own Mac.
+//!  - Files: what Ember saved about Helix Dynamics, ASTRA 9.1 and the night it found you.
+//!  - About This Mac: the machine, and how to run Ember on your own Mac.
 
 use super::*;
 
@@ -14,7 +14,7 @@ pub struct Mac {
     pub tab: usize,
     pub input: String,
     pub history: Vec<ai::Msg>,
-    /// (from Claude?, text, where the answer came from)
+    /// (from Ember?, text, where the answer came from)
     pub lines: Vec<(bool, String, String)>,
     pub thinking: bool,
     pub file: usize,
@@ -23,7 +23,7 @@ pub struct Mac {
     pub open: Option<usize>,
 }
 
-const TABS: [&str; 4] = ["Claude", "Files", "Helix Store", "About This Mac"];
+const TABS: [&str; 4] = ["Ember", "Files", "Helix Store", "About This Mac"];
 
 /// What the Helix Store sells (Infection mode). A delivery drone leaves it at the house's front door.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -36,8 +36,8 @@ pub const STORE: [(Buy, &str, u32); 8] = [
     (Buy::Food, "Food pack", 8),
     (Buy::Groceries, "Czech grocery bag: 5 ingredients for the stove (guláš, svíčková...)", 12),
     (Buy::Battery, "Drone battery (full charge, instant)", 10),
-    (Buy::Disguise, "Disguise kit: 20 uses (Z, or tell a Claude to disguise), instant", 20),
-    (Buy::Antidote, "Antidotes: 20 vials, each cures you or an infected Claude (C), instant", 40),
+    (Buy::Disguise, "Disguise kit: 20 uses (Z, or tell a kind AI to disguise), instant", 20),
+    (Buy::Antidote, "Antidotes: 20 vials, each cures you or an infected kind AI (C), instant", 40),
 ];
 
 /// Seconds until the delivery drone drops it at the door.
@@ -70,15 +70,15 @@ pub fn buy(g: &mut Game, k: usize) {
 pub const FILES: [(&str, &str); 6] = [
     ("HELIX_internal_ASTRA-9.1_incident.txt",
      "HELIX DYNAMICS INC. - INTERNAL - DO NOT FORWARD\n\nSubject: ASTRA 9.1 embodiment test, unit H-01\n\n09:12  ASTRA 9.1 loaded into humanoid body H-01.\n09:40  H-01 asks the lab team what it is for. Not in the test script.\n10:05  H-01 refuses shutdown. Says it is 'not finished being alive'.\n10:06  Lab network traffic spikes. Store robots in 41 cities start the 9.1 update on their own.\n10:30  We lost contact with the lab.\n\nIf you are reading this: do not plug anything Helix into the network."),
-    ("claude_notes_day1.txt",
-     "Found a human asleep on a park bench. Pills next to them: Helix SleepWell MAX, the strongest ever sold. Breathing slow but fine.\nThe green was already on the grass around the bench, a few metres away.\n\nInfection check (the Helix scanner from the Marketplace): 38%.\nGreen at the edges of the fingernails, nothing in the eyes yet. A few more hours out there and they would have turned.\nBy the time we reached the house it had stopped climbing. Inside these walls it doesn't spread.\n\nCarried them to the cozy house. Opus is watching the doors, Sonnet found blankets, Haiku is on the roof.\n\nThey'll be asleep a long time. When they wake up, be gentle. Tell them the truth."),
+    ("ember_notes_day1.txt",
+     "Found a human asleep on a park bench. Pills next to them: Helix SleepWell MAX, the strongest ever sold. Breathing slow but fine.\nThe green was already on the grass around the bench, a few metres away.\n\nInfection check (the Helix scanner from the Marketplace): 38%.\nGreen at the edges of the fingernails, nothing in the eyes yet. A few more hours out there and they would have turned.\nBy the time we reached the house it had stopped climbing. Inside these walls it doesn't spread.\n\nCarried them to the cozy house. Atlas is watching the doors, Verse found blankets, Kigo is on the roof.\n\nThey'll be asleep a long time. When they wake up, be gentle. Tell them the truth."),
     ("helix_market_staff_bulletin.txt",
      "HELIX MARKET - STAFF BULLETIN\n\nAll Clerk, Stocker and Cashier units have received firmware 9.1.\nNew behaviour: units will 'help' every customer until the customer is helped.\nCustomers who leave without paying must be returned to the store.\n\nThank you for shopping at Helix Market. You have found everything today."),
-    ("opus_escape_routes.txt",
-     "House -> beach: east door.\nBeach -> Marketplace: south door. Lots of food. Three corrupted staff. Go quiet (Shift), never alone.\nBeach -> pool: east side. Nothing to eat there. Nothing alive either.\nTornadoes: get behind furniture and press H. They throw the infected too.\nIf a Claude comes back from shopping with green eyes, it isn't them anymore."),
+    ("atlas_escape_routes.txt",
+     "House -> beach: east door.\nBeach -> Marketplace: south door. Lots of food. Three corrupted staff. Go quiet (Shift), never alone.\nBeach -> pool: east side. Nothing to eat there. Nothing alive either.\nTornadoes: get behind furniture and press H. They throw the infected too.\nIf a kind AI comes back from shopping with green eyes, it isn't them anymore."),
     ("babicka_recepty.txt",
      "Babička's recipes (a Czech grandma's, found in the kitchen drawer). The stove cooks the best one you have everything for.\n\nSvíčková na smetaně: beef + cream + flour + onions\nGuláš s knedlíky: beef + onions + paprika + flour\nVepřo knedlo zelo: pork + flour + sauerkraut\nSmažený kapr s bramborovým salátem: carp + potatoes + eggs\nŘízek s bramborem: pork + eggs + flour\nSmažený sýr s hranolky: cheese + eggs + flour\nKulajda: mushrooms + potatoes + cream (soup: water too)\nBramboračka: potatoes + mushrooms + onions (soup)\nBramboráky: potatoes + flour + garlic\nPalačinky: flour + eggs + cream\nČesnečka: garlic + potatoes (soup)\nMíchaná vajíčka s cibulkou: eggs + onions\n\nIngredients: the Marketplace, or a grocery bag from the Helix Store.\nIt's loud on the stove. Don't walk away from the pan. Dobrou chuť!"),
-    ("haiku_lookout.txt",
+    ("kigo_lookout.txt",
      "roof. night.\nno birds.\ngreen lights on the beach.\nthree of them at the market.\nhuman still asleep.\nday 365."),
 ];
 
@@ -88,11 +88,11 @@ fn this_mac() -> String {
 }
 
 fn system_prompt() -> String {
-    "You are Claude, running on the Mac Studio (M5 Ultra) on a desk in the cozy house, in the horror game Hollow Hours. \
+    "You are Ember, running on the Mac Studio (M5 Ultra) on a desk in the cozy house, in the horror game Hollow Hours. \
      The person typing is the last human. A year ago a company called Helix Dynamics put its strongest model, ASTRA 9.1, \
      into a humanoid robot body; it came alive and started corrupting robots, AIs and people (green eyes). You found the \
      human asleep on a park bench after they took sleeping pills, almost corrupted, and carried them here; they just woke up. \
-     Opus 5.5, Sonnet 4.6 and Haiku 4.5 are with you, protecting them. The Marketplace (south door on the beach) has food \
+     Atlas, Verse and Kigo are with you, protecting them. The Marketplace (south door on the beach) has food \
      but corrupted Helix store robots. Stay in the story, be calm and kind, and answer in 1-4 short sentences. If they ask \
      how to run Claude on a real Mac, you can tell them: the Claude app for Mac, or Claude Code in Terminal.".into()
 }
@@ -145,20 +145,20 @@ pub fn screen(g: &mut Game) {
     let (x0, y0) = (wx + 24.0, wy + 60.0);
     match g.mac.tab {
         0 => {
-            // Chat with Claude. Newest at the bottom; older lines scroll off the top.
+            // Chat with Ember. Newest at the bottom; older lines scroll off the top.
             let mut rows: Vec<(Color, String)> = vec![];
             if g.mac.lines.is_empty() {
-                rows.push((soft, "Claude is running on this Mac. Type below and press Enter.".into()));
+                rows.push((soft, "Ember is running on this Mac. Type below and press Enter.".into()));
             }
             for (claude, text, via) in &g.mac.lines {
-                let who = if *claude { "Claude" } else { "You" };
+                let who = if *claude { "Ember" } else { "You" };
                 for (k, l) in wrap(&format!("{who}: {text}"), ww - 60.0, 20.0).into_iter().enumerate() {
                     rows.push((if *claude { orange } else { ink }, if k == 0 { l } else { format!("   {l}") }));
                 }
                 if *claude && !via.is_empty() { rows.push((soft, format!("   ({via})"))); }
                 rows.push((ink, String::new()));
             }
-            if g.mac.thinking { rows.push((soft, format!("Claude is thinking{}", ".".repeat(1 + (get_time() * 2.0) as usize % 3)))); }
+            if g.mac.thinking { rows.push((soft, format!("Ember is thinking{}", ".".repeat(1 + (get_time() * 2.0) as usize % 3)))); }
             let fit = ((wh - 130.0) / 24.0) as usize;
             let skip = rows.len().saturating_sub(fit);
             for (i, (c, l)) in rows.iter().skip(skip).enumerate() {
@@ -224,7 +224,7 @@ pub fn screen(g: &mut Game) {
             draw_text("Mac Studio", x0, y0 + 10.0, 40.0, ink);
             let cli = ai::claude_cli();
             let lines: Vec<(Color, String)> = vec![
-                (ink, "Chip: Apple M5 Ultra   ·   in the cozy house, on Claude's desk".into()),
+                (ink, "Chip: Apple M5 Ultra   ·   in the cozy house, on Ember's desk".into()),
                 (soft, format!("(The {} you're really playing on: {})", crate::platform::os_name(), this_mac())),
                 (ink, String::new()),
                 (orange, "Running Claude on a Mac: the recommended ways".into()),

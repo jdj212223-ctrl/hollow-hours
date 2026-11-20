@@ -509,6 +509,8 @@ fn characters() -> Vec<Character> {
           "a Helix lab robot that was in the room when ASTRA 9.1 woke up; you repeat test numbers and say 'H-01 is not finished being alive'", 5, 8.5, 11.5),
         c("Lab Unit A2", "a Helix lab assistant robot", Color::new(0.8, 0.84, 0.88, 1.0), "ollama", "qwen3:4b-instruct",
           "a Helix lab robot guarding the empty pod; you insist everyone must stay for 'the next embodiment test'", 5, 21.5, 15.5),
+        c("Lab Unit A3", "a Helix lab assistant robot", Color::new(0.78, 0.8, 0.86, 1.0), "ollama", "qwen3:4b-instruct",
+          "a Helix lab robot that guards the terminals in the north-east room; you keep saying 'access restricted: ASTRA_CURE.bin' and ask for staff badges", 5, 21.5, 2.5),
         c("Conductor", "a Helix transit robot", Color::new(0.6, 0.55, 0.75, 1.0), "ollama", "qwen3:4b-instruct",
           "a Helix subway robot announcing trains that never come; you ask for tickets and say all lines now go 'to the network'", 6, 15.5, 5.5),
         c("Night Commuter", "someone who was on the last train", Color::new(0.55, 0.5, 0.45, 1.0), "ollama", "qwen3:4b-instruct",

@@ -31,10 +31,10 @@ impl Default for Updater { fn default() -> Self { Updater { state: Arc::new(Mute
 /// This build's release number (None for a build made by hand).
 pub fn build() -> Option<u32> { option_env!("HH_BUILD")?.parse().ok() }
 
-/// "3.0.45" for a release, "3.0.0 (your own build)" otherwise.
+/// "3.0.45" for a release, "3.0.0-dev" for a build made by hand.
 pub fn version() -> String {
     let (ma, mi) = major_minor(env!("CARGO_PKG_VERSION"));
-    match build() { Some(b) => format!("{ma}.{mi}.{b}"), None => format!("{} (your own build)", env!("CARGO_PKG_VERSION")) }
+    match build() { Some(b) => format!("{ma}.{mi}.{b}"), None => format!("{}-dev", env!("CARGO_PKG_VERSION")) }
 }
 
 fn major_minor(v: &str) -> (u32, u32) {

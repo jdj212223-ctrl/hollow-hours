@@ -244,5 +244,5 @@ pub fn draw(g: &Game, view: &RenderTarget, cam: &Camera2D) {
         update::State::Failed(_) => format!("v{}  ·  update failed (try later)", update::version()),
         _ => format!("v{}", update::version()),
     };
-    draw_text(&ver, VW - measure_text(&ver, None, 16, 1.0).width - 16.0, VH - 26.0, 16.0, soft);
+    draw_text(&ver, VW - measure_text(&ver, None, 16, 1.0).width - 16.0, VH - 50.0, 16.0, soft);
 }

@@ -249,7 +249,8 @@ pub fn title(view: &RenderTarget, canvas_cam: &Camera2D, t: f32, who: &[(String,
     });
     for (i, (name, _, talking)) in who.iter().enumerate() {
         let scale = if name.contains("Haiku") { 0.8 } else { 1.0 };
-        let up = if row_back(i, n) { 0.32 } else { 0.0 };
+        // Name tags at three heights in turn, so neighbours' names never run into each other.
+        let up = (i % 3) as f32 * 0.27 + if row_back(i, n) { 0.12 } else { 0.0 };
         label(&cam, spot(i) + vec3(0.0, 1.45 * scale + up, 0.0), name, if *talking { 1.0 } else { 0.75 });
     }
 }

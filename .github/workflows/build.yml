@@ -103,7 +103,20 @@ jobs:
   # The Linux build packed as a Flatpak.
   flatpak:
     needs: build
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            linux: Hollow-Hours-Linux
+            tarball: Hollow-Hours-Linux-x86_64.tar.gz
+            out: Hollow-Hours.flatpak
+          # ARM Flatpak (Asahi Linux on Apple Silicon, Raspberry Pi, ARM laptops), built natively.
+          - runner: ubuntu-22.04-arm
+            linux: Hollow-Hours-Linux-ARM64
+            tarball: Hollow-Hours-Linux-aarch64.tar.gz
+            out: Hollow-Hours-aarch64.flatpak
+    runs-on: ${{ matrix.runner }}
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
       options: --privileged
@@ -111,23 +124,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: Hollow-Hours-Linux
-      - run: tar xzf Hollow-Hours-Linux-x86_64.tar.gz
+          name: ${{ matrix.linux }}
+      - run: tar xzf ${{ matrix.tarball }}
       # Built directly with the runtime already in the image (the ready-made action tried to update it and failed).
       - name: Build the Flatpak
         run: |
           flatpak-builder --disable-rofiles-fuse --force-clean --repo=repo build flatpak/io.github.jdj212223_ctrl.HollowHours.yml
-          flatpak build-bundle repo Hollow-Hours.flatpak io.github.jdj212223_ctrl.HollowHours
-          ls -la Hollow-Hours.flatpak
+          flatpak build-bundle repo ${{ matrix.out }} io.github.jdj212223_ctrl.HollowHours
+          ls -la ${{ matrix.out }}
       - uses: actions/upload-artifact@v4
         with:
-          name: Hollow-Hours-Flatpak
-          path: Hollow-Hours.flatpak
+          name: ${{ matrix.out }}
+          path: ${{ matrix.out }}
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: Hollow-Hours.flatpak
+          files: ${{ matrix.out }}
 
   # Android (.apk) with touch controls, built with today's tools (android/build-apk.sh).
   android:
@@ -214,7 +227,7 @@ jobs:
             echo "**What's new**"
             if [ -n "$last" ]; then git log --pretty='- %s' "$last"..HEAD; else git log -20 --pretty='- %s'; fi
             echo
-            echo "**Downloads:** macOS (Apple Silicon + Intel), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Linux ARM64 (Raspberry Pi, Asahi), Flatpak, Android (.apk), iPhone/iPad (.ipa, sideload)."
+            echo "**Downloads:** macOS (Apple Silicon + Intel), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Linux ARM64 (Raspberry Pi, Asahi), Flatpak (x86_64 + ARM), Android (.apk), iPhone/iPad (.ipa, sideload)."
             echo "First launch: macOS right-click → Open; Windows \"More info\" → \"Run anyway\"."
             echo
             echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"

@@ -591,7 +591,11 @@ async function modsPage(env, user, msg = "") {
   const { results } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, CASE WHEN u.hide_author = 1 THEN 'anonymous' ELSE u.name END AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 200").all();
   return page("Mods", user, `<div class="card"><h2 style="margin-top:0">Mods (.hh)</h2>${msg}
 ${results.map((m) => `<p><a href="/mods/${m.id}"><b>${esc(m.name)}</b></a> ${esc(m.version)} <span class="dim small">by ${esc(m.author)} · id <code>${m.id}</code></span><br><span class="small">${esc(m.description)}</span></p>`).join("") || '<p class="dim">No mods yet.</p>'}</div>
-<div class="card"><h2 style="margin-top:0">Make a mod</h2><p>A <code>.hh</code> file is a zip with two files. It's <b>data only</b>: it can't run code on anyone's computer.</p>
+<div class="card"><h2 style="margin-top:0">Make a mod</h2><p>A <code>.hh</code> file is a zip with two files. Mods on the website are <b>data only</b>: they can't run code on anyone's computer.</p>
+<p><b>New in 4.0: Python mods.</b> A mod in your <b>own</b> mods folder (<code>mods/local</code>) can also have a <code>script.py</code> with
+<code>on_start</code>, <code>on_tick</code>, <code>on_night</code> and <code>on_over</code>, returning actions like <code>say("Ember", "...")</code>, <code>log("...")</code>,
+<code>item("food")</code> or <code>give(water=0.2)</code>. Scripts run locked down (no files, no network, no other programs, a time limit) and never from servers.
+See the <a href="${REPO}/tree/main/mods/KindRadio">Kind Radio example</a>.</p>
 <p><code>hh.json</code>: <code>{"name": "Fast Infected", "version": "1.0", "description": "..."}</code></p>
 <p><code>content.json</code>: every part is optional. A mod can change the whole game:</p>
 <pre style="white-space:pre-wrap" class="small"><code>{ "intro": "One line when the game starts",

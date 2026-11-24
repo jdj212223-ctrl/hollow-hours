@@ -48,6 +48,7 @@ mod world;
 mod story;
 mod ui;
 mod mclink;
+mod pymod;
 use world::*;
 
 use serde_json::json;
@@ -468,6 +469,8 @@ struct Game {
     story: Option<story::Story>,
     /// The ending at the top of Helix Tower (story or normal Infection).
     ending: Option<story::Ending>,
+    /// Python mod scripts running (4.0 phase 3; local mods only).
+    py: pymod::Scripts,
 }
 
 /// Logged in to the website: the session token (never the password) and the display name.
@@ -572,8 +575,18 @@ fn local_mods() -> Vec<serde_json::Value> {
             serde_json::from_slice(&b).ok()
         };
         if p.is_file() && p.extension().is_none_or(|e| e != "hh") { continue; }
+        // 4.0: a local mod can have a script.py (run sandboxed, see pymod.rs).
+        let script = if p.is_dir() { std::fs::read_to_string(p.join("script.py")).ok() } else {
+            zip::ZipArchive::new(std::fs::File::open(&p).ok().unwrap_or_else(|| std::fs::File::open("/dev/null").unwrap())).ok().and_then(|mut z| {
+                let mut f = z.by_name("script.py").ok()?;
+                if f.size() > 100 * 1024 { return None; }
+                let mut t = String::new();
+                std::io::Read::read_to_string(&mut f, &mut t).ok()?;
+                Some(t)
+            })
+        };
         if let (Some(hh), Some(content)) = (read("hh.json"), read("content.json")) {
-            out.push(serde_json::json!({"name": hh["name"], "content": content}));
+            out.push(serde_json::json!({"name": hh["name"], "content": content, "script": script, "local": true}));
         }
     }
     out
@@ -804,6 +817,7 @@ fn apply_contents(g: &mut Game, mods: &[serde_json::Value]) {
     if g.rules.start.0 >= n { g.rules.start.0 = 0; }
     set_maps(maps);
     if !names.is_empty() { g.log.push(format!("Mods: {}", names.join(", "))); }
+    pymod::load(g, mods);
 }
 
 /// A mod's character as a real one (checked again: name, colour, place).
@@ -2226,6 +2240,7 @@ async fn main() {
         voice_hint: false,
         story: None,
         ending: None,
+        py: pymod::Scripts::default(),
         my_name: std::env::var("HOLLOW_NAME").map(|n| n.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(12).collect())
             .unwrap_or_else(|_| format!("Human-{}", rand::gen_range(10, 99))),
     };
@@ -2948,6 +2963,7 @@ fn typing(g: &mut Game, i: usize) {
 fn update(g: &mut Game, dt: f32) {
     // Story mode: a night's title card or the dawn after it holds the game.
     if g.screen == Screen::Play && story::update(g, dt) { return; }
+    pymod::update(g, dt);
     g.clock += dt;
     // Answers from the AIs.
     while let Ok(r) = g.brains.rx.try_recv() {

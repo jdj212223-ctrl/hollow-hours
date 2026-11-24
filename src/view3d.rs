@@ -124,7 +124,7 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     }
                 }
                 _ => {
-                    let f = if c == ',' { Color::new(floor.r * 1.1, floor.g * 1.05, floor.b * 0.9, 1.0) } else { floor };
+                    let f = if c == ',' { Color::new(floor.r * 1.1, floor.g * 1.05, floor.b * 0.9, 1.0) } else if c == 'r' { rug(m) } else if c == 'x' { mul(floor, 0.75) } else { floor };
                     let way = if c.is_ascii_uppercase() { super::passage::tile_kind(m, x as i32, y as i32) } else { None };
                     let f = if way == Some(super::passage::Kind::Path) { Color::new(0.9, 0.82, 0.45, 1.0) } else { mul(f, checker) };
                     // A stairwell down has no floor (its steps go below).
@@ -201,6 +201,7 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     draw_sphere(center + vec3(0.0, WALL_H * 0.75, 0.52), 0.07, None, Color::new(1.0, 0.15 + 0.1 * (t * 3.0).sin(), 0.12, 1.0));
                 }
                 's' => stove(&fog, center, t, g.fry_t > 0.0),
+                'c' | 'k' | 'f' | 'p' | 'h' | 'v' | 'q' | 'u' | 'e' | 'j' | 'i' | 'z' | 'x' => furniture(&fog, c, center, x, y, t, m),
                 'L' => {
                     draw_cylinder(center, 0.03, 0.05, 1.3, None, fog.at(Color::new(0.25, 0.25, 0.27, 1.0), center));
                     draw_sphere(center + vec3(0.0, 1.35, 0.0), 0.16, None, Color::new(1.0, 0.85, 0.5, 1.0));
@@ -334,6 +335,115 @@ pub fn render(g: &Game, view: &RenderTarget) {
 }
 
 /// Two eyes on the side of a head that faces the camera.
+/// The rug / path colour of a place: a red rug in the house, gravel on the beach and in the park, the yellow
+/// safety line in the Subway, grey carpet elsewhere.
+pub fn rug(m: usize) -> Color {
+    match map_name(m).as_str() {
+        n if n.starts_with("The cozy house") => Color::new(0.45, 0.14, 0.13, 1.0),
+        "The Park" | "The beach at 3 AM" => Color::new(0.5, 0.46, 0.38, 1.0),
+        "The Subway" => Color::new(0.85, 0.72, 0.15, 1.0),
+        _ => Color::new(0.3, 0.3, 0.34, 1.0),
+    }
+}
+
+/// The 4.0 furniture (one tile each; neighbours of the same kind join up).
+fn furniture(fog: &Fog, c: char, center: Vec3, x: usize, y: usize, t: f32, m: usize) {
+    let h = (x.wrapping_mul(73) ^ y.wrapping_mul(151)) as u32;
+    let house = map_name(m).starts_with("The cozy house");
+    let at = |off: Vec3| center + off;
+    match c {
+        'c' => {
+            // A couch (house) or a pool lounger.
+            let col = if house { Color::new(0.42, 0.16, 0.18, 1.0) } else { Color::new(0.85, 0.85, 0.82, 1.0) };
+            draw_cube(at(vec3(0.0, 0.22, 0.0)), vec3(1.0, 0.36, 0.8), None, fog.at(col, center));
+            draw_cube(at(vec3(0.0, 0.55, -0.32)), vec3(1.0, 0.5, 0.16), None, fog.at(mul(col, 0.85), center));
+            if house { draw_cube(at(vec3(0.0, 0.44, 0.05)), vec3(0.9, 0.1, 0.6), None, fog.at(mul(col, 1.2), center)); }
+        }
+        'k' => {
+            // A counter: the house's wooden kitchen, the lab's white benches, the shops' checkouts.
+            let (body, top) = if house { (Color::new(0.4, 0.28, 0.2, 1.0), Color::new(0.75, 0.72, 0.68, 1.0)) } else { (Color::new(0.72, 0.74, 0.76, 1.0), Color::new(0.9, 0.92, 0.94, 1.0)) };
+            draw_cube(at(vec3(0.0, 0.43, 0.0)), vec3(1.0, 0.86, 0.9), None, fog.at(body, center));
+            draw_cube(at(vec3(0.0, 0.88, 0.0)), vec3(1.02, 0.05, 0.94), None, fog.at(top, center));
+        }
+        'f' => {
+            let col = Color::new(0.86, 0.88, 0.9, 1.0);
+            draw_cube(at(vec3(0.0, 0.8, 0.0)), vec3(0.9, 1.6, 0.8), None, fog.at(col, center));
+            draw_cube(at(vec3(0.0, 1.05, 0.41)), vec3(0.88, 0.02, 0.02), None, fog.at(mul(col, 0.6), center));
+            draw_cube(at(vec3(0.3, 0.75, 0.42)), vec3(0.04, 0.4, 0.04), None, fog.at(Color::new(0.5, 0.5, 0.52, 1.0), center));
+        }
+        'p' => {
+            draw_cylinder(center, 0.18, 0.22, 0.35, None, fog.at(Color::new(0.55, 0.3, 0.2, 1.0), center));
+            let leaf = Color::new(0.12, 0.35 + 0.05 * (h % 3) as f32, 0.15, 1.0);
+            draw_sphere(at(vec3(0.0, 0.62, 0.0)), 0.32, None, fog.at(leaf, center));
+            draw_sphere(at(vec3(0.12, 0.85, 0.05)), 0.2, None, fog.at(mul(leaf, 1.2), center));
+        }
+        'h' => {
+            // A shop shelf, stocked with whatever is left.
+            draw_cube(at(vec3(0.0, 0.7, 0.0)), vec3(1.0, 1.4, 0.8), None, fog.at(Color::new(0.35, 0.32, 0.3, 1.0), center));
+            draw_cube(at(vec3(0.0, 1.36, 0.0)), vec3(1.02, 0.1, 0.84), None, fog.at(Color::new(0.75, 0.18, 0.2, 1.0), center));
+            draw_cube(at(vec3(0.0, 0.04, 0.0)), vec3(1.02, 0.08, 0.84), None, fog.at(Color::new(0.2, 0.2, 0.22, 1.0), center));
+            for k in 0..3 {
+                for j in 0..3 {
+                    let hh = h.wrapping_add(k * 7 + j * 13);
+                    if hh % 4 == 0 { continue; } // empty spots: it's been a year
+                    let col = [Color::new(0.85, 0.25, 0.2, 1.0), Color::new(0.95, 0.8, 0.3, 1.0), Color::new(0.3, 0.6, 0.9, 1.0), Color::new(0.4, 0.75, 0.35, 1.0)][(hh % 4) as usize];
+                    for side in [0.38, -0.38] { draw_cube(at(vec3(-0.33 + j as f32 * 0.33, 0.3 + k as f32 * 0.4, side)), vec3(0.24, 0.26, 0.1), None, fog.at(col, center)); }
+                }
+            }
+        }
+        'v' => {
+            draw_cube(at(vec3(0.0, 0.78, 0.0)), vec3(0.9, 1.56, 0.7), None, fog.at(Color::new(0.15, 0.2, 0.32, 1.0), center));
+            let glow = 0.75 + 0.25 * (t * 1.7 + x as f32).sin().max(0.0);
+            draw_cube(at(vec3(-0.12, 0.95, 0.36)), vec3(0.55, 0.9, 0.02), None, Color::new(0.35 * glow, 0.7 * glow, 1.0 * glow, 1.0));
+            draw_cube(at(vec3(0.3, 0.9, 0.36)), vec3(0.12, 0.3, 0.02), None, Color::new(0.9, 0.3, 0.3, 1.0));
+        }
+        'q' => {
+            draw_cylinder(center, 0.28, 0.28, WALL_H, None, fog.at(Color::new(0.55, 0.55, 0.57, 1.0), center + vec3(0.0, 0.8, 0.0)));
+            draw_cylinder(center, 0.34, 0.34, 0.12, None, fog.at(Color::new(0.4, 0.4, 0.42, 1.0), center));
+        }
+        'u' => {
+            draw_cylinder(center, 0.03, 0.03, 1.6, None, fog.at(Color::new(0.8, 0.8, 0.78, 1.0), center));
+            let col = if (x + y) % 2 == 0 { Color::new(0.85, 0.25, 0.25, 1.0) } else { Color::new(0.2, 0.45, 0.8, 1.0) };
+            draw_cylinder(at(vec3(0.0, 1.45, 0.0)), 0.04, 0.95, 0.3, None, fog.at(col, center));
+            draw_cube(at(vec3(0.5, 0.12, 0.35)), vec3(0.6, 0.04, 0.9), None, fog.at(Color::new(0.9, 0.85, 0.6, 1.0), center));
+        }
+        'e' => {
+            let k = 0.32 + (h % 3) as f32 * 0.06;
+            draw_sphere(at(vec3(0.0, k * 0.5, 0.0)), k, None, fog.at(Color::new(0.38, 0.38, 0.4, 1.0), center));
+            draw_sphere(at(vec3(0.2, k * 0.35, 0.15)), k * 0.6, None, fog.at(Color::new(0.33, 0.33, 0.35, 1.0), center));
+        }
+        'j' => {
+            let wave = 0.02 * (t * 1.1 + x as f32).sin();
+            draw_plane(at(vec3(0.0, -0.1 + wave, 0.0)), vec2(0.5, 0.5), None, fog.at(Color::new(0.05, 0.14, 0.2, 1.0), center));
+            if h % 3 == 0 { draw_cylinder(at(vec3(0.15, -0.06, 0.1)), 0.15, 0.15, 0.02, None, fog.at(Color::new(0.2, 0.5, 0.2, 1.0), center)); }
+        }
+        'i' => {
+            // A server rack: black, humming, blinking.
+            draw_cube(at(vec3(0.0, 0.85, 0.0)), vec3(0.9, 1.7, 0.85), None, fog.at(Color::new(0.06, 0.07, 0.08, 1.0), center));
+            for k in 0..6 {
+                let on = ((t * (2.0 + (h % 5) as f32) + k as f32 * 1.7).sin()) > 0.3;
+                let col = if on { if (h + k) % 4 == 0 { Color::new(1.0, 0.3, 0.25, 1.0) } else { Color::new(0.3, 1.0, 0.45, 1.0) } } else { Color::new(0.1, 0.15, 0.12, 1.0) };
+                for side in [0.43, -0.43] { draw_cube(at(vec3(-0.25 + (k % 3) as f32 * 0.25, 0.4 + (k / 3) as f32 * 0.6, side)), vec3(0.06, 0.04, 0.02), None, col); }
+            }
+        }
+        'z' => {
+            let col = Color::new(0.58, 0.43, 0.27, 1.0);
+            draw_cube(at(vec3(0.0, 0.3, 0.0)), vec3(0.8, 0.6, 0.8), None, fog.at(col, center));
+            draw_cube(at(vec3(0.0, 0.61, 0.0)), vec3(0.82, 0.02, 0.12), None, fog.at(Color::new(0.8, 0.72, 0.5, 1.0), center));
+            if h % 2 == 0 { draw_cube(at(vec3(0.1, 0.8, 0.05)), vec3(0.5, 0.38, 0.5), None, fog.at(mul(col, 0.9), center)); }
+        }
+        'x' => {
+            // Debris: bits of glass and ceiling.
+            for k in 0..4u32 {
+                let hh = h.wrapping_mul(k + 3);
+                let off = vec3((hh % 70) as f32 / 100.0 - 0.35, 0.02, ((hh / 70) % 70) as f32 / 100.0 - 0.35);
+                draw_cube(center + off, vec3(0.12, 0.03, 0.08), None, fog.at(Color::new(0.5, 0.52, 0.55, 1.0), center));
+            }
+        }
+        _ => {}
+    }
+}
+
 fn eyes(head: Vec3, r: f32, cam: Vec3, color: Color, size: f32) {
     let to = vec3(cam.x - head.x, 0.0, cam.z - head.z).normalize_or_zero();
     let side = vec3(-to.z, 0.0, to.x);

@@ -43,7 +43,9 @@ and everything (game, code, website) is rebuilt for it. Built in phases, one rel
 
 ## Phase 2: Revamp EVERYTHING in the game (Rust)
 **Part 1 done:** Story mode (Nights 1-5, goals, cards, two endings), Helix Tower + ASTRA, new HUD, per-place 3D air,
-walking characters, maps split into world.rs. Next: more of main.rs split up, the town, lighting/shadows, map by map.
+walking characters, maps split into world.rs. **Part 2:** every menu in one look (ui.rs). **Part 3:** all 11 maps
+rebuilt with furniture (couches, counters, fridge, shelves, vending machines, pillars, umbrellas, rocks, a pond, server racks,
+boxes, rugs and paths) + a test that every tile and spot is reachable. Next: more of main.rs split up, the town, lighting/shadows, map by map.
 
 - Split main.rs (4000+ lines) into clean modules: world/, characters/, ai/, ui/, net/, meta/.
 - New HUD and menus everywhere (same style as the 3.0 title), better 3D: lighting, fog per map, shadows, animated characters.

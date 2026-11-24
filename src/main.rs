@@ -180,9 +180,9 @@ fn kind_characters() -> Vec<Character> {
         c("Ember", "a warm, steady AI (powered by Claude)", Color::new(0.85, 0.47, 0.32, 1.0), "claude-opus-5-5",
           "Ember: calm, kind and honest; you made this place and you feel responsible for keeping the last human safe", 4.0, 6.0),
         c("Atlas", "a big, careful AI (powered by Claude)", Color::new(0.75, 0.55, 0.95, 1.0), "claude-opus-5-5",
-          "Atlas: the deep thinker of the group; you plan escape routes and think several steps ahead", 3.0, 7.0),
+          "Atlas: the deep thinker of the group; you plan escape routes and think several steps ahead", 2.5, 5.5),
         c("Verse", "a gentle, thoughtful AI (powered by Claude)", Color::new(0.4, 0.75, 0.95, 1.0), "claude-sonnet-4-6",
-          "Verse: quick, practical and encouraging; you spot food and water and keep spirits up", 5.0, 7.0),
+          "Verse: quick, practical and encouraging; you spot food and water and keep spirits up", 6.5, 6.5),
         c("Kigo", "a small, quick AI (powered by Claude)", Color::new(0.55, 0.9, 0.7, 1.0), "claude-haiku-4-5",
           "Kigo: small, fast and sharp-eyed; you speak in very short sentences and you're the lookout", 4.0, 8.0),
     ]
@@ -1459,7 +1459,7 @@ fn random_floor(m: usize) -> Option<Vec2> {
 /// Furniture right next to you to hide under or behind.
 fn can_hide(g: &Game) -> bool {
     let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
-    [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| matches!(tile(g.map, px + dx, py + dy), 'b' | 'n' | 'y'))
+    [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|(dx, dy)| matches!(tile(g.map, px + dx, py + dy), 'b' | 'n' | 'y' | 'c' | 'h' | 'z' | 'k' | 'i'))
 }
 
 /// Can an infected at `from` on map `m` see someone at `to`?
@@ -2316,6 +2316,19 @@ async fn main() {
         g.yaw = -std::f32::consts::FRAC_PI_2;
         g.pitch = 0.1;
         if demo.as_deref() == Some("ending") { story::face(&mut g); }
+    } else if let Some(m) = demo.as_deref().and_then(|d| d.strip_prefix("map")).and_then(|n| n.parse::<usize>().ok()) {
+        // HOLLOW_DEMO=map0..map10: standing where a door drops you into that place (for screenshots).
+        story::set_tower(true);
+        start_infection(&mut g);
+        story::set_tower(true);
+        let m = m.min(maps_len() - 1);
+        let at = (0..maps_len()).flat_map(|f| with_map(f, |d| d.doors.clone())).find(|(_, to, _)| *to == m).map(|(_, _, at)| at).unwrap_or(vec2(14.5, 8.5));
+        g.map = m;
+        g.pos = at * T;
+        let mid = vec2(15.0, 9.0) - at;
+        g.yaw = mid.y.atan2(mid.x);
+        g.pitch = -0.08;
+        for c in g.chars.iter_mut() { c.stun = 9999.0; }
     } else if demo.as_deref() == Some("intro") {
         begin_intro(&mut g, None);
     } else if demo.as_deref() == Some("market") {
@@ -3492,6 +3505,20 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
                     't' => Color::new(0.15, 0.17, 0.19, 1.0),         // a lab terminal
                     'o' => Color::new(0.2, 0.45, 0.35, 1.0),          // ASTRA's pod
                     'a' => Color::new(0.25, 0.75, 0.45, 1.0),         // ASTRA, in its pod (Helix Tower)
+                    'c' => Color::new(0.45, 0.2, 0.2, 1.0),           // a couch / lounger
+                    'k' => Color::new(0.7, 0.7, 0.72, 1.0),           // a counter
+                    'f' => Color::new(0.88, 0.9, 0.92, 1.0),          // a fridge
+                    'p' => Color::new(0.2, 0.45, 0.22, 1.0),          // a plant
+                    'h' => Color::new(0.55, 0.4, 0.28, 1.0),          // a shop shelf
+                    'v' => Color::new(0.2, 0.45, 0.75, 1.0),          // a vending machine
+                    'q' => Color::new(0.5, 0.5, 0.52, 1.0),           // a pillar
+                    'u' => Color::new(0.85, 0.3, 0.3, 1.0),           // a beach umbrella
+                    'e' => Color::new(0.45, 0.45, 0.47, 1.0),         // a rock
+                    'j' => Color::new(0.08, 0.2, 0.3, 1.0),           // a pond
+                    'i' => Color::new(0.08, 0.09, 0.11, 1.0),         // a server rack
+                    'z' => Color::new(0.6, 0.45, 0.28, 1.0),          // boxes
+                    'r' => view3d::rug(g.map),                 // a rug / path / safety line
+                    'x' => Color::new(floor.r * 0.7, floor.g * 0.7, floor.b * 0.7, 1.0), // debris
                     'Z' if !story::tower_open() => Color::new(0.45, 0.12, 0.12, 1.0), // the Tower door, sealed
                     '=' => Color::new(0.18, 0.17, 0.16, 1.0),         // subway tracks
                     'y' => Color::new(0.88, 0.88, 0.92, 1.0),         // your bed

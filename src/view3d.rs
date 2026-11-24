@@ -305,7 +305,8 @@ pub fn render(g: &Game, view: &RenderTarget) {
         // A soft shadow under everyone.
         draw_cylinder(base + vec3(0.0, 0.015, 0.0), 0.34 * grow, 0.34 * grow, 0.003, None, Color::new(0.0, 0.0, 0.0, 0.38));
         let base = base + vec3(0.0, 0.3 * grow, 0.0);
-        draw_cylinder(base, 0.2 * grow, 0.26 * grow, 0.55 * grow, None, fog.at(body, base));
+        // A torso, not a skirt: narrow hips where the legs join, wider shoulders, legs visible all the way up.
+        draw_cylinder(base + vec3(0.0, 0.04 * grow, 0.0), 0.21 * grow, 0.14 * grow, 0.51 * grow, None, fog.at(body, base));
         let head = base + vec3(sway, 0.78 * grow + (swing.abs() * 0.08), 0.0);
         draw_sphere(head, 0.22 * grow, None, fog.at(mul(body, 1.1), head));
         // The Mimic's eyes give it away only for a blink now and then.

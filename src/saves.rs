@@ -179,11 +179,9 @@ pub fn screen(g: &mut Game) {
     if pressed(KeyCode::Escape) { g.screen = Screen::Title; g.worlds_del = false; return; }
 
     // Drawing.
-    clear_background(Color::new(0.05, 0.04, 0.06, 1.0));
-    let ink = Color::new(0.88, 0.88, 0.94, 1.0);
-    let soft = Color::new(0.6, 0.6, 0.68, 1.0);
-    draw_text("Worlds", 60.0, 90.0, 52.0, Color::new(0.85, 0.3, 0.35, 1.0));
-    draw_text("Infection games you can leave and come back to. They save by themselves.", 62.0, 122.0, 19.0, soft);
+    ui::backdrop();
+    let (ink, soft) = (ui::INK, ui::SOFT);
+    ui::header("Worlds", "Infection games you can leave and come back to. They save by themselves.");
     let rows: Vec<(String, String)> = std::iter::once(("+  New world".to_string(), format!("starts \"{}\" (Infection)", next_name())))
         .chain(worlds.iter().map(|w| {
             let ago = now().saturating_sub(w.last);
@@ -192,11 +190,16 @@ pub fn screen(g: &mut Game) {
         })).collect();
     let first = g.worlds_sel.saturating_sub(9);
     for (i, (name, what)) in rows.iter().enumerate().skip(first).take(10) {
-        let y = 180.0 + (i - first) as f32 * 44.0;
-        if i == g.worlds_sel { draw_rectangle(52.0, y - 26.0, VW - 104.0, 40.0, Color::new(0.85, 0.47, 0.32, 0.25)); }
-        draw_text(name, 70.0, y, 24.0, if i == 0 { Color::new(0.55, 0.95, 0.6, 1.0) } else { ink });
-        draw_text(what, 420.0, y, 18.0, soft);
+        let y = 190.0 + (i - first) as f32 * 48.0;
+        ui::row(ui::LEFT, y - 30.0, VW - 2.0 * ui::LEFT, 42.0, i == g.worlds_sel);
+        if ui::hit(ui::LEFT, y - 30.0, VW - 2.0 * ui::LEFT, 42.0).1 { if g.worlds_sel == i { inject_key(KeyCode::Enter); } g.worlds_sel = i; }
+        draw_text(name, ui::LEFT + 22.0, y, 24.0, if i == 0 { ui::GOOD } else { ink });
+        draw_text(what, 430.0, y, 18.0, soft);
     }
-    let help = if g.worlds_del { "Press D again to DELETE this world for good (any other key cancels)" } else { "↑↓ choose · Enter play · N new world · D delete · Esc back" };
-    draw_text(help, 62.0, VH - 40.0, 19.0, if g.worlds_del { Color::new(1.0, 0.5, 0.45, 1.0) } else { soft });
+    if g.worlds_del {
+        ui::status("Press D again to DELETE this world for good (any other key cancels).");
+        ui::hints(&[("D", "delete for good"), ("Esc", "cancel")]);
+    } else {
+        ui::hints(&[("Enter", "play"), ("↑↓", "choose"), ("N", "new world"), ("D", "delete"), ("Esc", "back")]);
+    }
 }

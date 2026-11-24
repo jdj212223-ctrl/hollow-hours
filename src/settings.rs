@@ -194,6 +194,8 @@ pub fn screen(g: &mut Game) {
     // The four flashing warnings, one at a time.
     if let Some(w) = g.settings_ui.warning {
         clear_background(Color::new(0.08, 0.0, 0.0, 1.0));
+        draw_rectangle(-margin(), 0.0, 3.0, VH, Color::new(1.0, 0.4, 0.35, 0.8));
+        draw_text(&format!("WARNING {} OF 4", w + 1), ui::LEFT, 120.0, 18.0, Color::new(1.0, 0.4, 0.35, 0.9));
         let mut y = 200.0;
         for (i, para) in WARNINGS[w].split("\n\n").enumerate() {
             for l in wrap(para, VW - 160.0, if i == 0 { 34.0 } else { 26.0 }) {
@@ -202,44 +204,38 @@ pub fn screen(g: &mut Game) {
             }
             y += 20.0;
         }
-        draw_text(if w == 3 { "Enter = YES, turn flashing lights on      Esc = no, keep them off" } else { "Enter = I understand, continue      Esc = keep flashing lights off" },
-            80.0, VH - 80.0, 22.0, soft);
+        let _ = soft;
+        if w == 3 { ui::hints(&[("Enter", "YES, turn flashing lights on"), ("Esc", "no, keep them off")]); }
+        else { ui::hints(&[("Enter", "I understand, continue"), ("Esc", "keep flashing lights off")]); }
         if pressed(KeyCode::Escape) { g.settings_ui.warning = None; }
         else if pressed(KeyCode::Enter) {
             if w == 3 { change(|s| s.flashing = true); g.settings_ui.warning = None; } else { g.settings_ui.warning = Some(w + 1); }
         }
         return;
     }
-    clear_background(Color::new(0.05, 0.05, 0.07, 1.0));
-    draw_text("Settings", 60.0, 80.0, 48.0, WHITE);
-    let mut x = 60.0;
-    for (i, t) in TABS.iter().enumerate() {
-        let w = measure_text(t, None, 20, 1.0).width + 24.0;
-        if i == g.settings_ui.tab { draw_rectangle(x, 100.0, w, 32.0, Color::new(0.85, 0.47, 0.32, 0.9)); }
-        draw_text(t, x + 12.0, 122.0, 20.0, if i == g.settings_ui.tab { WHITE } else { soft });
-        x += w + 8.0;
-    }
+    ui::backdrop();
+    ui::header("Settings", "");
+    if let Some(t) = ui::tabs(&TABS, g.settings_ui.tab, 124.0) { g.settings_ui.tab = t; g.settings_ui.row = 0; }
     let list = rows(g.settings_ui.tab, &s);
     let row_h = if big { 40.0 } else { 34.0 };
     let size = if big { 26.0 } else { 22.0 };
     let mut desc = String::new();
     // Controls have more rows: scroll so the chosen one stays on screen.
-    let first = g.settings_ui.row.saturating_sub(10);
-    for (i, r) in list.iter().enumerate().skip(first).take(12) {
-        let y = 180.0 + (i - first) as f32 * row_h;
+    let first = g.settings_ui.row.saturating_sub(8);
+    for (i, r) in list.iter().enumerate().skip(first).take(9) {
+        let y = 200.0 + (i - first) as f32 * row_h;
         let on = i == g.settings_ui.row;
-        if on { draw_rectangle(50.0, y - row_h + 10.0, VW - 100.0, row_h, Color::new(0.85, 0.47, 0.32, 0.25)); }
+        ui::row(ui::LEFT - 14.0, y - row_h + 10.0, VW - 2.0 * ui::LEFT + 28.0, row_h - 2.0, on);
+        if ui::hit(ui::LEFT - 14.0, y - row_h + 10.0, VW - 2.0 * ui::LEFT + 28.0, row_h - 2.0).1 { g.settings_ui.row = i; }
         let col = if on { WHITE } else { Color::new(0.82, 0.84, 0.9, 1.0) };
         match r {
             Row::Slider(label, v, _) => {
                 draw_text(label, 70.0, y, size, col);
-                draw_rectangle(560.0, y - 12.0, 240.0, 8.0, Color::new(1.0, 1.0, 1.0, 0.15));
-                draw_rectangle(560.0, y - 12.0, 240.0 * v.clamp(0.0, 1.0), 8.0, Color::new(0.85, 0.47, 0.32, 1.0));
-                draw_text(&format!("{}%", (v * 100.0).round() as i32), 815.0, y, size, col);
+                ui::slider(*v, 560.0, y, 240.0);
             }
             Row::Toggle(label, v, _, d) => {
                 draw_text(label, 70.0, y, size, col);
-                draw_text(if *v { "ON" } else { "OFF" }, 600.0, y, size, if *v { Color::new(0.45, 0.95, 0.5, 1.0) } else { Color::new(0.95, 0.55, 0.5, 1.0) });
+                ui::switch(*v, 600.0, y);
                 if on { desc = d.to_string(); }
             }
             Row::Browser(b) => {
@@ -256,9 +252,14 @@ pub fn screen(g: &mut Game) {
             }
         }
     }
-    for (k, l) in wrap(&desc, VW - 140.0, 18.0).iter().enumerate() { draw_text(l, 70.0, VH - 110.0 + k as f32 * 22.0, 18.0, soft); }
-    draw_text(if g.settings_ui.tab == 4 { "Up/Down choose · Enter = rebind · Tab next section · Esc back" } else { "Up/Down choose · Left/Right change · Enter switch · Tab next section · Esc back" },
-        70.0, VH - 40.0, 18.0, soft);
+    if !desc.is_empty() {
+        let lines = wrap(&desc, VW - 2.0 * ui::LEFT - 40.0, 17.0);
+        let h = 18.0 + lines.len() as f32 * 21.0;
+        ui::panel(ui::LEFT, VH - 64.0 - h, VW - 2.0 * ui::LEFT, h);
+        for (k, l) in lines.iter().enumerate() { draw_text(l, ui::LEFT + 18.0, VH - 64.0 - h + 22.0 + k as f32 * 21.0, 17.0, soft); }
+    }
+    if g.settings_ui.tab == 4 { ui::hints(&[("↑↓", "choose"), ("Enter", "rebind"), ("Tab", "next section"), ("Esc", "back")]); }
+    else { ui::hints(&[("↑↓", "choose"), ("←→", "change"), ("Enter", "switch"), ("Tab", "next section"), ("Esc", "back")]); }
 
     // Waiting for the key to bind.
     if let Some(i) = g.settings_ui.binding {

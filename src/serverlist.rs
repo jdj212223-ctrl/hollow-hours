@@ -115,14 +115,10 @@ pub fn screen(g: &mut Game) {
         while let Ok((a, v)) = rx.try_recv() { g.servers.status.insert(a, v); }
     }
     if g.servers.edit.is_some() { return edit_screen(g); }
-    let soft = Color::new(0.65, 0.68, 0.78, 1.0);
-    draw_text("Servers", 60.0, 90.0, 44.0, WHITE);
-    for (i, t) in ["My servers", "Browse"].iter().enumerate() {
-        let on = g.servers.browse == (i == 1);
-        let x = 270.0 + i as f32 * 150.0;
-        if on { draw_rectangle(x, 62.0, 140.0, 34.0, Color::new(0.85, 0.47, 0.32, 0.9)); }
-        draw_text(t, x + 14.0, 86.0, 22.0, if on { WHITE } else { soft });
-    }
+    let soft = ui::SOFT;
+    ui::backdrop();
+    ui::header("Servers", "");
+    if let Some(t) = ui::tabs(&["My servers", "Browse"], g.servers.browse as usize, 128.0) { g.servers.browse = t == 1; }
     let rows: Vec<(String, String, String, Color)> = if g.servers.browse {
         g.server_list.iter().map(|s| (s["name"].as_str().unwrap_or("?").to_string(),
             s["slug"].as_str().or(s["code"].as_str()).unwrap_or("").to_string(),
@@ -138,20 +134,22 @@ pub fn screen(g: &mut Game) {
     let n = rows.len();
     g.servers.sel = g.servers.sel.min(n.saturating_sub(1));
     if n == 0 {
-        draw_text(if g.servers.browse { "No public servers right now." } else { "No saved servers. N = add one (type its address)." }, 60.0, 160.0, 22.0, soft);
+        draw_text(if g.servers.browse { "No public servers right now." } else { "No saved servers. N = add one (type its address)." }, ui::LEFT, 210.0, 22.0, soft);
     }
     let first = g.servers.sel.saturating_sub(6);
     for (i, (name, addr, status, col)) in rows.iter().enumerate().skip(first).take(7) {
-        let y = 140.0 + (i - first) as f32 * 58.0;
-        if i == g.servers.sel { draw_rectangle(50.0, y - 4.0, VW - 100.0, 54.0, Color::new(0.85, 0.47, 0.32, 0.22)); }
-        draw_text(name, 66.0, y + 22.0, 24.0, WHITE);
-        draw_text(addr, 66.0, y + 44.0, 17.0, soft);
-        draw_text(status, VW - 70.0 - measure_text(status, None, 18, 1.0).width, y + 22.0, 18.0, *col);
+        let y = 176.0 + (i - first) as f32 * 58.0;
+        if ui::hit(ui::LEFT, y, VW - 2.0 * ui::LEFT, 52.0).1 { g.servers.sel = i; }
+        ui::row(ui::LEFT, y, VW - 2.0 * ui::LEFT, 52.0, i == g.servers.sel);
+        draw_circle(ui::LEFT + 22.0, y + 26.0, 5.0, *col);
+        draw_text(name, ui::LEFT + 40.0, y + 24.0, 24.0, WHITE);
+        draw_text(addr, ui::LEFT + 40.0, y + 44.0, 16.0, soft);
+        draw_text(status, VW - ui::LEFT - 16.0 - measure_text(status, None, 18, 1.0).width, y + 32.0, 18.0, *col);
     }
-    draw_text(if g.servers.browse { "W/S or arrows · Enter join · F save to My servers · R refresh · Tab my servers · Esc back" }
-        else { "W/S or arrows · Enter join · N new · E edit · Delete (twice) remove · R refresh · Tab browse · M make one · Esc back" }, 60.0, VH - 60.0, 18.0, soft);
+    if g.servers.browse { ui::hints(&[("Enter", "join"), ("F", "save"), ("R", "refresh"), ("Tab", "my servers"), ("Esc", "back")]); }
+    else { ui::hints(&[("Enter", "join"), ("N", "new"), ("E", "edit"), ("Del×2", "remove"), ("R", "refresh"), ("Tab", "browse"), ("M", "make one"), ("Esc", "back")]); }
     let msg = if g.servers.msg.is_empty() { g.status.clone() } else { g.servers.msg.clone() };
-    draw_text(&msg, 60.0, VH - 30.0, 18.0, Color::new(1.0, 0.75, 0.4, 1.0));
+    ui::status(&msg);
 
     let (down, up) = (pressed(KeyCode::Down) || pressed(KeyCode::S), pressed(KeyCode::Up) || pressed(KeyCode::W));
     if (down || up) && n > 0 {
@@ -220,18 +218,15 @@ fn open_edit(g: &mut Game, index: Option<usize>) {
 
 /// Adding or editing a saved server: its name and its address.
 fn edit_screen(g: &mut Game) {
-    let soft = Color::new(0.65, 0.68, 0.78, 1.0);
     let Some(e) = g.servers.edit.as_mut() else { return };
-    draw_text(if e.index.is_some() { "Edit server" } else { "Add server" }, 60.0, 100.0, 40.0, WHITE);
+    ui::backdrop();
+    ui::header(if e.index.is_some() { "Edit server" } else { "Add server" }, "An address on the official site (like officialsmp), a self-hosted server (hh.example.com), or a room code.");
+    ui::panel(ui::LEFT, 190.0, VW - 2.0 * ui::LEFT, 200.0);
     for (k, (label, value)) in [("Server name", &e.name), ("Server address", &e.address)].iter().enumerate() {
-        let y = 180.0 + k as f32 * 90.0;
-        draw_text(label, 60.0, y, 20.0, soft);
-        draw_rectangle(60.0, y + 10.0, VW - 120.0, 44.0, Color::new(1.0, 1.0, 1.0, if e.field == k { 0.14 } else { 0.06 }));
-        let cursor = if e.field == k && (get_time() * 2.0) as i32 % 2 == 0 { "_" } else { "" };
-        draw_text(&format!("{value}{cursor}"), 72.0, y + 40.0, 24.0, WHITE);
+        let y = 222.0 + k as f32 * 84.0;
+        ui::field(label, value, e.field == k, false, ui::LEFT + 24.0, y, VW - 2.0 * ui::LEFT - 48.0);
     }
-    draw_text("An address on the official site (like officialsmp), a self-hosted server (hh.example.com), or a room code.", 60.0, 380.0, 18.0, soft);
-    draw_text("Tab = next field · Enter = save · Esc = cancel", 60.0, 420.0, 18.0, soft);
+    ui::hints(&[("Enter", "save"), ("Tab", "next box"), ("Esc", "cancel")]);
     let field = if e.field == 0 { &mut e.name } else { &mut e.address };
     for ch in typed() {
         if !ch.is_control() && field.chars().count() < 60 { field.push(ch); }

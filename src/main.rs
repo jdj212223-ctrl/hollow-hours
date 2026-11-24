@@ -46,6 +46,7 @@ mod deepmeta;
 mod spread;
 mod world;
 mod story;
+mod ui;
 use world::*;
 
 use serde_json::json;
@@ -2556,25 +2557,27 @@ async fn main() {
                 if pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }
             Screen::Login => {
-                draw_text("Log in to Hollow Hours", 60.0, 120.0, 40.0, WHITE);
-                let stars = if g.show_pw { g.login_pw.clone() } else { "*".repeat(g.login_pw.chars().count()) };
-                for (i, (label, val)) in [("Email", g.login_email.clone()), ("Password", stars.clone())].iter().enumerate() {
-                    let col = if g.login_field == i { YELLOW } else { Color::new(0.8, 0.82, 0.9, 1.0) };
-                    draw_text(&format!("{label}: {val}{}", if g.login_field == i { "_" } else { "" }), 60.0, 200.0 + i as f32 * 40.0, 26.0, col);
-                }
+                ui::backdrop();
+                ui::header("Log in", &format!("Your Hollow Hours account (online play, servers, your phone link). No account? Make one at {}/register", site()));
+                let fw = 460.0;
+                ui::panel(ui::LEFT, 190.0, fw + 48.0, 210.0);
+                ui::field("Email", &g.login_email, g.login_field == 0, false, ui::LEFT + 24.0, 222.0, fw);
+                ui::field("Password", &g.login_pw, g.login_field == 1, !g.show_pw, ui::LEFT + 24.0, 304.0, fw - 84.0);
+                if ui::hit(ui::LEFT + 24.0, 222.0, fw, 52.0).1 { g.login_field = 0; }
+                if ui::hit(ui::LEFT + 24.0, 304.0, fw - 84.0, 52.0).1 { g.login_field = 1; }
                 // Show / Hide the password: a button to click, or F1.
-                let pw_w = measure_text(&format!("Password: {stars}_"), None, 26, 1.0).width;
-                let (bx, by, bw, bh) = (60.0 + pw_w + 16.0, 222.0, 64.0, 26.0);
-                draw_rectangle(bx, by, bw, bh, Color::new(0.2, 0.2, 0.26, 1.0));
-                draw_text(if g.show_pw { "Hide" } else { "Show" }, bx + 12.0, by + 19.0, 20.0, WHITE);
-                let (mx, my) = virtual_mouse();
-                if (is_mouse_button_pressed(MouseButton::Left) && mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) || pressed(KeyCode::F1) {
-                    g.show_pw = !g.show_pw;
+                let (bx, by, bw, bh) = (ui::LEFT + 24.0 + fw - 72.0, 312.0, 72.0, 44.0);
+                let (over, click) = ui::hit(bx, by, bw, bh);
+                draw_rectangle(bx, by, bw, bh, Color::new(1.0, 1.0, 1.0, if over { 0.14 } else { 0.07 }));
+                draw_text(if g.show_pw { "Hide" } else { "Show" }, bx + 16.0, by + 28.0, 20.0, ui::INK);
+                if click || pressed(KeyCode::F1) { g.show_pw = !g.show_pw; }
+                ui::panel(ui::LEFT + fw + 72.0, 190.0, VW - fw - 72.0 - 2.0 * ui::LEFT, 210.0);
+                draw_text("Or with your browser", ui::LEFT + fw + 96.0, 228.0, 22.0, Color::new(0.55, 0.85, 1.0, 1.0));
+                for (i, l) in wrap("Press B to log in on the website (click Allow there), or copy a code from the website's \"Open Hollow Hours\" page and paste it here (Cmd+V).", VW - fw - 72.0 - 2.0 * ui::LEFT - 48.0, 18.0).iter().enumerate() {
+                    draw_text(l, ui::LEFT + fw + 96.0, 258.0 + i as f32 * 24.0, 18.0, ui::SOFT);
                 }
-                draw_text("Or press B: log in with your browser, or paste a code from the website (Cmd+V)", 60.0, 290.0, 22.0, Color::new(0.55, 0.85, 1.0, 1.0));
-                for (i, l) in ["Tab = next field · Cmd+V paste · F1 show password · Enter = log in · Esc = back", &format!("No account? Make one at {}/register", site()), &g.status.clone()].iter().enumerate() {
-                    draw_text(l, 60.0, 310.0 + i as f32 * 30.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
-                }
+                ui::status(&g.status.clone());
+                ui::hints(&[("Enter", "log in"), ("Tab", "next box"), ("B", "browser"), ("F1", "show password"), ("Esc", "back")]);
                 for ch in typed() {
                     if ch.is_control() { continue; }
                     let f = if g.login_field == 0 { &mut g.login_email } else { &mut g.login_pw };
@@ -2619,16 +2622,19 @@ async fn main() {
             }
             Screen::Servers => serverlist::screen(&mut g),
             Screen::MakeServer => {
-                draw_text("Make a server", 60.0, 110.0, 40.0, WHITE);
-                draw_text(&format!("Name: {}_", g.room_input), 60.0, 190.0, 30.0, YELLOW);
+                ui::backdrop();
+                ui::header("Make a server", "Your own Infection server on the website: friends join it by its address. Add mods to it on the website.");
+                ui::panel(ui::LEFT, 190.0, VW - 2.0 * ui::LEFT, 170.0);
+                ui::field("Server name", &g.room_input, true, false, ui::LEFT + 24.0, 222.0, VW - 2.0 * ui::LEFT - 48.0);
                 // Up/Down (or the D-pad): how many players fit.
                 const SIZES: [u32; 11] = [2, 4, 6, 8, 10, 12, 16, 20, 24, 30, 40];
                 let k = SIZES.iter().position(|&n| n == g.server_max).unwrap_or(7);
                 if pressed(KeyCode::Up) && k + 1 < SIZES.len() { g.server_max = SIZES[k + 1]; }
                 if pressed(KeyCode::Down) && k > 0 { g.server_max = SIZES[k - 1]; }
-                draw_text(&format!("Max players: {}   (Up/Down to change, up to 40)", g.server_max), 60.0, 228.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));
-                draw_text("Enter = make it and join · Esc = back   (add mods to a server on the website)", 60.0, 262.0, 20.0, Color::new(0.7, 0.72, 0.8, 1.0));
-                draw_text(&g.status.clone(), 60.0, 290.0, 20.0, Color::new(1.0, 0.75, 0.4, 1.0));
+                draw_text("MAX PLAYERS", ui::LEFT + 24.0, 308.0, 14.0, ui::DIM);
+                draw_text(&format!("<  {}  >", g.server_max), ui::LEFT + 24.0, 340.0, 26.0, ui::WARM);
+                ui::status(&g.status.clone());
+                ui::hints(&[("Enter", "make it and join"), ("↑↓", "max players"), ("Esc", "back")]);
                 let mut chars = typed();
                 if let Some(t) = pasted() { chars.extend(t.chars()); }
                 for ch in chars { if !ch.is_control() && g.room_input.chars().count() < 32 { g.room_input.push(ch); } }
@@ -2659,11 +2665,12 @@ async fn main() {
                 }
             }
             Screen::JoinRoom => {
-                draw_text("Multiplayer: Infection with friends", 60.0, 120.0, 40.0, Color::new(0.45, 0.95, 0.4, 1.0));
-                for (i, l) in ["Type a server's address (like officialsmp, or hh.example.com) and press Enter.", "Or any room code (4-8 letters or numbers): everyone who types the same one plays together.",
-                    "", &format!("Address: {}_", g.room_input), "", &g.status.clone(), "Esc = back   ·   S on the title = your saved servers"].iter().enumerate() {
-                    draw_text(l, 60.0, 190.0 + i as f32 * 32.0, if i == 3 { 34.0 } else { 22.0 }, Color::new(0.82, 0.84, 0.9, 1.0));
-                }
+                ui::backdrop();
+                ui::header("Play online", "Infection with friends. Type a server's address (like officialsmp, or hh.example.com), or any room code of 4-8 letters: everyone who types the same one plays together.");
+                ui::panel(ui::LEFT, 200.0, VW - 2.0 * ui::LEFT, 110.0);
+                ui::field("Address or room code", &g.room_input, true, false, ui::LEFT + 24.0, 232.0, VW - 2.0 * ui::LEFT - 48.0);
+                ui::status(&g.status.clone());
+                ui::hints(&[("Enter", "join"), ("Cmd+V", "paste"), ("Esc", "back"), ("B", "(on the title) your saved servers")]);
                 let mut chars = typed();
                 if let Some(t) = pasted() { chars.extend(t.chars()); }
                 for ch in chars {
@@ -2692,7 +2699,9 @@ async fn main() {
                 if pressed(KeyCode::Escape) { g.screen = Screen::Title; }
             }
             Screen::Consent => {
-                draw_text("Hollow Hours wants to reach outside its window", 50.0, 120.0, 34.0, Color::new(0.85, 0.3, 0.35, 1.0));
+                ui::backdrop();
+                ui::header("Outside the window", "Hollow Hours wants to reach outside its window. You choose: you can change it later on the title (M).");
+                ui::panel(ui::LEFT, 180.0, VW - 2.0 * ui::LEFT, 300.0);
                 for (i, l) in [
                     "This update can scare you OUTSIDE the game:",
                     "  - create files in a \"Hollow Hours\" folder on your Desktop. They STAY, even after you quit.",
@@ -2702,11 +2711,10 @@ async fn main() {
                     "",
                     "It only ever creates its OWN new files. It never changes, moves or deletes yours.",
                     "P (panic) stops all of this at once.",
-                    "",
-                    "Y = allow        N = keep everything inside the game",
                 ].iter().enumerate() {
-                    draw_text(l, 50.0, 180.0 + i as f32 * 30.0, 22.0, Color::new(0.82, 0.84, 0.9, 1.0));
+                    draw_text(l, ui::LEFT + 24.0, 214.0 + i as f32 * 30.0, 20.0, if i == 0 { ui::INK } else { ui::SOFT });
                 }
+                ui::hints(&[("Y", "allow"), ("N", "keep everything inside the game")]);
                 if pressed(KeyCode::Y) { g.meta.allowed = Some(true); g.meta.save(); g.screen = Screen::Title; }
                 if pressed(KeyCode::N) { g.meta.allowed = Some(false); g.meta.save(); g.screen = Screen::Title; }
             }
@@ -2717,22 +2725,34 @@ async fn main() {
                 if pressed(KeyCode::Escape) { g.intro_join = None; g.screen = Screen::Title; }
             }
             Screen::Over => {
-                draw_text("INFECTED", 60.0, 150.0, 64.0, Color::new(0.45, 0.95, 0.35, 1.0));
+                ui::backdrop();
+                let t = get_time() as f32;
+                for k in 0..6 { draw_circle(VW / 2.0, 190.0, 160.0 + k as f32 * 30.0, Color::new(0.2, 0.9, 0.3, 0.025 + 0.01 * (t * 2.0).sin())); }
                 let mins = (g.survived / 60.0) as i32;
-                for (i, l) in [g.over_reason.clone(), format!("You survived {} min {} s as the last human.", mins, g.survived as i32 % 60),
-                    String::new(), if let Some(s) = &g.story { format!("Enter = try Night {} again     Esc = title", s.night + 1) } else { "Enter = try again     Esc = title".into() }].iter().enumerate() {
-                    draw_text(l, 60.0, 220.0 + i as f32 * 32.0, 26.0, Color::new(0.82, 0.85, 0.9, 1.0));
-                }
-                if pressed(KeyCode::Enter) { start_infection(&mut g); }
-                if pressed(KeyCode::Escape) { g.infection = false; g.story = None; g.chars = characters(); g.screen = Screen::Title; }
+                ui::header_center("INFECTED", &g.over_reason.clone(), 200.0, Color::new(0.45, 0.95, 0.35, 1.0));
+                centered(&format!("You survived {} min {} s as the last human.", mins, g.survived as i32 % 60), 290.0, 22.0, ui::INK);
+                let retry = if let Some(s) = &g.story { format!("Try Night {} again", s.night + 1) } else { "Try again".into() };
+                let items = [retry.as_str(), "Back to the title"];
+                let (hover, click) = ui::choices(&items, g.pause_sel.min(1), VW / 2.0 - 200.0, 340.0, 400.0);
+                if let Some(h) = hover { g.pause_sel = h; }
+                if pressed(KeyCode::Up) || pressed(KeyCode::W) { g.pause_sel = 0; }
+                if pressed(KeyCode::Down) || pressed(KeyCode::S) { g.pause_sel = 1; }
+                ui::hints(&[("Enter", "choose"), ("↑↓", "move"), ("Esc", "title")]);
+                let go = pressed(KeyCode::Enter) || click;
+                if go && g.pause_sel.min(1) == 0 { g.pause_sel = 0; start_infection(&mut g); }
+                else if pressed(KeyCode::Escape) || (go && g.pause_sel == 1) {
+                    g.pause_sel = 0; g.infection = false; g.story = None; g.chars = characters(); g.screen = Screen::Title; }
             }
             Screen::Ending => { story::ending_screen(&mut g); }
             Screen::Safe => {
-                draw_text("You're safe.", 60.0, 140.0, 48.0, WHITE);
-                for (i, l) in ["Everything stopped: no chases, no scares, no vest effects.", "Take a breath. Nothing will happen until you choose.",
-                    "", "Enter = back to the game (calm)     Esc = quit"].iter().enumerate() {
-                    draw_text(l, 60.0, 200.0 + i as f32 * 30.0, 24.0, Color::new(0.8, 0.85, 0.9, 1.0));
-                }
+                clear_background(Color::new(0.03, 0.05, 0.07, 1.0));
+                let br = 0.5 + 0.5 * (get_time() as f32 * 0.8).sin();
+                draw_circle(VW / 2.0, 220.0, 70.0 + br * 25.0, Color::new(0.4, 0.75, 1.0, 0.08 + br * 0.06));
+                draw_circle(VW / 2.0, 220.0, 40.0 + br * 12.0, Color::new(0.4, 0.75, 1.0, 0.12));
+                centered(if br > 0.5 { "breathe in" } else { "breathe out" }, 226.0, 20.0, Color::new(0.75, 0.88, 1.0, 1.0));
+                ui::header_center("You're safe.", "Everything stopped: no chases, no scares, no vest effects.", 360.0, Color::new(0.6, 0.85, 1.0, 1.0));
+                centered("Take a breath. Nothing will happen until you choose.", 440.0, 20.0, ui::SOFT);
+                ui::hints(&[("Enter", "back to the game (calm)"), ("Esc", "quit")]);
                 if pressed(KeyCode::Enter) { g.next_crazy = 90.0; g.screen = Screen::Play; g.sfx.start_hum(); }
                 if pressed(KeyCode::Escape) { break; }
             }
@@ -2745,16 +2765,14 @@ async fn main() {
                 if g.net.is_some() { update(&mut g, dt); }
                 if g.view3d { view3d::render(&g, &view); set_camera(&cam); }
                 draw_world(&g, &light, &view);
-                draw_rectangle(-margin(), 0.0, vw(), VH, Color::new(0.0, 0.0, 0.02, 0.72));
-                centered("PAUSED", 230.0, 56.0, WHITE);
-                if g.net.is_some() { centered("(online: the game keeps going while you're here)", 268.0, 18.0, Color::new(0.7, 0.72, 0.8, 1.0)); }
-                for (k, label) in ["Back to the game", "Settings", "Quit to the title"].iter().enumerate() {
-                    let on = g.pause_sel == k;
-                    let y = 330.0 + k as f32 * 52.0;
-                    if on { draw_rectangle(VW / 2.0 - 180.0, y - 32.0, 360.0, 44.0, Color::new(0.85, 0.47, 0.32, 0.35)); }
-                    centered(label, y, 28.0, if on { WHITE } else { Color::new(0.75, 0.75, 0.8, 1.0) });
-                }
-                centered("Up/Down + Enter   ·   Esc = back to the game", 500.0, 18.0, Color::new(0.6, 0.62, 0.7, 1.0));
+                ui::dim_over_game(0.78);
+                ui::header_center("PAUSED", if g.net.is_some() { "online: the game keeps going while you're here" } else { "" }, 200.0, WHITE);
+                let place = format!("{}  ·  {}{}", map_name(g.map), g.time_text(), g.story.as_ref().map(|s| format!("  ·  Night {}", s.night + 1)).unwrap_or_default());
+                centered(&place, 268.0, 18.0, ui::SOFT);
+                let (hover, click) = ui::choices(&["Back to the game", "Settings", "Quit to the title"], g.pause_sel, VW / 2.0 - 200.0, 300.0, 400.0);
+                if let Some(h) = hover { g.pause_sel = h; }
+                if click { inject_key(KeyCode::Enter); }
+                ui::hints(&[("Enter", "choose"), ("↑↓", "move"), ("Esc", "back to the game")]);
                 if pressed(KeyCode::Up) || pressed(KeyCode::W) { g.pause_sel = g.pause_sel.saturating_sub(1); }
                 if pressed(KeyCode::Down) || pressed(KeyCode::S) { g.pause_sel = (g.pause_sel + 1).min(2); }
                 if pressed(KeyCode::Escape) || (pressed(KeyCode::Enter) && g.pause_sel == 0) {
@@ -2883,9 +2901,19 @@ fn typing(g: &mut Game, i: usize) {
         g.input.extend(t.chars().take(room));
     }
     if pressed(KeyCode::Backspace) { g.input.pop(); }
-    let w = VW;
-    draw_rectangle(0.0, MH as f32 * T - 46.0, w, 46.0, Color::new(0.0, 0.0, 0.0, 0.85));
-    draw_text(&format!("To {}: {}_", g.chars[i].name, g.input), 14.0, MH as f32 * T - 16.0, 22.0, WHITE);
+    // 4.0: a chat bar in the character's colour, with who you're talking to on a tag.
+    let (y, h) = (MH as f32 * T - 58.0, 50.0);
+    let c = g.chars[i].color;
+    draw_rectangle(12.0, y, VW - 24.0, h, Color::new(0.02, 0.02, 0.03, 0.9));
+    draw_rectangle(12.0, y, 4.0, h, c);
+    draw_rectangle(12.0, y + h - 2.0, VW - 24.0, 2.0, Color::new(c.r, c.g, c.b, 0.5));
+    let tag = format!("To {}", g.chars[i].name);
+    let tw = measure_text(&tag, None, 16, 1.0).width + 16.0;
+    draw_rectangle(28.0, y + 13.0, tw, 24.0, Color::new(c.r, c.g, c.b, 0.3));
+    draw_text(&tag, 36.0, y + 31.0, 16.0, WHITE);
+    let cursor = if (get_time() * 2.0) as i32 % 2 == 0 { "_" } else { "" };
+    draw_text(&format!("{}{cursor}", g.input), 40.0 + tw, y + 32.0, 22.0, WHITE);
+    draw_text("Enter send · Esc cancel", VW - 200.0, y + 31.0, 14.0, ui::DIM);
     if pressed(KeyCode::Enter) {
         let text = std::mem::take(&mut g.input);
         g.screen = Screen::Play;
@@ -3796,14 +3824,18 @@ fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
 }
 
 fn draw_phobias(g: &Game) {
-    draw_text("Your phobias", 60.0, 100.0, 48.0, WHITE);
-    draw_text("ON = the world uses it to scare you. OFF = it never happens.", 60.0, 140.0, 22.0, Color::new(0.7, 0.72, 0.8, 1.0));
+    ui::backdrop();
+    ui::header("Your phobias", "ON = the world uses it to scare you. OFF = it never happens. Switch off anything you can't handle.");
     for (i, (name, what)) in PHOBIAS.iter().enumerate() {
         let on = g.phobia[i];
-        let col = if on { Color::new(0.95, 0.45, 0.45, 1.0) } else { Color::new(0.5, 0.75, 0.55, 1.0) };
-        draw_text(&format!("{}  {:<14} {}   ({})", i + 1, name, if on { "ON " } else { "OFF" }, what), 60.0, 200.0 + i as f32 * 34.0, 24.0, col);
+        let y = 190.0 + i as f32 * 52.0;
+        ui::row(ui::LEFT, y, VW - 2.0 * ui::LEFT, 44.0, false);
+        draw_text(&format!("{}", i + 1), ui::LEFT + 16.0, y + 29.0, 22.0, ui::DIM);
+        draw_text(name, ui::LEFT + 50.0, y + 29.0, 24.0, ui::INK);
+        draw_text(what, ui::LEFT + 260.0, y + 28.0, 18.0, ui::SOFT);
+        ui::switch(on, VW - ui::LEFT - 110.0, y + 32.0);
     }
-    draw_text("1-6 toggle · Enter start · Esc back", 60.0, 440.0, 22.0, Color::new(0.7, 0.72, 0.8, 1.0));
+    ui::hints(&[("1-6", "switch"), ("Enter", "start"), ("Esc", "back")]);
 }
 
 #[cfg(test)]

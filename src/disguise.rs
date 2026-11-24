@@ -238,6 +238,7 @@ fn synthesis(g: &mut Game, dt: f32) {
     }
     g.sfx.pickup();
     g.sfx.sting();
+    story::cured(g);
 }
 
 /// "you have not paid." You can, now: a Helix robot next to you (E, H$ 5).
@@ -267,6 +268,7 @@ pub fn pay_robot(g: &mut Game) {
     c.via = String::new();
     c.bubble_t = 4.0;
     g.sfx.pickup();
+    story::paid(g, name);
     let receipt = g.disguise_t > 0.0 && !g.intel_from.contains(&name);
     if receipt {
         g.intel_from.push(name);

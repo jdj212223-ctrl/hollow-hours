@@ -5,7 +5,9 @@ use super::*;
 
 /// (key, name, what it is)
 fn menu(g: &Game) -> Vec<(char, String, String)> {
+    let (story_name, story_what) = story::menu_entry();
     let mut m = vec![
+        ('S', story_name, story_what),
         ('4', "INFECTION".to_string(), "You're the last human. Hide, eat, drink, survive.".to_string()),
         ('5', "INSANE INFECTION".into(), format!("{} more of them, everywhere. All of them FAST.", insane::HORDE)),
         ('W', "Worlds".into(), "Saved Infection games: carry on where you left off, or start a new one.".into()),
@@ -36,8 +38,8 @@ fn menu(g: &Game) -> Vec<(char, String, String)> {
     m
 }
 
-const KEYS: [(KeyCode, char); 16] = [
-    (KeyCode::W, 'W'),
+const KEYS: [(KeyCode, char); 17] = [
+    (KeyCode::W, 'W'), (KeyCode::S, 'S'),
     (KeyCode::Key1, '1'), (KeyCode::Key2, '2'), (KeyCode::Key3, '3'), (KeyCode::Key4, '4'), (KeyCode::Key5, '5'), (KeyCode::U, 'U'), (KeyCode::I, 'I'),
     (KeyCode::J, 'J'), (KeyCode::B, 'B'), (KeyCode::O, 'O'), (KeyCode::L, 'L'), (KeyCode::K, 'K'), (KeyCode::M, 'M'),
     (KeyCode::Escape, 'Q'), (KeyCode::Enter, '\n'),
@@ -46,6 +48,7 @@ const KEYS: [(KeyCode, char); 16] = [
 /// What the highlighted entry makes one of them say.
 fn reaction(c: char) -> (&'static str, &'static str) {
     match c {
+        'S' => ("Ember", "Five nights. We'll be on the radio for every one of them."),
         '4' => ("Atlas", "Infection? ...Then stay close to us. All of us."),
         '5' => ("Atlas", "No. There are too many of them. ...If we do this, we do it together."),
         'W' => ("Verse", "Your worlds. I remember every night in every one of them."),

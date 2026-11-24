@@ -151,6 +151,9 @@ fn arrive(g: &mut Game, p: Pass) {
         g.log.push("The air hums. In the middle of the room: a tall glass pod. Empty.".into());
         meta_event(g, MetaEvent::Lab);
     }
+    if map_name(m) == story::TOWER_MAP && g.infection {
+        g.log.push("Floors of servers hum in the dark. Far above, something is waiting. It already knows you're here.".into());
+    }
     if map_name(m) == "The Marketplace" && g.infection {
         g.log.push("Fluorescent lights hum. Somewhere a robot voice says: \"Welcome to Helix Market.\"".into());
     }

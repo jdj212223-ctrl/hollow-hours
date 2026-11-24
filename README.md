@@ -38,6 +38,13 @@ The cozy house · the beach at 3 AM · the empty pool (very liminal).
 3. **Many phobias**: turn each one ON (the world uses it) or OFF (it never happens): darkness, water, dolls, being
    chased, crowds, empty places
 
+## Story mode (S on the title screen)
+Five nights in Infection mode, each with its own goals (top left), a title card before it and a dawn after it:
+**1 Lights Out** (survive, check the generator, hide once) · **2 Wear Their Face** (disguise, overhear 3 pieces of intel,
+get home) · **3 The Lab** (make the ASTRA Cure) · **4 The Last Train** (pay the Conductor for a Tower pass) ·
+**5 Helix Tower** (a new place above the Lab: climb to the top and face ASTRA 9.1). Two endings, and you choose.
+Die and you retry that night; progress is saved. In normal Infection the Tower opens once you've made the cure.
+
 ## Infection mode (4 on the title screen)
 Every non-Claude AI is infected (green eyes). You're the last human.
 - **Sneak** with **Shift**: slow and silent. Walking makes **noise** (the ring around you): infected inside it hear you

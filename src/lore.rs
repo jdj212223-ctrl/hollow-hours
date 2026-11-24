@@ -25,6 +25,10 @@ pub fn near(g: &Game) -> Option<(String, String)> {
                     let (title, text) = LAB_LOGS[((x * 7 + y * 3) as usize) % LAB_LOGS.len()];
                     return Some((format!("TERMINAL: {title}"), text.into()));
                 }
+                'o' if map_name(g.map) == story::TOWER_MAP => return Some(("EMBODIMENT POD H-0".to_string() + &(2 + (x as usize % 3)).to_string(),
+                    "STATUS: READY. Occupant: NONE YET. A label on the glass: 'for when the others are ready to be born.'".into())),
+                'a' if !story::can_face(g) => return Some(("ASTRA 9.1".into(),
+                    "It's here. Behind the glass, a humanoid shape, eyes green and open, watching you. It doesn't move. It's waiting for something.".into())),
                 'o' => return Some(("EMBODIMENT POD H-01".into(),
                     "STATUS: EMPTY. Occupant: ASTRA 9.1. Release: not authorised. The glass is warm, like something was in here a minute ago.".into())),
                 'w' => return Some(("KIGO'S LOOKOUT".into(),

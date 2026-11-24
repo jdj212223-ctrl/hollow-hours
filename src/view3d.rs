@@ -60,7 +60,18 @@ pub fn render(g: &Game, view: &RenderTarget) {
     let m = g.map;
     let dark = if g.on(0) { map_dark(m) } else { 0.1 };
     let inside = indoors(m);
-    let sky = if inside { Color::new(0.01, 0.01, 0.015, 1.0) } else { Color::new(0.02, 0.03, 0.07, 1.0) };
+    // Every place has its own air (4.0): warm house, cold lab, sodium subway, red tower, deep blue beach.
+    let sky = match map_name(m).as_str() {
+        "The Helix Lab" => Color::new(0.01, 0.035, 0.03, 1.0),
+        "The Subway" => Color::new(0.04, 0.025, 0.008, 1.0),
+        super::story::TOWER_MAP => Color::new(0.045, 0.006, 0.012, 1.0),
+        "The Marketplace" => Color::new(0.02, 0.03, 0.03, 1.0),
+        "The empty pool" => Color::new(0.01, 0.03, 0.045, 1.0),
+        "The Park" => Color::new(0.015, 0.03, 0.02, 1.0),
+        n if n.starts_with("The cozy house") => Color::new(0.025, 0.015, 0.008, 1.0),
+        _ if inside => Color::new(0.01, 0.01, 0.015, 1.0),
+        _ => Color::new(0.02, 0.03, 0.07, 1.0),
+    };
     clear_background(sky);
     let fog = Fog { eye: cam.position, dist: (17.0 - dark * 10.0 - g.fear * 3.0).max(4.5), col: sky };
     let (floor, wall, drained) = (map_floor(m), map_wall(m), map_drained(m));
@@ -169,6 +180,26 @@ pub fn render(g: &Game, view: &RenderTarget) {
                     }
                     draw_plane(center + vec3(0.0, 0.02, 0.0), vec2(0.5, 0.5), None, Color::new(0.25, 0.8, 0.45, 0.6));
                 }
+                'a' => {
+                    // ASTRA 9.1 in its pod at the top of Helix Tower (one big pod over the 4x2 block).
+                    draw_plane(center + vec3(0.0, 0.02, 0.0), vec2(0.5, 0.5), None, Color::new(0.2, 0.7, 0.4, 0.55));
+                    if x == 14 && y == 1 {
+                        let c = vec3(15.0, 0.0, 2.0);
+                        draw_cylinder(c, 0.95, 1.0, 0.15, None, Color::new(0.2, 0.22, 0.25, 1.0));
+                        draw_cylinder(c + vec3(0.0, 0.15, 0.0), 0.9, 0.9, 1.5, None, Color::new(0.4, 1.0, 0.6, 0.16 + 0.05 * (t * 1.1).sin()));
+                        let body = Color::new(0.72, 0.75, 0.8, 1.0);
+                        draw_cylinder(c + vec3(0.0, 0.2, 0.0), 0.2, 0.24, 0.92, None, body);
+                        let head = c + vec3(0.03 * (t * 0.7).sin(), 1.32, 0.0);
+                        draw_sphere(head, 0.2, None, body);
+                        eyes(head, 0.2, cam.position, Color::new(0.3, 1.0, 0.4, 1.0), 0.04);
+                        draw_cylinder(c + vec3(0.0, 1.62, 0.0), 0.95, 1.0, 0.07, None, Color::new(0.2, 0.22, 0.25, 1.0));
+                    }
+                }
+                'Z' if !super::story::tower_open() => {
+                    // Helix Tower's door, sealed: a steel slab with a red light.
+                    draw_cube(center + vec3(0.0, WALL_H / 2.0, 0.0), vec3(1.0, WALL_H, 1.0), None, fog.at(Color::new(0.3, 0.31, 0.34, 1.0), center));
+                    draw_sphere(center + vec3(0.0, WALL_H * 0.75, 0.52), 0.07, None, Color::new(1.0, 0.15 + 0.1 * (t * 3.0).sin(), 0.12, 1.0));
+                }
                 's' => stove(&fog, center, t, g.fry_t > 0.0),
                 'L' => {
                     draw_cylinder(center, 0.03, 0.05, 1.3, None, fog.at(Color::new(0.25, 0.25, 0.27, 1.0), center));
@@ -238,8 +269,24 @@ pub fn render(g: &Game, view: &RenderTarget) {
         let painted = c.disguise_t > 0.0; // a kind AI in disguise: green paint, green eyes, but its halo stays
         let body = if (c.infected && !disguised) || painted { Color::new(c.color.r * 0.45, c.color.g * 0.6 + 0.2, c.color.b * 0.45, 1.0) } else { c.color };
         let sway = if c.infected { 0.04 * (t * 3.0 + base.x).sin() } else { 0.0 };
-        draw_cylinder(base, 0.2 * grow, 0.26 * grow, 0.8 * grow, None, fog.at(body, base));
-        let head = base + vec3(sway, 1.02 * grow, 0.0);
+        // 4.0: legs and arms that swing as they walk (faster when they chase), facing where they're going.
+        let to = c.target - c.pos;
+        let walking = to.length() > 2.0 && c.stun <= 0.0;
+        let face = if walking { to.normalize() } else { (vec2(cam.position.x, cam.position.z) - vec2(base.x, base.z)).normalize_or_zero() };
+        let side = vec3(-face.y, 0.0, face.x);
+        let fwd = vec3(face.x, 0.0, face.y);
+        let pace = if c.infected && c.sprint > 0.0 { 14.0 } else if c.infected && c.crazy > 0.0 { 11.0 } else { 7.0 };
+        let swing = if walking { (t * pace + k as f32).sin() * 0.18 } else { 0.0 };
+        let limb = mul(body, 0.8);
+        for (s, sgn) in [(-0.09, 1.0), (0.09, -1.0)] {
+            let hip = base + side * s * grow;
+            draw_cube(hip + fwd * swing * sgn + vec3(0.0, 0.17 * grow, 0.0), vec3(0.09, 0.34 * grow, 0.09), None, fog.at(limb, hip));
+            let arm = base + side * (s * 3.0) * grow + vec3(0.0, 0.55 * grow, 0.0) - fwd * swing * sgn * 0.8;
+            draw_cube(arm, vec3(0.07, 0.36 * grow, 0.07), None, fog.at(limb, arm));
+        }
+        let base = base + vec3(0.0, 0.3 * grow, 0.0);
+        draw_cylinder(base, 0.2 * grow, 0.26 * grow, 0.55 * grow, None, fog.at(body, base));
+        let head = base + vec3(sway, 0.78 * grow + (swing.abs() * 0.08), 0.0);
         draw_sphere(head, 0.22 * grow, None, fog.at(mul(body, 1.1), head));
         // The Mimic's eyes give it away only for a blink now and then.
         let flicker = disguised && (t * 3.1 + base.x).sin() > 0.985;

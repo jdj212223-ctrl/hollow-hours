@@ -62,6 +62,10 @@ pub struct Settings {
     pub browser: String,
     /// Official builds download new releases by themselves (installed with U on the title, or when you quit).
     pub auto_update: bool,
+    /// Deep meta (4.0): the infected know your computer (username, Wi-Fi, apps...). Off by default.
+    pub deep_meta: bool,
+    /// Streamer-safe: Deep meta never says names (username, computer, Wi-Fi, apps).
+    pub streamer_safe: bool,
     /// Rebound keys: action name -> key name.
     pub binds: std::collections::HashMap<String, String>,
 }
@@ -70,7 +74,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings { master: 1.0, ambience: 0.8, effects: 1.0, voices: 1.0, mic_on: false, hear_voice: true, ai_voices: true, captions: false,
             big_text: false, reduce_motion: false, high_contrast: false, jumpscares: true, toggle_sprint: false,
-            toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, browser: String::new(), auto_update: true, binds: Default::default() }
+            toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, browser: String::new(), auto_update: true, deep_meta: false, streamer_safe: false, binds: Default::default() }
     }
 }
 
@@ -159,6 +163,8 @@ fn rows(tab: usize, s: &Settings) -> Vec<Row> {
         3 => vec![
             Toggle("Flashing lights", s.flashing, |s, v| s.flashing = v, "Strobing jumpscares and lightning on the beach. Off by default. PANIC turns it off at once."),
             Toggle("Auto-update", s.auto_update, |s, v| s.auto_update = v, "Official downloads look for a new version when the game starts and get it in the background. It's installed when you press U on the title screen or when you quit. Builds you made yourself never update."),
+            Toggle("Deep meta (4.0)", s.deep_meta, |s, v| s.deep_meta = v, "Needs Outside the window. The infected learn about your computer and say it: your username, your computer's name, your Wi-Fi, your battery, the apps and AIs you have. They only read and say things, never change anything, and it never leaves your computer. Offline games only."),
+            Toggle("Streamer-safe", s.streamer_safe, |s, v| s.streamer_safe = v, "Deep meta never says names: no username, computer name, Wi-Fi or app names (for recording and streaming)."),
             Browser(if s.browser.is_empty() { "Your default browser".into() } else { s.browser.clone() }),
         ],
         _ => {

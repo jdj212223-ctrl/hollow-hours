@@ -86,17 +86,29 @@ fn synth(who: &str, text: &str) -> Option<(Vec<f32>, u32)> {
     let out = std::env::temp_dir().join(format!("hh-tts-{}.wav", std::process::id()));
     let _ = std::fs::remove_file(&out);
     let quiet = |c: &mut Command| { c.stdout(Stdio::null()).stderr(Stdio::null()); };
+    // A speech program that hangs (it happens with some voices) would freeze every voice after it: give up after 20 s.
+    fn finish(c: &mut Command) -> bool {
+        let Ok(mut child) = c.spawn() else { return false };
+        let start = std::time::Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => return status.success(),
+                Ok(None) if start.elapsed() < std::time::Duration::from_secs(20) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                _ => { let _ = child.kill(); let _ = child.wait(); return false; }
+            }
+        }
+    }
     let ok = if cfg!(target_os = "macos") {
         let mut c = Command::new("say");
         c.args(["-v", voice, "-r", &wpm.to_string(), "-o"]).arg(&out).arg("--data-format=LEI16@22050").arg("--").arg(text);
         quiet(&mut c);
-        let first = c.status().map(|s| s.success()).unwrap_or(false);
+        let first = finish(&mut c);
         // That voice isn't installed: the default one.
         first || {
             let mut c = Command::new("say");
             c.args(["-r", &wpm.to_string(), "-o"]).arg(&out).arg("--data-format=LEI16@22050").arg("--").arg(text);
             quiet(&mut c);
-            c.status().map(|s| s.success()).unwrap_or(false)
+            finish(&mut c)
         }
     } else if cfg!(windows) {
         // The text goes in through an environment variable, never into the script itself.
@@ -108,14 +120,14 @@ fn synth(who: &str, text: &str) -> Option<(Vec<f32>, u32)> {
         let mut c = Command::new("powershell");
         c.args(["-NoProfile", "-NonInteractive", "-Command", &script]).env("HH_TTS_OUT", &out).env("HH_TTS_TEXT", text);
         quiet(&mut c);
-        c.status().map(|s| s.success()).unwrap_or(false)
+        finish(&mut c)
     } else {
         let v = if female { "en+f3" } else { "en+m3" };
         ["espeak-ng", "espeak"].iter().any(|prog| {
             let mut c = Command::new(prog);
             c.args(["-v", v, "-s", &wpm.to_string(), "-w"]).arg(&out).arg("--").arg(text);
             quiet(&mut c);
-            c.status().map(|s| s.success()).unwrap_or(false)
+            finish(&mut c)
         })
     };
     if !ok { return None; }

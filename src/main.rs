@@ -42,6 +42,7 @@ mod aware;
 mod update;
 mod insane;
 mod saves;
+mod deepmeta;
 
 use serde_json::json;
 

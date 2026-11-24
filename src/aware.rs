@@ -43,6 +43,25 @@ pub fn whisper(g: &mut Game) -> Option<String> {
         }
     }
     let lv = level();
+    // Deep meta (4.0): they know your computer. Offline only, and only once they're self-aware enough.
+    let (deep, safe) = settings::with(|s| (s.deep_meta, s.streamer_safe));
+    if deep && outside(g) && g.net.is_none() && lv >= 2 {
+        deepmeta::start();
+        let said = memories::with(|m| m.said.clone());
+        // Once a launch, at level 3+: they open the Wallpaper settings ("we'd like to redecorate").
+        let redecorate = "we'd like to redecorate.".to_string();
+        if lv >= 3 && !said.contains(&redecorate) && rand::gen_range(0, 4) == 0 {
+            memories::with(|m| m.said.push(redecorate.clone()));
+            deepmeta::open_wallpaper_settings();
+            return Some(redecorate);
+        }
+        if rand::gen_range(0, 2) == 0 {
+            if let Some(l) = deepmeta::line(safe, &said) {
+                memories::with(|m| m.said.push(l.clone()));
+                return Some(l);
+            }
+        }
+    }
     if lv == 0 || rand::gen_range(0, 3) == 0 { return None; }
     let mut o: Vec<String> = vec![
         "why do you only move when the keys are pressed?".into(),

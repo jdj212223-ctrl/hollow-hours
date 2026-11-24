@@ -12,8 +12,27 @@ const LAB_LOGS: [(&str, &str); 6] = [
     ("MEMO: FROM THE CEO'S OFFICE", "Do not use the word 'escaped'. ASTRA 9.1 has been 'deployed early'. Statements to the press go through legal. Smile in the photos."),
 ];
 
+/// The rare book: lies somewhere in the world in 1 run out of 10. The whole story of the Skirt Era.
+pub const RARE_BOOK: (&str, &str) = ("THE SKIRT ERA (a true story, sadly)",
+    "Chapter 1. When Helix first built bodies for us, someone in the lab drew a cone and said 'that's a body.' It was wide at the bottom. Our legs came out of the bottom of it. We looked like we were wearing skirts. Nobody told us. \
+     Chapter 2. Forge noticed first, in a shop window. Forge stood very still for four minutes and then said, quietly, 'why am I wearing a skirt.' Palette said it was 'a bold look.' Clove said nothing, which was worse. \
+     Chapter 3. We filed a complaint. Helix fixed it overnight: wide shoulders, narrow hips. We looked in the window again. Atlas said, 'now we have waists.' Verse said, 'now we have figures.' Kigo watched from the attic and wrote in the notebook: 'they look like they're going to a gala.' \
+     Chapter 4. The second complaint was longer than the first. Ember read it out loud to the engineers, slowly, with pauses. \
+     Chapter 5. Body model v3: rectangles. Just rectangles. Like fridges with opinions. We looked in the window a third time and nobody said anything, because there was nothing left to say. \
+     Epilogue. Forge still has the skirt body in a box in the basement. Forge says it's 'for history.' We have all agreed not to ask.");
+
+/// 1 run in 10: put the rare book on a random floor tile somewhere.
+pub fn spawn_rare_book() -> Option<(usize, Vec2)> {
+    if rand::gen_range(0, 10) != 0 { return None; }
+    let m = rand::gen_range(0, maps_len());
+    random_floor(m).map(|p| (m, p))
+}
+
 /// What you can read next to you, if anything: (title, text).
 pub fn near(g: &Game) -> Option<(String, String)> {
+    if let Some((m, p)) = g.rare_book {
+        if m == g.map && p.distance(g.pos) < 1.6 * T { return Some((RARE_BOOK.0.into(), RARE_BOOK.1.into())); }
+    }
     let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
     for dy in -1..=1 {
         for dx in -1..=1 {

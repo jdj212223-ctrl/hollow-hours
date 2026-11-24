@@ -277,6 +277,15 @@ pub fn render(g: &Game, view: &RenderTarget) {
             }
         }
     }
+    // The rare book: a pink book on the floor, glowing a little so you can spot it.
+    if let Some((bm, p)) = g.rare_book {
+        if bm == m {
+            let c = vec3(p.x / T, 0.04, p.y / T);
+            draw_cube(c, vec3(0.22, 0.06, 0.3), None, fog.at(Color::new(0.95, 0.45, 0.7, 1.0), c));
+            draw_cube(c + vec3(0.0, 0.035, 0.0), vec3(0.2, 0.01, 0.28), None, fog.at(Color::new(0.98, 0.95, 0.9, 1.0), c));
+            draw_cylinder(c - vec3(0.0, 0.03, 0.0), 0.35, 0.35, 0.003, None, Color::new(1.0, 0.5, 0.8, 0.12 + 0.06 * (t * 2.0).sin()));
+        }
+    }
     // The characters.
     for (k, c) in g.chars.iter().enumerate().filter(|(_, c)| c.map == m) {
         let base = vec3(c.pos.x / T, 0.0, c.pos.y / T);

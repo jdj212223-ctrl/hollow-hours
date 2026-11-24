@@ -404,6 +404,8 @@ struct Game {
     /// floor after a dropkick.
     weapon: Option<(combat::Weapon, u32)>,
     weapon_items: Vec<(usize, Vec2, combat::Weapon)>,
+    /// The rare book (1 run in 10): where it lies, if it spawned. See lore::RARE_BOOK.
+    rare_book: Option<(usize, Vec2)>,
     attack_cd: f32,
     swing_t: f32,
     down_t: f32,
@@ -1384,6 +1386,7 @@ fn start_infection(g: &mut Game) {
     g.weak_t = 0.0;
     g.weapon = None;
     g.weapon_items = combat::spawn();
+    g.rare_book = lore::spawn_rare_book();
     g.down_t = 0.0;
     g.credits = 10;
     g.credit_t = 0.0;
@@ -2007,6 +2010,7 @@ async fn main() {
         weak_t: 0.0,
         weapon: None,
         weapon_items: vec![],
+        rare_book: None,
         attack_cd: 0.0,
         swing_t: 0.0,
         down_t: 0.0,
@@ -2066,6 +2070,14 @@ async fn main() {
         g.mac.tab = tab.parse().unwrap_or(0);
         if g.mac.tab == 1 { g.mac.open = Some(0); }
         if g.mac.tab == 0 { g.mac.input = "Hi Ember. Is this really a Mac Studio? What happened to everyone?".into(); mac::send(&mut g); }
+    } else if demo.as_deref() == Some("book") {
+        // HOLLOW_DEMO=book: the rare book on the floor in front of you, open.
+        start_infection(&mut g);
+        g.pos = vec2(2.5, 2.6) * T;
+        g.yaw = -std::f32::consts::FRAC_PI_2;
+        g.pitch = -0.6;
+        g.rare_book = Some((g.map, g.pos + vec2(0.0, -0.9) * T));
+        g.note = lore::near(&g);
     } else if demo.as_deref() == Some("stove") {
         // HOLLOW_DEMO=stove: at the stove with raw food, frying.
         start_infection(&mut g);

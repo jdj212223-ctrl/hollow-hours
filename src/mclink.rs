@@ -258,6 +258,8 @@ pub fn offer() -> Option<String> {
     } else { None }
 }
 
+pub fn asking() -> bool { ASKING.lock().map(|a| *a).unwrap_or(false) }
+
 /// Draws the question and handles Y / N. Returns true while it's up.
 pub fn ask(g: &mut Game) -> bool {
     if !ASKING.lock().map(|a| *a).unwrap_or(false) || g.screen != Screen::Play { return false; }
@@ -270,6 +272,10 @@ pub fn ask(g: &mut Game) -> bool {
     if pressed(KeyCode::Y) {
         if let Ok(mut a) = ASKING.lock() { *a = false; }
         let ok = launch();
+        // You're off to Minecraft: the game waits for you in the pause menu.
+        if g.grabbed { g.grabbed = false; g.regrab = true; set_cursor_grab(false); show_mouse(true); }
+        g.pause_sel = 0;
+        g.screen = Screen::Paused;
         g.log.push(if ok { "Your Minecraft launcher opens. (Install HH-Link in Settings > Minecraft to bring them along.)".into() } else { "They couldn't find a Minecraft launcher to open.".into() });
         return true;
     }

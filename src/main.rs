@@ -2754,6 +2754,8 @@ fn typing(g: &mut Game, i: usize) {
 fn update(g: &mut Game, dt: f32) {
     // Story mode: a night's title card or the dawn after it holds the game.
     if g.screen == Screen::Play && story::update(g, dt) { return; }
+    // The Minecraft question holds the game too: nothing moves while you decide.
+    if g.screen == Screen::Play && mclink::asking() { return; }
     pymod::update(g, dt);
     g.clock += dt;
     // Answers from the AIs.

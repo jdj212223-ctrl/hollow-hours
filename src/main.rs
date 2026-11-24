@@ -460,6 +460,8 @@ struct Game {
     brewing: bool,
     /// Something you're reading (a lab terminal, the bench...): title and text.
     note: Option<(String, String)>,
+    /// Which chapter of a book is open (Left Shift turns the page).
+    note_page: usize,
     /// Your saved servers (they stay between games) and their status.
     servers: serverlist::List,
     /// Sprint / sneak when they're set to toggle instead of hold (Settings > Accessibility).
@@ -1161,8 +1163,8 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
                 "E" => KeyCode::E, "Z" => KeyCode::Z, "C" => KeyCode::C, "H" => KeyCode::H, "F" => KeyCode::F, "Q" => KeyCode::Q,
                 "X" => KeyCode::X, "R" => KeyCode::R, "TAB" => KeyCode::Tab, "ESCAPE" | "ESC" => KeyCode::Escape, "ENTER" => KeyCode::Enter,
                 "UP" => KeyCode::Up, "DOWN" => KeyCode::Down, "1" => KeyCode::Key1, "2" => KeyCode::Key2, "3" => KeyCode::Key3,
-                "4" => KeyCode::Key4, "5" => KeyCode::Key5,
-                _ => return Some(json!({"error": "key: E, Z, C, H, F, Q, X, R, Tab, Escape, Enter, Up, Down, 1-5"})),
+                "4" => KeyCode::Key4, "5" => KeyCode::Key5, "SHIFT" | "LEFTSHIFT" => KeyCode::LeftShift,
+                _ => return Some(json!({"error": "key: E, Z, C, H, F, Q, X, R, Tab, Escape, Enter, Up, Down, 1-5, Shift (next chapter in a book)"})),
             };
             inject_key(k);
             json!({"ok": true, "pressed": a["key"]})
@@ -1983,6 +1985,7 @@ async fn main() {
         settings_ui: Default::default(),
         servers: serverlist::List::load(),
         note: None,
+        note_page: 0,
         kits: 0,
         intel: 0,
         intel_from: vec![],
@@ -2076,7 +2079,7 @@ async fn main() {
         g.pos = vec2(2.5, 2.6) * T;
         g.yaw = -std::f32::consts::FRAC_PI_2;
         g.pitch = -0.6;
-        let vol = if std::env::var("HOLLOW_BOOK").as_deref() == Ok("2") { 1 } else { 0 };
+        let vol = std::env::var("HOLLOW_BOOK").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).max(1) - 1;
         g.rare_book = Some((g.map, g.pos + vec2(0.0, -0.9) * T, vol));
         g.note = lore::near(&g);
     } else if demo.as_deref() == Some("stove") {
@@ -2983,10 +2986,14 @@ fn update(g: &mut Game, dt: f32) {
             story::face(g);
         } else if pressed(KeyCode::E) && disguise::lab_ready(g) {
             disguise::start_synthesis(g);
+        } else if g.note.is_some() && pressed(KeyCode::LeftShift) {
+            g.note_page += 1; // next chapter (wraps back to the first)
+            g.sfx.radio();
         } else if g.note.is_some() && (pressed(KeyCode::E) || pressed(KeyCode::Escape) || lore::near(g).is_none()) {
             g.note = None; // closed, or you walked away
         } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && !near_mac(g) && lore::near(g).is_some() {
             g.note = lore::near(g);
+            g.note_page = 0;
             g.sfx.radio();
         } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && near_mac(g) {
             g.screen = Screen::Mac;

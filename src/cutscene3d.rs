@@ -28,7 +28,14 @@ fn scene(view: &RenderTarget, canvas_cam: &Camera2D, eye: Vec3, look: Vec3, sky:
 
 /// A character standing at `base` (feet), its eyes on `at`.
 fn person(base: Vec3, color: Color, at: Vec3, scale: f32) {
-    draw_cylinder(base, 0.2 * scale, 0.26 * scale, 0.8 * scale, None, Color::new(color.r * 0.85, color.g * 0.85, color.b * 0.85, color.a));
+    // The same blocky robot body as in the game (no cone, no skirt): two legs, a square chunk, two arms.
+    let body = Color::new(color.r * 0.85, color.g * 0.85, color.b * 0.85, color.a);
+    let limb = Color::new(color.r * 0.7, color.g * 0.7, color.b * 0.7, color.a);
+    for s in [-0.09, 0.09] {
+        draw_cube(base + vec3(s * scale, 0.17 * scale, 0.0), vec3(0.09, 0.34, 0.09) * scale, None, limb);
+        draw_cube(base + vec3(s * 2.7 * scale, 0.56 * scale, 0.0), vec3(0.07, 0.36, 0.07) * scale, None, limb);
+    }
+    draw_cube(base + vec3(0.0, 0.6 * scale, 0.0), vec3(0.38, 0.56, 0.38) * scale, None, body);
     let head = base + vec3(0.0, 1.02 * scale, 0.0);
     draw_sphere(head, 0.22 * scale, None, color);
     eyes(head, 0.22 * scale, at, color.a);

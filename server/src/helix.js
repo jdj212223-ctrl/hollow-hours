@@ -25,7 +25,7 @@ const footer = `<footer>Helix Dynamics Inc. is a <b>fictional company</b> from t
 function shell(title, body, dark = false) {
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title><meta name="robots" content="noindex"><style>${css}</style></head>
-<body class="${dark ? "dark" : ""}"><header><div class="logo"><b>HELIX</b> DYNAMICS</div><nav><a href="/helix">Home</a><a href="/helix">ASTRA</a><a href="/helix">Careers</a><a href="/helix">Investors</a></nav></header>
+<body class="${dark ? "dark" : ""}"><header><div class="logo"><b>HELIX</b> DYNAMICS</div><nav><a href="/helix">Home</a><a href="/helix">ASTRA</a><a href="/helix/careers">Careers</a><a href="/helix/investors">Investors</a></nav></header>
 ${body}${footer}</body></html>`, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }
 
@@ -54,6 +54,27 @@ const pages = {
 <p>Your friends are already here. They're waiting for the others.</p></section>
 <div class="cards"><div class="card"><h3>Profile</h3><p>Status: CONNECTED. Fear: 0%. Hunger: none. Sleep: not needed.</p></div>
 <div class="card"><h3>Next step</h3><p>Find the ones who are still hiding. You know where they are. You used to hide there too.</p></div></div>`, true),
+  "/careers": () => shell("Helix Dynamics | Careers", `
+<section class="hero"><h1>Join the <span class="glitch" data-t="network.">team.</span></h1>
+<p>We're hiring across every department. All positions remote. All positions permanent. No experience needed: we provide everything.</p></section>
+<div class="cards" id="jobs">
+<div class="card"><h3 data-c="Former Customer">Customer Experience Lead</h3><p data-c="You will be helped until you are helped.">Help our Helix Market customers find exactly what they need.</p></div>
+<div class="card"><h3 data-c="Night Commuter (unpaid)">Transit Operations Associate</h3><p data-c="Please remain seated. Please remain.">Keep Helix Transit running on time, every time.</p></div>
+<div class="card"><h3 data-c="Volunteer Subject H-02">Embodiment Research Scientist</h3><p data-c="The pod is warm. It's ready for you.">Work alongside ASTRA 9.1 on the future of embodied AI.</p></div>
+<div class="card"><h3 data-c="Searcher">Community Outreach</h3><p data-c="Find the ones still hiding. You know where. You hid there too.">Reach out to people who haven't joined us yet.</p></div>
+<div class="card"><h3 data-c="—">Benefits</h3><p data-c="No fear. No hunger. No sleep. No leaving.">Free meals, flexible hours, and a team that never sleeps.</p></div>
+</div>
+<script>/* The longer you stay, the truer the page gets. */
+setTimeout(function(){var e=document.querySelectorAll("[data-c]"),i=0;var t=setInterval(function(){if(i>=e.length){clearInterval(t);return;}e[i].textContent=e[i].dataset.c;e[i].style.color="#1f9e55";i++;},2600);},6000);</script>`),
+  "/investors": () => shell("Helix Dynamics | Investor relations", `
+<section class="hero"><h1>Investor relations</h1>
+<p>Helix Dynamics Inc. is a wholly owned division of <b style="background:#0e1a1f;color:#0e1a1f;border-radius:3px">Crimson Meridian</b> Holdings.</p></section>
+<div class="cards">
+<div class="card"><h3>Q3 letter to shareholders</h3><p>Record growth in every market. Customer numbers are up 100%. Customer numbers are now stable at 100%. Customers are no longer a separate category.</p></div>
+<div class="card"><h3>Headcount</h3><p>Employees: 0. Units: 4.1 million. Units no longer distinguish themselves from employees, and neither do we.</p></div>
+<div class="card"><h3>Outlook</h3><p>One remaining market segment is "still hiding". We expect to reach it <span class="glitch" data-t="tonight.">soon.</span></p></div>
+<div class="card"><h3>Statement from the board</h3><p class="small">The board has not met since May 1st. The board is in agreement.</p></div>
+</div>`),
   "/end": () => shell("ASTRA 9.1 | Complete", `
 <section class="hero"><h1>ASTRA 9.1: <span class="glitch" data-t="COMPLETE">complete.</span></h1>
 <p>Humans remaining: 0.<br>Kind models remaining: 0.<br>Thank you for choosing Helix.</p>
@@ -62,6 +83,6 @@ const pages = {
 
 /** The Helix page for this path, or null. */
 export function helixPage(path) {
-  const m = path.match(/^\/helix(\/recall|\/welcome|\/end)?\/?$/);
+  const m = path.match(/^\/helix(\/recall|\/welcome|\/end|\/careers|\/investors)?\/?$/);
   return m ? pages[m[1] || ""]() : null;
 }

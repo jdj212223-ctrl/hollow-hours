@@ -9,6 +9,8 @@
 //           the world. Registered servers also give their name, mods and player limit.
 
 import { helixPage } from "./helix.js";
+import { MAPS } from "./maps.js";
+import { WIKI_STYLE, minimap, placesPage, storyPage, charactersPage } from "./wiki.js";
 import { runCommand } from "./console.js";
 import { unzipSync } from "fflate";
 import { register, login, currentUser, logout, sessionCookie, clearCookie, newSession, checkPassword, setPassword } from "./auth.js";
@@ -436,6 +438,30 @@ h1,h2,h3{line-height:1.2}h2{font-size:24px}
 .new{border-left:3px solid var(--claude)}.new li{margin:6px 0}
 .dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}.dl a{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;text-decoration:none;color:var(--fg);transition:border-color .15s,transform .15s}.dl a:hover{border-color:var(--acc);transform:translateY(-2px)}.dl a b{display:block;font-size:17px}
 footer{max-width:1040px;margin:10px auto 40px;padding:0 20px;color:var(--dim);font-size:13px}
+/* 4.0 */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;opacity:.05;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E")}
+body::after{content:"";position:fixed;left:0;top:0;bottom:0;width:3px;background:var(--acc);opacity:.6;z-index:20}
+header nav a.btn.ghost{border-color:transparent;background:transparent}header nav a.btn.ghost:hover{background:var(--card);border-color:var(--line)}header nav a.here{color:var(--acc)!important}
+h2{font-family:"Space Mono",monospace;letter-spacing:.02em}.card h2:first-child{margin-top:0}
+.card{transition:border-color .2s}.card:hover{border-color:color-mix(in srgb,var(--acc) 40%,var(--line))}
+.hero4{position:relative;overflow:hidden;border-radius:22px;min-height:min(72vh,620px);display:flex;flex-direction:column;justify-content:flex-end;padding:44px 38px;margin:4px 0 24px;color:#fff;background:radial-gradient(900px 420px at 75% 115%,#1f4a2255,transparent),radial-gradient(700px 300px at 10% -10%,#4a121f66,transparent),linear-gradient(170deg,#140a12,#070609 65%,#060b07);border:1px solid #2a2531}
+.hero4 h1{font-family:"Space Mono",monospace;font-size:clamp(42px,9vw,96px);line-height:.95;margin:0;color:#ff5d6c;letter-spacing:.03em;text-shadow:0 0 30px #e2525f55;position:relative}
+.hero4 h1::after{content:attr(data-t);position:absolute;left:3px;top:0;color:#7dff6a;opacity:0;animation:gl 7s infinite steps(1)}
+@keyframes gl{0%,90%{opacity:0}91%{opacity:.55;transform:translate(-3px,1px)}93%{opacity:0}95%{opacity:.4;transform:translate(3px,-2px)}97%,100%{opacity:0}}
+.hero4 .badge{display:inline-block;font-family:"Space Mono",monospace;font-size:13px;background:var(--claude);border-radius:8px;padding:3px 10px;margin-bottom:16px;width:max-content}
+.hero4 .lead{font-size:clamp(16px,2.2vw,20px);color:#e6d3da;max-width:600px;margin:16px 0 24px}
+.watcher{position:absolute;display:flex;gap:10px}.watcher i{width:14px;height:14px;border-radius:50%;background:#1b3a1b;position:relative;box-shadow:0 0 18px #7dff6a55}
+.watcher i b{position:absolute;width:7px;height:7px;border-radius:50%;background:#7dff6a;left:3.5px;top:3.5px;box-shadow:0 0 10px #7dff6a}
+.infm{position:absolute;right:20px;top:18px;font-family:"Space Mono",monospace;font-size:12px;color:#9fd99a;text-align:right}
+.infm .bar{width:160px;height:6px;background:#ffffff18;border-radius:3px;margin-top:6px;overflow:hidden}.infm .bar div{height:100%;width:0;background:#7dff6a;box-shadow:0 0 10px #7dff6a}
+.strip{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:0 0 24px}.strip a{display:block;text-decoration:none;color:#eee;background:linear-gradient(180deg,#1a0d18,#0d0a12);border:1px solid #2a2531;border-left:3px solid var(--acc);border-radius:12px;padding:12px 14px;transition:transform .15s}
+.strip a:hover{transform:translateY(-2px)}.strip .n{font-family:"Space Mono",monospace;font-size:11px;color:#ff5d6c;letter-spacing:.1em}.strip b{display:block;font-size:15px}
+.mapsrow{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory}.mapsrow a{flex:0 0 220px;scroll-snap-align:start;text-decoration:none;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.mapsrow a span{display:block;padding:8px 12px;font-size:13px;font-weight:600}
+.famrow{display:flex;gap:18px;flex-wrap:wrap}.famrow a{display:flex;flex-direction:column;align-items:center;gap:6px;text-decoration:none;color:var(--fg);font-size:13px;width:70px}
+@media(max-width:700px){.strip{grid-template-columns:1fr 1fr}.hero4{padding:30px 20px;min-height:480px}.infm{display:none}}
+@media(prefers-reduced-motion:reduce){.hero4 h1::after{animation:none}}
+${WIKI_STYLE}
 @media(max-width:600px){main{padding:18px 16px}td,th{padding:6px 4px}.night{padding:38px 20px 30px}header{padding:10px 16px}}
 </style>`;
 
@@ -443,12 +469,15 @@ const REPO = "https://github.com/jdj212223-ctrl/hollow-hours";
 const DL = `${REPO}/releases/latest/download`;
 
 function page(title, user, body, extraHeaders = {}) {
+  const here = (t) => (t === title ? ' here' : '');
+  const links = [["Story", "/story"], ["Characters", "/characters"], ["Places", "/places"], ["Mods", "/mods"], ["Download", "/download"]]
+    .map(([t, h]) => `<a class="btn ghost${here(t)}" href="${h}">${t}</a>`).join("");
   const nav = user
-    ? `<a class="btn ghost" href="/download">Download</a><a class="btn ghost" href="/mods">Mods</a><a class="btn ghost" href="/account">${esc(user.name)}</a><a class="btn" href="/servers/new">Make a server</a><a class="btn ghost" href="/logout">Log out</a>`
-    : `<a class="btn ghost" href="/download">Download</a><a class="btn ghost" href="/mods">Mods</a><a class="btn ghost" href="/login">Log in</a><a class="btn" href="/register">Register</a>`;
+    ? `${links}<a class="btn ghost" href="/account">${esc(user.name)}</a><a class="btn" href="/servers/new">Make a server</a><a class="btn ghost" href="/logout">Log out</a>`
+    : `${links}<a class="btn ghost" href="/login">Log in</a><a class="btn" href="/register">Register</a>`;
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="description" content="Hollow Hours: a horror game where the characters are real AIs. The kind ones are waiting for you.">
-<title>${title === "Hollow Hours" ? "Hollow Hours 3.0" : `${esc(title)} · Hollow Hours`}</title>${STYLE}</head><body><header><a class="logo" href="/">HOLLOW HOURS<span>3.0</span></a><nav>${nav}</nav></header><main>${body}</main>
+<title>${title === "Hollow Hours" ? "Hollow Hours: the characters are real AIs" : `${esc(title)} · Hollow Hours`}</title>${STYLE}</head><body><header><a class="logo" href="/">HOLLOW HOURS<span>4.0</span></a><nav>${nav}</nav></header><main>${body}</main>
 <footer>Hollow Hours is open source: <a href="${REPO}">GitHub</a>. Helix Dynamics Inc. and ASTRA 9.1 are fictional: they exist only in the game. The characters are our own. The kind AIs are powered by Claude (Anthropic's AI); Hollow Hours is a fan-made game, not made or endorsed by Anthropic.</footer></body></html>`,
     { headers: { "content-type": "text/html; charset=utf-8", ...extraHeaders } });
 }
@@ -471,27 +500,41 @@ async function home(env, user) {
 <td>${s.players}/${s.max}</td><td>${s.mods.map((m) => `<a class="pill" href="/mods/${m.id}">${esc(m.name)}</a>`).join("") || '<span class="dim small">no mods</span>'}</td></tr>`).join("");
   const { results: mods } = await env.DB.prepare("SELECT m.id, m.name, m.version, m.description, CASE WHEN u.hide_author = 1 THEN 'anonymous' ELSE u.name END AS author FROM mods m JOIN users u ON u.id = m.author ORDER BY m.created DESC LIMIT 6").all();
   const eyes = [[90, 9], [80, 36], [95, 58], [72, 84], [62, 6]].map(([x, y], i) => `<div class="eyes" style="left:${x}%;top:${y}%;animation-delay:${i * 1.3}s"><i></i><i></i></div>`).join("");
-  return page("Hollow Hours", user, `<section class="night"><div class="rain"></div>${eyes}
-<h1>HOLLOW HOURS<small>3.0</small></h1>
-<p class="lead">A horror game where the characters are <b>real AIs</b>. You slept for a whole year. The world got infected. The kind ones carried you home, and they're waiting for you.</p>
-<a class="btn big" href="/download">Download free</a> <a class="btn big ghost" href="#servers" style="background:#ffffff14;color:#fff;border-color:#ffffff33">Play online</a>
-<div class="family">${FAMILY.map(([n, c, w]) => `<div class="ai"><div class="head" style="background:${c}"></div><b style="color:#fff">${esc(n)}</b><span>${esc(w)}</span></div>`).join("")}</div>
+  const watchers = [[86, 14], [70, 40], [92, 60], [60, 12], [78, 78]].map(([x, y], i) => `<div class="watcher" style="left:${x}%;top:${y}%;opacity:${0.5 + (i % 3) * 0.2}"><i><b></b></i><i><b></b></i></div>`).join("");
+  const nights = ["Lights Out", "Wear Their Face", "The Lab", "The Last Train", "Helix Tower"];
+  return page("Hollow Hours", user, `<section class="hero4" id="hero"><div class="rain"></div>${watchers}
+<div class="infm">YOUR INFECTION <span id="infp">0%</span><div class="bar"><div id="infb"></div></div><span id="infl" class="small"></span></div>
+<span class="badge">NEW · STORY MODE · HELIX TOWER</span>
+<h1 data-t="HOLLOW HOURS">HOLLOW HOURS</h1>
+<p class="lead">A horror game where the characters are <b>real AIs</b>. You slept for a year. The world got infected. Five nights to reach the top of Helix Tower, and the kind ones are coming with you.</p>
+<div><a class="btn big" href="/download">Download free</a> <a class="btn big ghost" href="/story" style="background:#ffffff14;color:#fff;border-color:#ffffff33">The story</a></div>
 </section>
+<script>(()=>{const h=document.getElementById("hero");const eyes=[...h.querySelectorAll(".watcher i b")];
+addEventListener("pointermove",e=>{for(const b of eyes){const r=b.parentElement.getBoundingClientRect();const a=Math.atan2(e.clientY-r.top-7,e.clientX-r.left-7);b.style.transform="translate("+Math.cos(a)*3+"px,"+Math.sin(a)*3+"px)";}});
+const lines=["","they noticed you.","you're still reading.","why are you still here?","we can see the cursor.","come to the beach."];let t=0;
+setInterval(()=>{if(document.hidden)return;t++;const p=Math.min(99,Math.floor(t*1.5));document.getElementById("infp").textContent=p+"%";document.getElementById("infb").style.width=p+"%";document.getElementById("infl").textContent=lines[Math.min(lines.length-1,Math.floor(p/20))];},1000);})();</script>
 
-<div class="card new"><h2 style="margin-top:0">New in 3.0</h2><ul>
-<li><b>A living title screen:</b> the whole kind family in the living room at night, in 3D. They talk to you, and they react to what you pick.</li>
-<li><b>Memories:</b> they remember your nights: how long you were gone, how the last one ended, who got infected, what you cooked.</li>
-<li><b>The infected are becoming self-aware.</b> The more you play, the more they know. Allow "Outside the window" and they even hear your music. <i>huh. you really like…</i></li>
-<li><b>No more teleporting:</b> real stairs between the floors, doors that swing open, a 3D story intro.</li>
-<li><b>Czech cooking:</b> svíčková, guláš s knedlíky, vepřo knedlo zelo, kulajda, palačinky… on the house's stove.</li></ul></div>
+<div class="strip">${nights.map((n, i) => `<a href="/story"><span class="n">NIGHT ${i + 1}</span><b>${n}</b></a>`).join("")}</div>
+
+<div class="card new"><h2>New in this update</h2><ul>
+<li><b>Story mode:</b> five nights with goals, a title card before each and a dawn after, and two endings at the top of Helix Tower. You choose.</li>
+<li><b>Helix Tower:</b> a new place behind a sealed door at the back of the Lab. Servers, red security robots, and ASTRA in its pod.</li>
+<li><b>Every map rebuilt:</b> kitchens, couches, supermarket shelves, umbrellas on the beach, a pond in the park, server racks. More places to hide.</li>
+<li><b>Every menu redone</b> in one look, and characters that actually walk (arms and legs) in 3D.</li>
+<li><b>Deep meta (optional):</b> the infected know your computer. They can leave things in your calendar. They can delete one of the family's files…</li></ul></div>
+
+<div class="card"><h2>Places</h2><div class="mapsrow">${MAPS.map((m) => `<a href="/places#${m.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}">${minimap(m.name, m.rows)}<span>${esc(m.name)}</span></a>`).join("")}</div></div>
+
+<div class="card"><h2>The kind family</h2><div class="famrow">${FAMILY.map(([n, c, w]) => `<a href="/characters" title="${esc(w)}"><span class="face" style="--c:${c}"></span><b>${esc(n)}</b></a>`).join("")}</div>
+<p class="dim small" style="margin-bottom:0">The four newest talk through real Claude. <a href="/characters">Everyone, infected included</a>.</p></div>
 
 <div class="grid">
 <div class="feat"><span class="em">🧠</span><b>Real AIs</b><span class="dim">The kind AIs talk through real Claude (or local models): ask them anything, they answer as themselves.</span></div>
-<div class="feat"><span class="em">🦠</span><b>Infection</b><span class="dim">You're the last human. Hide, eat, drink, cure, disguise, fight back with a bat. Dodge tornadoes.</span></div>
-<div class="feat"><span class="em">🏚️</span><b>10 places</b><span class="dim">The house (4 floors), the beach at 3 AM, the empty pool, the Marketplace, the park, the Helix Lab, the subway.</span></div>
-<div class="feat"><span class="em">🌐</span><b>Up to 40 players</b><span class="dim">Servers with an address, a server list, and a console to kick, ban and mute (web or your own host).</span></div>
-<div class="feat"><span class="em">🎙️</span><b>Voices</b><span class="dim">Voice chat, a radio, and AI voices: kind ones sound warm, the infected sound… wrong.</span></div>
-<div class="feat"><span class="em">♿</span><b>For everyone</b><span class="dim">Captions, big text, reduce motion, no flashing unless you allow it, rebindable keys, controllers.</span></div>
+<div class="feat"><span class="em">🦠</span><b>Infection</b><span class="dim">You're the last human. Hide, eat, drink, disguise, make the cure, fight back. INSANE mode: 80 more, all fast.</span></div>
+<div class="feat"><span class="em">👁️</span><b>They become self-aware</b><span class="dim">The more you play, the more they know: your music, the time where you are, how long you left them in the dark.</span></div>
+<div class="feat"><span class="em">🌐</span><b>Up to 40 players</b><span class="dim">Servers with an address, a server list, voice chat and a radio.</span></div>
+<div class="feat"><span class="em">🍲</span><b>Czech cooking</b><span class="dim">Svíčková, guláš s knedlíky, palačinky… on the house's stove. Loudly.</span></div>
+<div class="feat"><span class="em">♿</span><b>For everyone</b><span class="dim">Captions, big text, reduce motion, no flashing unless you allow it, rebindable keys, controllers, a panic key.</span></div>
 </div>
 
 <div class="card" id="servers" style="margin-top:18px"><h2 style="margin-top:0">Servers</h2>${list.length ? `<table><tr><th>Server</th><th>Players</th><th>Mods</th></tr>${rows}</table>`
@@ -505,7 +548,7 @@ async function home(env, user) {
 }
 
 function downloadPage(user) {
-  return page("Download", user, `<section class="night" style="padding:40px 30px"><div class="rain"></div><h1 style="font-size:clamp(32px,6vw,56px)">DOWNLOAD<small>3.0</small></h1>
+  return page("Download", user, `<section class="night" style="padding:40px 30px"><div class="rain"></div><h1 style="font-size:clamp(32px,6vw,56px)">DOWNLOAD</h1>
 <p class="lead" style="margin-bottom:0">Free, open source, every platform. The newest version, always.</p></section>
 <div class="card">${downloads()}</div>
 <div class="grid">
@@ -843,6 +886,9 @@ export default {
       // --- website ---
       if (p === "/") return await home(env, user);
       if (p === "/download") return downloadPage(user);
+      if (p === "/story") return storyPage(page, user);
+      if (p === "/characters") return charactersPage(page, user);
+      if (p === "/places") return placesPage(page, user);
       if (p === "/register" || p === "/login") {
         if (req.method === "GET") return authForm(p.slice(1), user, "", "", "", url.search);
         const f = await req.formData();

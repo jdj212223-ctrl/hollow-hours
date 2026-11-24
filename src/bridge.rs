@@ -9,6 +9,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 
 pub const PORT: u16 = 25610;
+/// The port (HOLLOW_BRIDGE_PORT changes it, for running a second copy of the game to test with).
+pub fn port() -> u16 { std::env::var("HOLLOW_BRIDGE_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(PORT) }
 
 pub struct Request {
     pub cmd: String,
@@ -22,9 +24,9 @@ pub fn bridge_file() -> std::path::PathBuf {
 
 /// Starts the bridge (if the port is free). Returns where requests arrive.
 pub fn start(token: String) -> Option<Receiver<Request>> {
-    let listener = TcpListener::bind(("127.0.0.1", PORT)).ok()?;
+    let listener = TcpListener::bind(("127.0.0.1", port())).ok()?;
     let file = bridge_file();
-    std::fs::write(&file, json!({"port": PORT, "token": token}).to_string()).ok()?;
+    std::fs::write(&file, json!({"port": port(), "token": token}).to_string()).ok()?;
     crate::platform::private(&file);
     let (tx, rx) = channel::<Request>();
     std::thread::spawn(move || {

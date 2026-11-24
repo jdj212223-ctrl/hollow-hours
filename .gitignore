@@ -2,3 +2,6 @@ target/
 Hollow Hours.app/
 macos/HollowHours.iconset/
 HH voice demo/
+hh-link/build/
+hh-link/run/
+hh-link/.gradle/

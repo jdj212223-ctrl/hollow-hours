@@ -62,6 +62,10 @@ pub fn whisper(g: &mut Game) -> Option<String> {
             memories::with(|m| m.said.push(spread_mark.clone()));
             if let Some(l) = spread::spread(g, rand::gen_range(0, 5)) { return Some(l); }
         }
+        // Level 3+: "we built you somewhere else." (they offer to open Minecraft, once a launch, only if it's installed).
+        if lv >= 3 && rand::gen_range(0, 5) == 0 {
+            if let Some(l) = mclink::offer() { return Some(l); }
+        }
         // Level 4: they delete Kigo's file (once a launch, if Kigo is here).
         let took = "(kigo)".to_string();
         if lv >= 4 && !said.contains(&took) && g.chars.iter().any(|c| c.name == "Kigo") && rand::gen_range(0, 4) == 0 {

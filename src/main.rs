@@ -47,6 +47,7 @@ mod spread;
 mod world;
 mod story;
 mod ui;
+mod mclink;
 use world::*;
 
 use serde_json::json;
@@ -1173,6 +1174,8 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
         "panic" => { g.panic(); g.ai = None; json!({"ok": true, "note": "everything stopped"}) }
         "back" => { if matches!(g.screen, Screen::Safe | Screen::Over) { g.screen = Screen::Title; } json!({"ok": true}) }
         "screenshot" => { g.shots.push(reply.clone()); return None; }
+        "mc_state" => mclink::state(g),
+        "mc_event" => mclink::event(g, a),
         _ => json!({"error": "unknown command", "commands": ["state", "start", "move", "go_to", "stop", "hide", "talk", "press", "buy", "panic", "back", "screenshot"]}),
     })
 }
@@ -2827,6 +2830,7 @@ async fn main() {
                     set_camera(&cam);
                 }
                 draw_world(&g, &light, &view);
+                mclink::ask(&mut g);
                 if let Screen::Typing(i) = g.screen {
                     typing(&mut g, i);
                 }
@@ -2982,6 +2986,7 @@ fn update(g: &mut Game, dt: f32) {
                 else { aware::whisper(g).unwrap_or_else(|| WHISPERS[rand::gen_range(0, WHISPERS.len())].to_string()) };
             let line = line.as_str();
             let (name, d) = (g.chars[i].name, g.chars[i].pos.distance(g.pos) / T);
+            mclink::whisper(name, line);
             let c = &mut g.chars[i];
             c.bubble_t = 3.0 + line.len() as f32 / 30.0;
             c.bubble = line.to_string();

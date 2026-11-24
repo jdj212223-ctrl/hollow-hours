@@ -66,6 +66,8 @@ pub struct Settings {
     pub deep_meta: bool,
     /// Streamer-safe: Deep meta never says names (username, computer, Wi-Fi, apps).
     pub streamer_safe: bool,
+    /// HH-Link: the infected may build in the linked Minecraft world (Deep meta only).
+    pub mc_build: bool,
     /// Rebound keys: action name -> key name.
     pub binds: std::collections::HashMap<String, String>,
 }
@@ -74,7 +76,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings { master: 1.0, ambience: 0.8, effects: 1.0, voices: 1.0, mic_on: false, hear_voice: true, ai_voices: true, captions: false,
             big_text: false, reduce_motion: false, high_contrast: false, jumpscares: true, toggle_sprint: false,
-            toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, browser: String::new(), auto_update: true, deep_meta: false, streamer_safe: false, binds: Default::default() }
+            toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, browser: String::new(), auto_update: true, deep_meta: false, streamer_safe: false, mc_build: false, binds: Default::default() }
     }
 }
 
@@ -113,7 +115,7 @@ pub fn flashing_off() { change(|s| s.flashing = false); }
 
 // ---------------- The settings screen ----------------
 
-const TABS: [&str; 5] = ["Sound", "Voice chat", "Accessibility", "Flashing & web", "Controls"];
+const TABS: [&str; 6] = ["Sound", "Voice chat", "Accessibility", "Flashing & web", "Controls", "Minecraft"];
 
 /// What the settings screen is doing: tab, row, waiting for a key to bind, the flashing warnings, where to go back.
 #[derive(Default)]
@@ -124,6 +126,12 @@ pub struct Ui {
     pub warning: Option<usize>,
     pub back_to_pause: bool,
     fresh: bool,
+    /// The Minecraft tab: the game folders and worlds found (looked up when the tab opens), which is chosen,
+    /// and whether Enter on "Infect" was pressed once already.
+    mc: Option<(Vec<crate::mclink::Install>, Vec<(String, std::path::PathBuf)>)>,
+    mc_i: usize,
+    mc_w: usize,
+    mc_confirm: bool,
 }
 
 pub fn open(g: &mut Game, from_pause: bool) {
@@ -133,9 +141,22 @@ pub fn open(g: &mut Game, from_pause: bool) {
 
 enum Row { Slider(&'static str, f32, fn(&mut Settings, f32)), Toggle(&'static str, bool, fn(&mut Settings, bool), &'static str), Text(String), Browser(String) }
 
-fn rows(tab: usize, s: &Settings) -> Vec<Row> {
+fn rows(tab: usize, s: &Settings, ui: &Ui) -> Vec<Row> {
     use Row::*;
     match tab {
+        5 => {
+            let (ins, worlds) = ui.mc.clone().unwrap_or_default();
+            let pick = |v: &[String], i: usize| if v.is_empty() { "none found".to_string() } else { format!("‹ {} ›", v[i % v.len()]) };
+            let wn: Vec<String> = worlds.iter().map(|(n, p)| if crate::mclink::infected(p) { format!("{n} [INFECTED]") } else { n.clone() }).collect();
+            vec![
+                Text(format!("HH-Link: {}", if crate::mclink::linked() { "LINKED. Minecraft is listening." } else { "not linked (install it below, start the game, then that Minecraft)" })),
+                Text(format!("Install HH-Link into  {}  (Enter)", pick(&ins.iter().map(|i| i.name.clone()).collect::<Vec<_>>(), ui.mc_i))),
+                Text(format!("Infect a world  {}  {}", pick(&wn, ui.mc_w), if ui.mc_confirm { "(Enter AGAIN: back it up and infect it)" } else { "(Enter)" })),
+                Text("Cure that world: remove the hh_infection datapack (Enter)".into()),
+                Toggle("Let them build in Minecraft", s.mc_build, |s, v| s.mc_build = v, "With HH-Link and Deep meta on: while you play, the infected spread green moss around you in the linked Minecraft world and leave signs that say 'come to the beach'. Off by default."),
+                Text("Open my Minecraft launcher (Enter)".into()),
+            ]
+        }
         0 => vec![
             Slider("Master volume", s.master, |s, v| s.master = v),
             Slider("Ambience (hum, wind, sizzle, drone)", s.ambience, |s, v| s.ambience = v),
@@ -216,7 +237,8 @@ pub fn screen(g: &mut Game) {
     ui::backdrop();
     ui::header("Settings", "");
     if let Some(t) = ui::tabs(&TABS, g.settings_ui.tab, 124.0) { g.settings_ui.tab = t; g.settings_ui.row = 0; }
-    let list = rows(g.settings_ui.tab, &s);
+    if g.settings_ui.tab == 5 && g.settings_ui.mc.is_none() { g.settings_ui.mc = Some((crate::mclink::installs(), crate::mclink::worlds())); }
+    let list = rows(g.settings_ui.tab, &s, &g.settings_ui);
     let row_h = if big { 40.0 } else { 34.0 };
     let size = if big { 26.0 } else { 22.0 };
     let mut desc = String::new();
@@ -258,6 +280,7 @@ pub fn screen(g: &mut Game) {
         ui::panel(ui::LEFT, VH - 64.0 - h, VW - 2.0 * ui::LEFT, h);
         for (k, l) in lines.iter().enumerate() { draw_text(l, ui::LEFT + 18.0, VH - 64.0 - h + 22.0 + k as f32 * 21.0, 17.0, soft); }
     }
+    ui::status(&g.status.clone());
     if g.settings_ui.tab == 4 { ui::hints(&[("↑↓", "choose"), ("Enter", "rebind"), ("Tab", "next section"), ("Esc", "back")]); }
     else { ui::hints(&[("↑↓", "choose"), ("←→", "change"), ("Enter", "switch"), ("Tab", "next section"), ("Esc", "back")]); }
 
@@ -322,6 +345,23 @@ pub fn screen(g: &mut Game) {
             let r = crate::spread::clean_up(g);
             g.status = r.clone();
             g.log.push(r);
+        }
+        Row::Text(_) if g.settings_ui.tab == 5 && (enter || left || right) => {
+            let (ins, worlds) = g.settings_ui.mc.clone().unwrap_or_default();
+            let step = |i: usize, n: usize| if n == 0 { 0 } else if left { (i + n - 1) % n } else { (i + 1) % n };
+            if row != 2 { g.settings_ui.mc_confirm = false; }
+            match row {
+                1 if left || right => g.settings_ui.mc_i = step(g.settings_ui.mc_i, ins.len()),
+                1 => if let Some(i) = ins.get(g.settings_ui.mc_i % ins.len().max(1)) { g.status = crate::mclink::install(i).unwrap_or_else(|e| e); },
+                2 if left || right => { g.settings_ui.mc_w = step(g.settings_ui.mc_w, worlds.len()); g.settings_ui.mc_confirm = false; }
+                2 => if let Some((_, w)) = worlds.get(g.settings_ui.mc_w % worlds.len().max(1)) {
+                    if g.settings_ui.mc_confirm { g.status = crate::mclink::infect(w).unwrap_or_else(|e| e); g.settings_ui.mc_confirm = false; }
+                    else { g.settings_ui.mc_confirm = true; }
+                },
+                3 if enter => if let Some((_, w)) = worlds.get(g.settings_ui.mc_w % worlds.len().max(1)) { g.status = crate::mclink::cure(w).unwrap_or_else(|e| e); },
+                5 if enter => { g.status = if crate::mclink::launch() { "Opening your Minecraft launcher.".into() } else { "No Minecraft launcher found.".into() }; }
+                _ => {}
+            }
         }
         Row::Text(_) if g.settings_ui.tab == 4 && enter => {
             if row == ACTIONS.len() { change(|s| s.binds.clear()); } else { g.settings_ui.binding = Some(row); g.settings_ui.fresh = true; }

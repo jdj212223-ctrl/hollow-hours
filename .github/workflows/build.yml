@@ -202,9 +202,26 @@ jobs:
 
   # Every update that lands on main is released automatically once all builds pass: v2.4.<run>, with every
   # download attached and the changes since the last release as notes.
+  hh-link:
+    # HH-Link: the Minecraft (NeoForge 1.21.1) mod that links Minecraft to the game.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Build HH-Link
+        working-directory: hh-link
+        run: chmod +x gradlew && ./gradlew build --no-daemon -q
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hh-link
+          path: hh-link/build/libs/HH-Link-NeoForge-1.21.1.jar
+
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build, flatpak, android, ios]
+    needs: [build, flatpak, android, ios, hh-link]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -227,7 +244,7 @@ jobs:
             echo "**What's new**"
             if [ -n "$last" ]; then git log --pretty='- %s' "$last"..HEAD; else git log -20 --pretty='- %s'; fi
             echo
-            echo "**Downloads:** macOS (Apple Silicon + Intel), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Linux ARM64 (Raspberry Pi, Asahi), Flatpak (x86_64 + ARM), Android (.apk), iPhone/iPad (.ipa, sideload)."
+            echo "**Downloads:** macOS (Apple Silicon + Intel), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Linux ARM64 (Raspberry Pi, Asahi), Flatpak (x86_64 + ARM), Android (.apk), iPhone/iPad (.ipa, sideload), and HH-Link for Minecraft (NeoForge 1.21.1)."
             echo "First launch: macOS right-click → Open; Windows \"More info\" → \"Run anyway\"."
             echo
             echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"

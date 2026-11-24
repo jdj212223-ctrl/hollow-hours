@@ -196,7 +196,7 @@ pub fn draw(g: &Game, view: &RenderTarget, cam: &Camera2D) {
     draw_text(&title.to_uppercase(), 44.0, 92.0, 62.0, accent);
     let tw = measure_text(&title.to_uppercase(), None, 62, 1.0).width;
     draw_rectangle(52.0 + tw, 58.0, 54.0, 30.0, Color::new(0.85, 0.47, 0.32, 1.0));
-    draw_text("3.0", 60.0 + tw, 81.0, 26.0, WHITE);
+    draw_text("4.0", 60.0 + tw, 81.0, 26.0, WHITE);
     draw_text("The characters are real AIs. The kind ones are waiting for you.", 46.0, 122.0, 18.0, Color::new(0.75, 0.75, 0.82, 1.0));
     if !g.status.is_empty() { draw_text(&g.status, 46.0, 148.0, 17.0, Color::new(1.0, 0.75, 0.4, 1.0)); }
     let m = menu(g);

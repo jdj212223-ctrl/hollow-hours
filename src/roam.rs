@@ -284,7 +284,8 @@ mod tests {
         assert_eq!(t, (20, 3), "got there");
         // From the house to the Marketplace you go through the beach.
         assert_eq!(next_map(0, 3), Some(1));
-        assert_eq!(next_map(1, 3), Some(3));
+        assert_eq!(next_map(1, 3), Some(11));
+        assert_eq!(next_map(11, 3), Some(3));
         let mut c = kind_characters().remove(0);
         c.map = 0;
         c.pos = vec2(3.5, 3.5) * T;

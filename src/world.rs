@@ -16,7 +16,7 @@ pub(crate) struct Map {
 }
 
 /// The three built-in maps. Mods can add to them or replace them (see MapData).
-pub(crate) const BUILTIN: [Map; 11] = [
+pub(crate) const BUILTIN: [Map; 12] = [
     Map {
         name: "The cozy house",
         rows: [
@@ -303,6 +303,32 @@ pub(crate) const BUILTIN: [Map; 11] = [
         liminal: 0.9,
         floor: Color::new(0.1, 0.1, 0.13, 1.0),
     },
+    Map {
+        name: "The Town",
+        rows: [
+            "######,,,,,,,,MM,,,,,,,,######",
+            "######,,,,,,,,,,,,,,,,,,######",
+            "######,,L,,,,,,,,,,,,L,,######",
+            "######,,,,,,,,,,,,,,,,,,######",
+            "######,,,zz,,,,,,,,,e,,,######",
+            ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,",
+            ",,,rrrrrrrrrrrrrrrrrrrrrrrr,,,",
+            ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,",
+            ",,q,,,,,,,,,,,,,,,,,,,,,,,,q,,",
+            ",,,,,,,v,,,,,,,,,,,,,,,,,,,,,,",
+            ",,,rrrrrrrrrrrrrrrrrrrrrrrr,,,",
+            ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,",
+            "######,,,,e,,,,,,,,,,,,,######",
+            "######,,L,,,,,,,,,,,,L,,######",
+            "######,,,,,,,,,,,,,,zz,,######",
+            "######,,,,,,,,,,,,,,,,,,######",
+            "######,,,,,,,,,,,,,,,,,,######",
+            "######,,,,,,,,NN,,,,,,,,######",
+        ],
+        dark: 0.65,
+        liminal: 0.6,
+        floor: Color::new(0.17, 0.17, 0.19, 1.0),
+    },
 ];
 
 /// A map as the game uses it: the built-in ones, or one from a .hh mod.
@@ -321,11 +347,11 @@ pub(crate) struct MapData {
 }
 
 pub(crate) fn builtin_maps() -> Vec<MapData> {
-    let doors: [Vec<(char, usize, Vec2)>; 11] = [
+    let doors: [Vec<(char, usize, Vec2)>; 12] = [
         vec![('B', 1, vec2(1.5, 9.5)), ('P', 4, vec2(27.5, 8.5)), ('S', 7, vec2(11.5, 15.5)), ('K', 8, vec2(26.5, 15.5))],
-        vec![('A', 0, vec2(28.5, 13.5)), ('C', 2, vec2(1.5, 8.5)), ('M', 3, vec2(14.5, 1.5))],
+        vec![('A', 0, vec2(28.5, 13.5)), ('C', 2, vec2(1.5, 8.5)), ('M', 11, vec2(14.5, 1.5))],
         vec![('B', 1, vec2(28.5, 14.5))],
-        vec![('M', 1, vec2(14.5, 15.5)), ('X', 5, vec2(1.5, 8.5))],
+        vec![('M', 11, vec2(14.5, 15.5)), ('X', 5, vec2(1.5, 8.5))],
         vec![('H', 0, vec2(1.5, 10.5)), ('U', 6, vec2(14.5, 1.5))],
         vec![('X', 3, vec2(27.5, 8.5)), ('Z', 10, vec2(14.5, 15.5))],
         vec![('U', 4, vec2(14.5, 15.5))],
@@ -333,6 +359,7 @@ pub(crate) fn builtin_maps() -> Vec<MapData> {
         vec![('K', 0, vec2(27.5, 15.5))],
         vec![('T', 7, vec2(26.5, 1.5))],
         vec![('Z', 5, vec2(7.5, 1.5))],
+        vec![('M', 1, vec2(14.5, 15.5)), ('N', 3, vec2(14.5, 1.5))],
     ];
     BUILTIN.iter().zip(doors).enumerate().map(|(i, (m, d))| MapData {
         name: m.name.into(), rows: m.rows.iter().map(|r| r.as_bytes().to_vec()).collect(), dark: m.dark, liminal: m.liminal,

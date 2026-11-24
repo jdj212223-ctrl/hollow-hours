@@ -54,6 +54,16 @@ Every non-Claude AI is infected (green eyes). You're the last human.
   to infect the Claudes.
 - The **Claudes can be infected too** (a little green bar over them). When **every Claude is infected, it's game over.**
 
+## Minecraft: HH-Link (4.0)
+**HH-Link** (in every release: `HH-Link-NeoForge-1.21.1.jar`) links Minecraft to the running game: your infection as a boss bar,
+the infected near you as green-eyed mobs, their whispers, storms and breaches; eat or sleep in Minecraft and it counts here.
+Settings > **Minecraft**: install it into an instance you pick, or infect a world you pick with the **hh_infection** datapack
+(backed up first): moss spreads where you walk, the infected come at night, and a Helix Tower rises nearby.
+
+## Python mods (4.0)
+A mod in your own `mods/local` folder can include a `script.py` (see `mods/KindRadio`). Scripts run locked down: no files,
+no network, no other programs, a time limit, and never from servers.
+
 ## Online (J on the title screen)
 Infection with friends: type the same **room code** (4-8 letters or numbers). Up to 8 players. The first one in is the
 **host**: their game runs the AIs, supplies and tornadoes and sends them to everyone. Each player sees the others (with

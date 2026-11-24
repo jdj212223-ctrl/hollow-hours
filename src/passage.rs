@@ -154,6 +154,9 @@ fn arrive(g: &mut Game, p: Pass) {
     if map_name(m) == story::TOWER_MAP && g.infection {
         g.log.push("Floors of servers hum in the dark. Far above, something is waiting. It already knows you're here.".into());
     }
+    if map_name(m) == "The Town" && g.infection {
+        g.log.push("The Town. Streetlights on for nobody. Somewhere a delivery robot is still doing its rounds.".into());
+    }
     if map_name(m) == "The Marketplace" && g.infection {
         g.log.push("Fluorescent lights hum. Somewhere a robot voice says: \"Welcome to Helix Market.\"".into());
     }

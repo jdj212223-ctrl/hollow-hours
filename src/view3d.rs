@@ -68,6 +68,7 @@ pub fn render(g: &Game, view: &RenderTarget) {
         "The Marketplace" => Color::new(0.02, 0.03, 0.03, 1.0),
         "The empty pool" => Color::new(0.01, 0.03, 0.045, 1.0),
         "The Park" => Color::new(0.015, 0.03, 0.02, 1.0),
+        "The Town" => Color::new(0.03, 0.03, 0.06, 1.0),
         n if n.starts_with("The cozy house") => Color::new(0.025, 0.015, 0.008, 1.0),
         _ if inside => Color::new(0.01, 0.01, 0.015, 1.0),
         _ => Color::new(0.02, 0.03, 0.07, 1.0),
@@ -234,6 +235,22 @@ pub fn render(g: &Game, view: &RenderTarget) {
         }
     }
 
+    // 4.0 lighting: warm pools of light under every lamp (drawn after the floors so they lie on top), with a flicker.
+    let calm = super::settings::with(|s| s.reduce_motion);
+    for y in 0..MH {
+        for x in 0..MW {
+            if tile(m, x as i32, y as i32) != 'L' { continue; }
+            let c = vec3(x as f32 + 0.5, 0.012, y as f32 + 0.5);
+            if vec2(c.x, c.z).distance(me) > fog.dist + 2.0 { continue; }
+            let h = (x * 31 + y * 17) as f32;
+            let flick = if calm { 1.0 } else { 0.85 + 0.15 * ((t * 7.0 + h).sin() * (t * 2.3 + h * 0.5).sin()).abs() };
+            for (r, a) in [(2.6, 0.06), (1.7, 0.08), (0.9, 0.1)] {
+                draw_cylinder(c, r, r, 0.004, None, Color::new(1.0, 0.8, 0.45, a * flick));
+            }
+            draw_sphere(c + vec3(0.0, 1.34, 0.0), 0.32, None, Color::new(1.0, 0.85, 0.5, 0.12 * flick));
+        }
+    }
+
     // Supplies: red apples and blue bottles, slowly turning so you notice them.
     for (im, p, water) in &g.items {
         if *im != m { continue; }
@@ -285,6 +302,8 @@ pub fn render(g: &Game, view: &RenderTarget) {
             let arm = base + side * (s * 3.0) * grow + vec3(0.0, 0.55 * grow, 0.0) - fwd * swing * sgn * 0.8;
             draw_cube(arm, vec3(0.07, 0.36 * grow, 0.07), None, fog.at(limb, arm));
         }
+        // A soft shadow under everyone.
+        draw_cylinder(base + vec3(0.0, 0.015, 0.0), 0.34 * grow, 0.34 * grow, 0.003, None, Color::new(0.0, 0.0, 0.0, 0.38));
         let base = base + vec3(0.0, 0.3 * grow, 0.0);
         draw_cylinder(base, 0.2 * grow, 0.26 * grow, 0.55 * grow, None, fog.at(body, base));
         let head = base + vec3(sway, 0.78 * grow + (swing.abs() * 0.08), 0.0);
@@ -341,7 +360,7 @@ pub fn rug(m: usize) -> Color {
     match map_name(m).as_str() {
         n if n.starts_with("The cozy house") => Color::new(0.45, 0.14, 0.13, 1.0),
         "The Park" | "The beach at 3 AM" => Color::new(0.5, 0.46, 0.38, 1.0),
-        "The Subway" => Color::new(0.85, 0.72, 0.15, 1.0),
+        "The Subway" | "The Town" => Color::new(0.85, 0.72, 0.15, 1.0),
         _ => Color::new(0.3, 0.3, 0.34, 1.0),
     }
 }

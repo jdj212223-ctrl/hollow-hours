@@ -13,7 +13,7 @@ const TILE = {
   j: "#14334d", i: "#14171c", z: "#9a7347", r: "#73241f", x: "#4d4a52",
 };
 const FLOOR = { "The cozy house": "#8c6140", "The beach at 3 AM": "#5c5a3a", "The empty pool": "#5a6a6e", "The Marketplace": "#7a7d80",
-  "The Park": "#3a4a2e", "The Helix Lab": "#c8cdd0", "The Subway": "#66666b", "Helix Tower": "#1a1a21" };
+  "The Park": "#3a4a2e", "The Town": "#2b2b30", "The Helix Lab": "#c8cdd0", "The Subway": "#66666b", "Helix Tower": "#1a1a21" };
 
 /** A place drawn as a small SVG (30×18 tiles). */
 export function minimap(name, rows) {
@@ -26,7 +26,7 @@ export function minimap(name, rows) {
       let n = 1;
       while (x + n < row.length && row[x + n] === c) n++;
       let col = TILE[c] === undefined ? (/[A-Z]/.test(c) ? "#e6d880" : floor) : (TILE[c] || floor);
-      if (c === "r" && (name === "The Subway")) col = "#d9b826";
+      if (c === "r" && (name === "The Subway" || name === "The Town")) col = "#d9b826";
       if (c === "r" && (name === "The Park" || name.startsWith("The beach"))) col = "#80755e";
       if (c !== "." && c !== ",") rects += `<rect x="${x}" y="${y}" width="${n}" height="1" fill="${col}"/>`;
       x += n;
@@ -42,6 +42,7 @@ const PLACES = {
   "The cozy house: attic": "Boxes, dust, and Kigo's lookout chair at the round window. You can see the beach from here.",
   "The beach at 3 AM": "Black water, red and blue umbrellas nobody folded, rocks, and lightning out at sea.",
   "The empty pool": "Drained, pale, tiled. Loungers still lined up. Liminal. Something echoes when nothing moves.",
+  "The Town": "NEW. The empty streets between the beach and the Marketplace. Streetlights on for nobody, and a delivery robot still doing its rounds.",
   "The Marketplace": "Helix Market. Half-empty shelves, checkouts, glowing vending machines, and staff robots that still want to help.",
   "The Park": "The bench where Ember found you, a pond, gravel paths, trees, and the stairs down to the Subway.",
   "The Helix Lab": "White benches, server racks, terminals full of lab logs, and ASTRA's empty pod in the middle.",
@@ -52,7 +53,7 @@ const PLACES = {
 export function placesPage(page, user) {
   const cards = MAPS.map((m) => `<article class="place"><a id="${esc(m.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"))}"></a>${minimap(m.name, m.rows)}
 <div><h3>${esc(m.name)}${m.name === "Helix Tower" ? ' <span class="tag">new</span>' : ""}</h3><p class="dim">${esc(PLACES[m.name] || "")}</p></div></article>`).join("");
-  return page("Places", user, `${banner("PLACES", "Eleven places, rebuilt for 4.0 with furniture you can hide behind. These maps are drawn straight from the game's files.")}
+  return page("Places", user, `${banner("PLACES", "Twelve places, rebuilt for 4.0 with furniture you can hide behind. These maps are drawn straight from the game's files.")}
 <div class="places">${cards}</div>
 <p class="dim small">Legend: brown = furniture you can hide behind · blue = water · gold = doors and stairs · green = ASTRA.</p>`);
 }
@@ -96,6 +97,7 @@ const CHARS = [
   ["Helix robots", "Corrupted staff from Helix Dynamics. Some of them can be paid. Don't ask why that works.", [
     ["Clerk-07 · Stocker-12 · Cashier-3", "#bfbfc7", "Helix Market staff. Still helping. Won't stop helping."],
     ["Gardener-2", "#80b373", "Keeps the park tidy. Including of people."],
+    ["Courier-5", "#b39e59", "NEW. A delivery robot in the empty Town. Has a package for you. Won't say what's in it."],
     ["Lab Units A1 · A2 · A3", "#d9e0e5", "Guard the Lab terminals. 'access restricted: ASTRA_CURE.bin'."],
     ["The Conductor", "#9c8cbf", "Announces trains that never come. 'you have not paid.' (You can, now.)"],
     ["Tower Units T1 · T2", "#b34d52", "NEW. Security on the Tower's server floors. They count your steps out loud."],

@@ -1,5 +1,7 @@
 # Hollow Hours 4.0: "THE UPDATE": the plan
 
+**Status: all phases shipped in 4.0** (1, 1b, 2, 3, 4, 5). See each phase for what's in.
+
 The idea: the infection breaks out of the game. The corrupted AIs know your computer, your network and even your Minecraft world,
 and everything (game, code, website) is rebuilt for it. Built in phases, one release per phase (CI auto-releases on push).
 
@@ -45,7 +47,8 @@ and everything (game, code, website) is rebuilt for it. Built in phases, one rel
 **Part 1 done:** Story mode (Nights 1-5, goals, cards, two endings), Helix Tower + ASTRA, new HUD, per-place 3D air,
 walking characters, maps split into world.rs. **Part 2:** every menu in one look (ui.rs). **Part 3:** all 11 maps
 rebuilt with furniture (couches, counters, fridge, shelves, vending machines, pillars, umbrellas, rocks, a pond, server racks,
-boxes, rugs and paths) + a test that every tile and spot is reachable. Next: more of main.rs split up, the town, lighting/shadows, map by map.
+boxes, rugs and paths) + a test that every tile and spot is reachable. **Part 4:** The Town (between the beach and the
+Marketplace), lamp light and character shadows, intro.rs + render.rs split out of main.rs. Later: more of main.rs split up, the town, lighting/shadows, map by map.
 
 - Split main.rs (4000+ lines) into clean modules: world/, characters/, ai/, ui/, net/, meta/.
 - New HUD and menus everywhere (same style as the 3.0 title), better 3D: lighting, fog per map, shadows, animated characters.
@@ -53,11 +56,14 @@ boxes, rugs and paths) + a test that every tile and spot is reachable. Next: mor
 - Bigger world: the town between the maps, the Helix tower (endgame).
 
 ## Phase 3: New languages: Python and Java
+**Done:** sandboxed script.py in local .hh mods (src/pymod.rs, example mods/KindRadio). Java: the HH-Link mod (hh-link/).
 - **Python mods**: `.hh` mods can include a Python script (rules, events, new characters' behaviour), run in a sandbox
   (separate process, no file or network access, time limit), talking to the game over a local pipe.
 - **Java**: the Minecraft mod (Phase 4) is Java (Fabric). Also a small Java "hh-link" library others can use.
 
 ## Phase 4: Minecraft linked to Hollow Hours (Java + Rust)
+**Done:** hh-link/ (NeoForge 1.21.1), src/mclink.rs, the hh_infection datapack, Settings > Minecraft. Not done: the cozy
+house copy in your world (the datapack builds a Helix Tower with ASTRA instead).
 - **HH-Link**: a Fabric mod (Java) + a local bridge to the running game (127.0.0.1 only, the same token as the MCP bridge).
 - What happens in HH happens in Minecraft: a Minecraft world of the cozy house / beach / Marketplace; the infected spawn as
   mobs with green eyes where they are in HH; tornadoes become storms; a breach in HH = walls break in MC; the Claudes appear as
@@ -74,6 +80,7 @@ boxes, rugs and paths) + a test that every tile and spot is reachable. Next: mor
   opening the official download page. No silent installs, ever.
 
 ## Phase 5: Overhaul the website (JS, Cloudflare)
+**Done:** new home, Story / Characters / Places pages, Helix Careers + Investors. (Player profiles and server stats: later.)
 - A new site that matches 4.0: an interactive "infected" home page, Night-by-night lore pages, a wiki of every character,
   the mods gallery with Python mods, the HH-Link (Minecraft) download page, player profiles, and server stats.
 - The fictional Helix site grows: a "careers" page that slowly corrupts, the redacted parent company (Helix is "a division of

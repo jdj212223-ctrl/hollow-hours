@@ -404,8 +404,8 @@ struct Game {
     /// floor after a dropkick.
     weapon: Option<(combat::Weapon, u32)>,
     weapon_items: Vec<(usize, Vec2, combat::Weapon)>,
-    /// The rare book (1 run in 10): where it lies, if it spawned. See lore::RARE_BOOK.
-    rare_book: Option<(usize, Vec2)>,
+    /// The rare book (1 run in 10): where it lies, if it spawned. See lore::RARE_BOOKS.
+    rare_book: Option<(usize, Vec2, usize)>,
     attack_cd: f32,
     swing_t: f32,
     down_t: f32,
@@ -2076,7 +2076,8 @@ async fn main() {
         g.pos = vec2(2.5, 2.6) * T;
         g.yaw = -std::f32::consts::FRAC_PI_2;
         g.pitch = -0.6;
-        g.rare_book = Some((g.map, g.pos + vec2(0.0, -0.9) * T));
+        let vol = if std::env::var("HOLLOW_BOOK").as_deref() == Ok("2") { 1 } else { 0 };
+        g.rare_book = Some((g.map, g.pos + vec2(0.0, -0.9) * T, vol));
         g.note = lore::near(&g);
     } else if demo.as_deref() == Some("stove") {
         // HOLLOW_DEMO=stove: at the stove with raw food, frying.

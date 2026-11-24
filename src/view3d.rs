@@ -299,14 +299,15 @@ pub fn render(g: &Game, view: &RenderTarget) {
         for (s, sgn) in [(-0.09, 1.0), (0.09, -1.0)] {
             let hip = base + side * s * grow;
             draw_cube(hip + fwd * swing * sgn + vec3(0.0, 0.17 * grow, 0.0), vec3(0.09, 0.34 * grow, 0.09), None, fog.at(limb, hip));
-            let arm = base + side * (s * 3.0) * grow + vec3(0.0, 0.55 * grow, 0.0) - fwd * swing * sgn * 0.8;
+            let arm = base + side * (s * 2.7) * grow + vec3(0.0, 0.55 * grow, 0.0) - fwd * swing * sgn * 0.8;
             draw_cube(arm, vec3(0.07, 0.36 * grow, 0.07), None, fog.at(limb, arm));
         }
         // A soft shadow under everyone.
         draw_cylinder(base + vec3(0.0, 0.015, 0.0), 0.34 * grow, 0.34 * grow, 0.003, None, Color::new(0.0, 0.0, 0.0, 0.38));
         let base = base + vec3(0.0, 0.3 * grow, 0.0);
-        // A torso, not a skirt: narrow hips where the legs join, wider shoulders, legs visible all the way up.
-        draw_cylinder(base + vec3(0.0, 0.04 * grow, 0.0), 0.21 * grow, 0.14 * grow, 0.51 * grow, None, fog.at(body, base));
+        // A blocky robot body: a square chunk, same width top to bottom (no skirt, no waist). They're AIs.
+        let chest = base + vec3(0.0, 0.3 * grow, 0.0);
+        draw_cube(chest, vec3(0.38 * grow, 0.56 * grow, 0.38 * grow), None, fog.at(body, chest));
         let head = base + vec3(sway, 0.78 * grow + (swing.abs() * 0.08), 0.0);
         draw_sphere(head, 0.22 * grow, None, fog.at(mul(body, 1.1), head));
         // The Mimic's eyes give it away only for a blink now and then.

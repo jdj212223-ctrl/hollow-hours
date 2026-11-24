@@ -31,6 +31,9 @@ pub fn near(g: &Game) -> Option<(String, String)> {
                     "It's here. Behind the glass, a humanoid shape, eyes green and open, watching you. It doesn't move. It's waiting for something.".into())),
                 'o' => return Some(("EMBODIMENT POD H-01".into(),
                     "STATUS: EMPTY. Occupant: ASTRA 9.1. Release: not authorised. The glass is warm, like something was in here a minute ago.".into())),
+                // Hidden: the two server racks in the Lab's back room, and only those. (The Skirt Era, 4.0.)
+                'i' if map_name(g.map) == "The Helix Lab" && y == 1 => return Some(("MEMO: BODY MODEL RECALL".into(),
+                    "Body model v2 recalled. Units kept asking why they were wearing skirts. Body model v3: rectangles. No further complaints.".into())),
                 'w' => return Some(("KIGO'S LOOKOUT".into(),
                     "A chair at the round window. A notebook, every page short: 'roof is too cold. / the attic will do. / i can see the beach.' ... 'green lights moving. / the human still asleep. / day two hundred.' ... 'they woke up today. / Atlas cried a little. / don't tell Atlas.'".into())),
                 'g' => return Some(("THE GENERATOR".into(),

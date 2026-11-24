@@ -66,6 +66,9 @@ jobs:
           UNIVERSAL=1 sh macos/bundle.sh
           lipo -archs "Hollow Hours.app/Contents/MacOS/hollow-hours-game"
           ditto -c -k --keepParent "Hollow Hours.app" Hollow-Hours-macOS.zip
+          # The Mac installer: open it, drag Hollow Hours onto Applications.
+          mkdir -p dmg && cp -R "Hollow Hours.app" dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname "Hollow Hours" -srcfolder dmg -ov -format UDZO Hollow-Hours-macOS.dmg
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -244,7 +247,7 @@ jobs:
             echo "**What's new**"
             if [ -n "$last" ]; then git log --pretty='- %s' "$last"..HEAD; else git log -20 --pretty='- %s'; fi
             echo
-            echo "**Downloads:** macOS (Apple Silicon + Intel), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Linux ARM64 (Raspberry Pi, Asahi), Flatpak (x86_64 + ARM), Android (.apk), iPhone/iPad (.ipa, sideload), and HH-Link for Minecraft (NeoForge 1.21.1)."
+            echo "**Downloads:** macOS (Apple Silicon + Intel, .dmg installer or .zip), Windows, Windows ARM64 (Snapdragon), Linux / SteamOS, Linux ARM64 (Raspberry Pi, Asahi), Flatpak (x86_64 + ARM), Android (.apk), iPhone/iPad (.ipa, sideload), and HH-Link for Minecraft (NeoForge 1.21.1)."
             echo "First launch: macOS right-click → Open; Windows \"More info\" → \"Run anyway\"."
             echo
             echo "🤖 Generated with [Claude Code](https://claude.com/claude-code)"

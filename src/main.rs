@@ -43,6 +43,7 @@ mod update;
 mod insane;
 mod saves;
 mod deepmeta;
+mod spread;
 
 use serde_json::json;
 
@@ -593,6 +594,8 @@ enum Screen {
     Paused,
     /// The worlds list (saved Infection games).
     Worlds,
+    /// Deep meta: "Tell us what's wrong." (a family member's file was deleted).
+    Wrong,
     /// Settings: sound, voice chat, accessibility, flashing lights, keys.
     Settings,
 }
@@ -689,6 +692,10 @@ struct Game {
     grabbed: bool,
     /// The mouse was captured before a chat or menu: capture it again when you're back in the game.
     regrab: bool,
+    /// "Tell us what's wrong.": what you typed, how many wrong tries, and the infected's answer.
+    wrong_input: String,
+    wrong_tries: u32,
+    wrong_mock: Option<String>,
     /// The saved world being played (None: a one-off game), the Worlds list's choice and its delete confirmation.
     world: Option<String>,
     worlds_sel: usize,
@@ -1421,7 +1428,7 @@ fn mcp_command(g: &mut Game, cmd: &str, a: &serde_json::Value, reply: &std::sync
             }).collect());
             json!({
                 "screen": match g.screen { Screen::Title => "title", Screen::Play => "playing", Screen::Typing(_) => "typing", Screen::Safe => "safe (after panic)",
-                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)", Screen::Paused => "paused (the pause menu)", Screen::Settings => "settings", Screen::Worlds => "the worlds list" },
+                    Screen::Over => "game over", Screen::Consent => "consent", Screen::JoinRoom | Screen::Servers | Screen::MakeServer => "online menus", Screen::Login => "login", Screen::PickPhobias => "picking phobias", Screen::Intro => "story intro (hh_start skips it)", Screen::Mac => "at the Mac Studio (Esc leaves)", Screen::Paused => "paused (the pause menu)", Screen::Settings => "settings", Screen::Worlds => "the worlds list", Screen::Wrong => "tell us what's wrong (Deep meta)" },
                 "mode": if g.infection { "infection" } else { "normal" },
                 "map": map_name(here), "you": {"at": tile(g.pos), "hidden": g.hidden, "can_hide_here": can_hide(g), "sneaking": g.sneaking,
                     "lost_control": g.lost_control, "infection": (g.inf * 100.0) as i32, "food": (g.food * 100.0) as i32, "water": (g.water * 100.0) as i32,
@@ -1724,6 +1731,11 @@ fn start_infection(g: &mut Game) {
     g.shop_t = 30.0;
     g.screen = Screen::Play;
     if g.insane { insane::spawn(g); }
+    // Deep meta: Kigo's file is still gone (nobody brought it back): Kigo isn't in the house.
+    if spread::missing("Kigo") {
+        g.chars.retain(|c| c.name != "Kigo");
+        g.log.push("The attic is quiet. Kigo isn't here. (Kigo's file is gone: Settings > Clean up Deep meta brings it back.)".into());
+    }
 }
 
 enum MetaEvent {
@@ -2471,6 +2483,9 @@ async fn main() {
         pitch: 0.0,
         grabbed: false,
         regrab: false,
+        wrong_input: String::new(),
+        wrong_tries: 0,
+        wrong_mock: None,
         world: None,
         worlds_sel: 0,
         worlds_del: false,
@@ -2851,6 +2866,9 @@ async fn main() {
             }
             Screen::Worlds => {
                 saves::screen(&mut g);
+            }
+            Screen::Wrong => {
+                spread::wrong_screen(&mut g);
             }
             Screen::PickPhobias => {
                 draw_phobias(&g);

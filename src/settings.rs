@@ -164,6 +164,7 @@ fn rows(tab: usize, s: &Settings) -> Vec<Row> {
             Toggle("Flashing lights", s.flashing, |s, v| s.flashing = v, "Strobing jumpscares and lightning on the beach. Off by default. PANIC turns it off at once."),
             Toggle("Auto-update", s.auto_update, |s, v| s.auto_update = v, "Official downloads look for a new version when the game starts and get it in the background. It's installed when you press U on the title screen or when you quit. Builds you made yourself never update."),
             Toggle("Deep meta (4.0)", s.deep_meta, |s, v| s.deep_meta = v, "Needs Outside the window. The infected learn about your computer and say it: your username, your computer's name, your Wi-Fi, your battery, the apps and AIs you have. They only read and say things, never change anything, and it never leaves your computer. Offline games only."),
+            Text("Clean up Deep meta: removes everything it made (calendar, reminders, notes, Desktop files) and brings back any deleted file (Enter)".into()),
             Toggle("Streamer-safe", s.streamer_safe, |s, v| s.streamer_safe = v, "Deep meta never says names: no username, computer name, Wi-Fi or app names (for recording and streaming)."),
             Browser(if s.browser.is_empty() { "Your default browser".into() } else { s.browser.clone() }),
         ],
@@ -315,6 +316,11 @@ pub fn screen(g: &mut Game) {
                 let pick = all[j].clone();
                 change(|s| s.browser = pick);
             }
+        }
+        Row::Text(t) if g.settings_ui.tab == 3 && enter && t.starts_with("Clean up") => {
+            let r = crate::spread::clean_up(g);
+            g.status = r.clone();
+            g.log.push(r);
         }
         Row::Text(_) if g.settings_ui.tab == 4 && enter => {
             if row == ACTIONS.len() { change(|s| s.binds.clear()); } else { g.settings_ui.binding = Some(row); g.settings_ui.fresh = true; }

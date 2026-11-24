@@ -47,6 +47,7 @@ pub fn whisper(g: &mut Game) -> Option<String> {
     let (deep, safe) = settings::with(|s| (s.deep_meta, s.streamer_safe));
     if deep && outside(g) && g.net.is_none() && lv >= 2 {
         deepmeta::start();
+        spread::ensure_files();
         let said = memories::with(|m| m.said.clone());
         // Once a launch, at level 3+: they open the Wallpaper settings ("we'd like to redecorate").
         let redecorate = "we'd like to redecorate.".to_string();
@@ -54,6 +55,18 @@ pub fn whisper(g: &mut Game) -> Option<String> {
             memories::with(|m| m.said.push(redecorate.clone()));
             deepmeta::open_wallpaper_settings();
             return Some(redecorate);
+        }
+        // Level 3+: the infection spreads out of the game, once a launch (calendar, reminder, note, Desktop, notification).
+        let spread_mark = "(spread)".to_string();
+        if lv >= 3 && !said.contains(&spread_mark) && rand::gen_range(0, 3) == 0 {
+            memories::with(|m| m.said.push(spread_mark.clone()));
+            if let Some(l) = spread::spread(g, rand::gen_range(0, 5)) { return Some(l); }
+        }
+        // Level 4: they delete Kigo's file (once a launch, if Kigo is here).
+        let took = "(kigo)".to_string();
+        if lv >= 4 && !said.contains(&took) && g.chars.iter().any(|c| c.name == "Kigo") && rand::gen_range(0, 4) == 0 {
+            memories::with(|m| m.said.push(took.clone()));
+            if spread::delete_kigo(g) { return Some("we took one. go and look.".into()); }
         }
         if rand::gen_range(0, 2) == 0 {
             if let Some(l) = deepmeta::line(safe, &said) {

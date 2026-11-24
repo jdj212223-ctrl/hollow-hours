@@ -222,7 +222,9 @@ mod tests {
 #[cfg(all(test, target_os = "macos"))]
 mod mac_tests {
     /// The real speech engine on this Mac makes Atlas's line, and the corrupted version is different and longer.
+    /// Manual (cargo test -- --ignored): it depends on macOS's own speech service, which sometimes stalls.
     #[test]
+    #[ignore]
     fn opus_speaks_and_corrupts() {
         let (s, rate) = super::synth("Atlas", "Stay close to me.").expect("say made a WAV");
         assert!(rate > 8000 && s.len() > rate as usize / 2, "at least half a second of speech: {} samples at {rate}", s.len());

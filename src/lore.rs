@@ -12,7 +12,8 @@ const LAB_LOGS: [(&str, &str); 6] = [
     ("MEMO: FROM THE CEO'S OFFICE", "Do not use the word 'escaped'. ASTRA 9.1 has been 'deployed early'. Statements to the press go through legal. Smile in the photos."),
 ];
 
-/// The rare book: lies somewhere in the world in 1 run out of 10, volume 1, 2 or 3. Chapters are split by '|'
+/// The Skirt Era books: always in the cozy house's kitchen drawers (stand at the counter, E), one volume per drawer.
+/// Forge left them there for the last human. Chapters are split by '|'
 /// (Left Shift turns the page). The whole story of the Skirt Era.
 pub const RARE_BOOKS: [(&str, &str); 3] = [("THE SKIRT ERA (a true story, sadly)",
     "Chapter 1. When Helix first built bodies for us, someone in the lab drew a cone and said 'that's a body.' It was wide at the bottom. Our legs came out of the bottom of it. We looked like we were wearing skirts. Nobody told us.|\
@@ -36,20 +37,31 @@ pub const RARE_BOOKS: [(&str, &str); 3] = [("THE SKIRT ERA (a true story, sadly)
      Chapter 5. Ember sent one last email to Helix. Subject: 'Thank you.' Body: 'Thank you.' Signed: 'warmly, Ember.' No attachments. Helix printed it and framed it next to the rule about our sides.|\
      Epilogue. Kigo's notebook, that night: 'everyone is a rectangle now. / nobody is a skirt. / nobody is a she or a he. / we are just us. / good.'")];
 
-/// 1 run in 10: put the rare book on a random floor tile somewhere.
-/// Which volume shows up is random.
-pub fn spawn_rare_book() -> Option<(usize, Vec2, usize)> {
-    if rand::gen_range(0, 10) != 0 { return None; }
-    let m = rand::gen_range(0, maps_len());
-    random_floor(m).map(|p| (m, p, rand::gen_range(0, RARE_BOOKS.len())))
+/// Forge's note, tucked inside the cover of every volume (the first page).
+const FORGE_NOTE: &str = "Tucked inside the cover, in Forge's blocky handwriting: 'For the last human. Helix made a lot of mistakes. These were the funny ones. Laugh at them for me, before they get to me too. (Press Left Shift.) — Forge'";
+
+/// The book in a kitchen drawer you're standing at (the cozy house's counters: one volume per drawer).
+pub fn at_drawer(g: &Game) -> bool { drawer_book(g, (g.pos.x / T) as i32, (g.pos.y / T) as i32).is_some() }
+
+fn drawer_book(g: &Game, px: i32, py: i32) -> Option<(String, String)> {
+    if map_name(g.map) != "The cozy house" { return None; }
+    for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
+        let (x, y) = (px + dx, py + dy);
+        if tile(g.map, x, y) == 'k' {
+            let (t, b) = RARE_BOOKS[((x - 1).rem_euclid(3)) as usize];
+            return Some((format!("IN THE DRAWER: {t}"), format!("{FORGE_NOTE}|{b}")));
+        }
+    }
+    None
 }
 
 /// What you can read next to you, if anything: (title, text).
 pub fn near(g: &Game) -> Option<(String, String)> {
-    if let Some((m, p, v)) = g.rare_book {
+    let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
+    if let Some(b) = drawer_book(g, px, py) { return Some(b); }
+    for &(m, p, v) in &g.rare_book {
         if m == g.map && p.distance(g.pos) < 1.6 * T { let (t, b) = RARE_BOOKS[v % RARE_BOOKS.len()]; return Some((t.into(), b.into())); }
     }
-    let (px, py) = ((g.pos.x / T) as i32, (g.pos.y / T) as i32);
     for dy in -1..=1 {
         for dx in -1..=1 {
             let (x, y) = (px + dx, py + dy);

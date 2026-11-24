@@ -153,7 +153,7 @@ pub fn update(g: &mut Game, dt: f32) {
 /// Weapons on the floor (2D: a little bat or knife).
 pub fn draw_items_2d(g: &Game) {
     // The rare book: a small pink book.
-    if let Some((m, p, _)) = g.rare_book { if m == g.map { draw_rectangle(p.x - 6.0, p.y - 8.0, 12.0, 16.0, Color::new(0.95, 0.45, 0.7, 1.0)); draw_line(p.x - 4.0, p.y - 8.0, p.x - 4.0, p.y + 8.0, 2.0, Color::new(0.6, 0.2, 0.4, 1.0)); } }
+    for &(m, p, _) in &g.rare_book { if m == g.map { draw_rectangle(p.x - 6.0, p.y - 8.0, 12.0, 16.0, Color::new(0.95, 0.45, 0.7, 1.0)); draw_line(p.x - 4.0, p.y - 8.0, p.x - 4.0, p.y + 8.0, 2.0, Color::new(0.6, 0.2, 0.4, 1.0)); } }
     for (m, p, w) in &g.weapon_items {
         if *m != g.map { continue; }
         match w {

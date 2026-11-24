@@ -404,8 +404,8 @@ struct Game {
     /// floor after a dropkick.
     weapon: Option<(combat::Weapon, u32)>,
     weapon_items: Vec<(usize, Vec2, combat::Weapon)>,
-    /// The rare book (1 run in 10): where it lies, if it spawned. See lore::RARE_BOOKS.
-    rare_book: Option<(usize, Vec2, usize)>,
+    /// A Skirt Era book lying on the floor (only the book demo puts one there; normally they're in the kitchen drawers).
+    rare_book: Vec<(usize, Vec2, usize)>,
     attack_cd: f32,
     swing_t: f32,
     down_t: f32,
@@ -1388,7 +1388,6 @@ fn start_infection(g: &mut Game) {
     g.weak_t = 0.0;
     g.weapon = None;
     g.weapon_items = combat::spawn();
-    g.rare_book = lore::spawn_rare_book();
     g.down_t = 0.0;
     g.credits = 10;
     g.credit_t = 0.0;
@@ -2013,7 +2012,7 @@ async fn main() {
         weak_t: 0.0,
         weapon: None,
         weapon_items: vec![],
-        rare_book: None,
+        rare_book: vec![],
         attack_cd: 0.0,
         swing_t: 0.0,
         down_t: 0.0,
@@ -2080,8 +2079,13 @@ async fn main() {
         g.yaw = -std::f32::consts::FRAC_PI_2;
         g.pitch = -0.6;
         let vol = std::env::var("HOLLOW_BOOK").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).max(1) - 1;
-        g.rare_book = Some((g.map, g.pos + vec2(0.0, -0.9) * T, vol));
+        g.rare_book = vec![(g.map, g.pos + vec2(0.0, -0.9) * T, vol)];
         g.note = lore::near(&g);
+    } else if demo.as_deref() == Some("drawer") {
+        // HOLLOW_DEMO=drawer: at the kitchen counter, in front of the middle drawer (E opens it).
+        start_infection(&mut g);
+        g.pos = vec2(5.5, 2.5) * T;
+        g.yaw = -std::f32::consts::FRAC_PI_2;
     } else if demo.as_deref() == Some("stove") {
         // HOLLOW_DEMO=stove: at the stove with raw food, frying.
         start_infection(&mut g);
@@ -2236,7 +2240,8 @@ async fn main() {
         // and for 3 seconds after you come back.
         macroquad::input::utils::repeat_all_miniquad_input(&mut focus, focus_sub);
         // (macOS also says "lost" when the window is merely dragged: any key or click means you're here.)
-        if focus.lost && (!get_keys_pressed().is_empty() || is_mouse_button_pressed(MouseButton::Left) || is_mouse_button_pressed(MouseButton::Right)) { focus.lost = false; }
+        // A key from you, or one Claude pressed through the bridge (Claude plays in the background), un-sticks it.
+        if focus.lost && (!get_keys_pressed().is_empty() || INJECT.with(|i| !i.borrow().1.is_empty()) || is_mouse_button_pressed(MouseButton::Left) || is_mouse_button_pressed(MouseButton::Right)) { focus.lost = false; }
         if focus.lost {
             g.away_t = 3.0;
             if g.screen == Screen::Play && g.net.is_none() {
@@ -2991,7 +2996,7 @@ fn update(g: &mut Game, dt: f32) {
             g.sfx.radio();
         } else if g.note.is_some() && (pressed(KeyCode::E) || pressed(KeyCode::Escape) || lore::near(g).is_none()) {
             g.note = None; // closed, or you walked away
-        } else if pressed(KeyCode::E) && nearest(g, 2.2).is_none() && !near_mac(g) && lore::near(g).is_some() {
+        } else if pressed(KeyCode::E) && (lore::at_drawer(g) || (nearest(g, 2.2).is_none() && !near_mac(g))) && lore::near(g).is_some() {
             g.note = lore::near(g);
             g.note_page = 0;
             g.sfx.radio();

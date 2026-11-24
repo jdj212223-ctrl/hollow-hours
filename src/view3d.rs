@@ -278,7 +278,7 @@ pub fn render(g: &Game, view: &RenderTarget) {
         }
     }
     // The rare book: a pink book on the floor, glowing a little so you can spot it.
-    if let Some((bm, p, _)) = g.rare_book {
+    for &(bm, p, _) in &g.rare_book {
         if bm == m {
             let c = vec3(p.x / T, 0.04, p.y / T);
             draw_cube(c, vec3(0.22, 0.06, 0.3), None, fog.at(Color::new(0.95, 0.45, 0.7, 1.0), c));

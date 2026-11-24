@@ -323,6 +323,7 @@ pub(crate) fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
         else if story::can_face(g) { Some("E: face ASTRA".to_string()) }
         else if disguise::lab_ready(g) { Some("E: synthesize the ASTRA Cure (stay 15 s)".to_string()) }
         else if near_tile(g, 'Z') && !story::tower_open() && map_name(g.map) == "The Helix Lab" { Some(if g.story.is_some() { "Helix Tower: SEALED. (The Conductor in the Subway has the pass.)" } else { "Helix Tower: SEALED. (It opens once the ASTRA Cure is made.)" }.to_string()) }
+        else if lore::at_drawer(g) && g.note.is_none() { Some("E: open the drawer".to_string()) }
         else if let Some(i) = nearest(g, 2.2) { Some(format!("E: talk to {}", g.chars[i].name)) }
         else if near_stove(g) { Some(if g.fry_t > 0.0 { format!("Frying... {:.0} s (don't walk away)", g.fry_t.ceil()) } else if let Some(c) = czech::best(&g.pantry) { format!("E: cook {}", czech::label(&c)) } else { "The stove (no ingredients: the Marketplace, or a grocery bag from the Helix Store)".to_string() }) }
         else if near_mac(g) { Some("E: use the Mac Studio".to_string()) }

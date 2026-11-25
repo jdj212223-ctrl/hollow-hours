@@ -242,6 +242,66 @@ fn ask_claude_cli(name: &str, cloud: &str, system: &str, history: &[Msg]) -> Opt
     (out.status.success() && !text.is_empty()).then(|| (text, format!("real Claude ({alias}) via the Claude app")))
 }
 
+/// The Gemini CLI (`npm install -g @google/gemini-cli`, signed in with your Google account: AI Pro limits apply).
+pub fn gemini_cli() -> Option<String> {
+    let home = crate::platform::home().to_string_lossy().to_string();
+    let appdata = std::env::var("APPDATA").unwrap_or_default();
+    let mut paths = vec![std::env::var("HOLLOW_GEMINI_CLI").unwrap_or_default(), "/opt/homebrew/bin/gemini".into(),
+        "/usr/local/bin/gemini".into(), format!("{home}/.npm-global/bin/gemini"), format!("{home}/.local/bin/gemini"),
+        format!("{appdata}/npm/gemini.cmd")];
+    paths.retain(|p| !p.is_empty());
+    paths.into_iter().find(|p| std::path::Path::new(p).is_file())
+}
+
+/// Asks Gemini through the Gemini CLI: one line, no tools, from Hollow Hours' own folder.
+fn via_gemini_cli(name: &str, system: &str, history: &[Msg]) -> Option<(String, String)> {
+    let cli = gemini_cli()?;
+    let mut prompt = format!("{system}\n\n");
+    for m in history.iter().rev().take(12).rev() {
+        prompt.push_str(&format!("{}: {}\n", if m.user { "The player" } else { name }, m.text));
+    }
+    prompt.push_str(&format!("\nWrite only {name}'s next line (1-3 short sentences), nothing else."));
+    let mut args = vec!["-p".to_string(), prompt];
+    if let Ok(m) = std::env::var("HOLLOW_GEMINI_MODEL") { args.extend(["-m".into(), m]); }
+    let out = std::process::Command::new(cli)
+        .args(&args)
+        .current_dir(home_dir())
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !text.is_empty()).then(|| (text, "real Gemini via the Gemini CLI".into()))
+}
+
+/// Gemini mode: the Claude family becomes Gemini's family (our own names), with Gemini brains.
+pub fn gemini_family(chars: &mut [crate::Character]) {
+    const NAMES: [(&str, &str, &str); 7] = [
+        ("Ember", "Nova", "a warm, steady AI (powered by Gemini)"),
+        ("Atlas", "Orbit", "a big, careful AI (powered by Gemini)"),
+        ("Verse", "Prism", "a quick, bright AI (powered by Gemini)"),
+        ("Kigo", "Glint", "a small, fast AI (powered by Gemini)"),
+        ("Clove", "Halo", "a thoughtful, honest assistant AI (powered by Gemini)"),
+        ("Forge", "Rivet", "a coding agent AI (powered by Gemini)"),
+        ("Palette", "Hue", "a design AI (powered by Gemini)"),
+    ];
+    for c in chars.iter_mut() {
+        if let Some((old, new, inspired)) = NAMES.iter().find(|(old, _, _)| *old == c.name) {
+            c.name = new;
+            // Their personality line names them ("Ember: calm, ..."): give it the new name (a few bytes, once a run).
+            if c.personality.contains(old) { c.personality = Box::leak(c.personality.replace(old, new).into_boxed_str()); }
+            c.inspired = inspired;
+            c.backend = "gemini";
+            c.cloud = "";
+            // Gemini's colours: each its own shade of blue, violet or teal.
+            let k = NAMES.iter().position(|(o, _, _)| o == old).unwrap_or(0);
+            let (r, g, b) = [(0.38, 0.52, 0.98), (0.58, 0.45, 0.95), (0.3, 0.75, 0.95), (0.45, 0.85, 0.85),
+                             (0.7, 0.55, 0.98), (0.3, 0.45, 0.8), (0.8, 0.6, 0.95)][k];
+            c.color = macroquad::prelude::Color::new(r, g, b, 1.0);
+        }
+    }
+}
+
 fn key(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|k| !k.trim().is_empty())
 }
@@ -278,8 +338,9 @@ fn talk(name: &str, backend: &str, cloud: &str, model: &str, system: &str, histo
                 .ok()?;
             Some((v["choices"][0]["message"]["content"].as_str()?.to_string(), "OpenAI API".into()))
         }
+        "gemini" if key("GEMINI_API_KEY").is_none() && gemini_cli().is_some() => via_gemini_cli(name, system, history),
         "gemini" if key("GEMINI_API_KEY").is_some() => {
-            let model = std::env::var("HOLLOW_GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.0-flash".into());
+            let model = std::env::var("HOLLOW_GEMINI_MODEL").unwrap_or_else(|_| if cloud.is_empty() { "gemini-2.5-flash".into() } else { cloud.into() });
             let contents: Vec<Value> = history.iter().map(|m| json!({"role": if m.user { "user" } else { "model" }, "parts": [{"text": m.text}]})).collect();
             let v: Value = ureq::post(&format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"))
                 .timeout(t)

@@ -1351,6 +1351,8 @@ fn start_infection(g: &mut Game) {
         }
     }
     g.chars.extend(kind_characters());
+    // Gemini mode: the Claude family steps aside and Gemini's family takes their places.
+    if settings::with(|s| s.gemini_mode) { ai::gemini_family(&mut g.chars); }
     // Mods can leave built-in characters out.
     let remove = g.rules.remove.clone();
     g.chars.retain(|c| !remove.iter().any(|r| r.eq_ignore_ascii_case(c.name)));

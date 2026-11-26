@@ -69,7 +69,7 @@ pub fn save(g: &Game) {
         "intel_from": g.intel_from, "disguised": g.disguise_t > 0.0, "pantry": g.pantry.to_vec(),
         "weapon": g.weapon.map(|(w, n)| json!([format!("{w:?}"), n])),
         "items": g.items.iter().map(|(m, p, wat)| json!([m, p.x / T, p.y / T, wat])).collect::<Vec<_>>(),
-        "chars": chars, "walls": walls, "tower": story::tower_open(),
+        "chars": chars, "walls": walls, "tower": story::tower_open(), "after": g.after,
     });
     let _ = std::fs::create_dir_all(dir());
     let _ = std::fs::write(dir().join(format!("{}.json", slug(name))), serde_json::to_string(&w).unwrap_or_default());
@@ -101,6 +101,7 @@ pub fn load(g: &mut Game, slug_: &str) -> bool {
     g.insane = w["insane"].as_bool().unwrap_or(false);
     start_infection(g); // a fresh world first (characters, supplies), then everything saved on top
     story::set_tower(w["tower"].as_bool().unwrap_or(false));
+    g.after = w["after"].as_bool().unwrap_or(false);
     let f = |k: &str, d: f64| w[k].as_f64().unwrap_or(d);
     let u = |k: &str| w[k].as_u64().unwrap_or(0) as u32;
     g.world = w["name"].as_str().map(String::from);

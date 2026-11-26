@@ -294,6 +294,8 @@ struct Game {
     /// Your infection 0..1. At 1 you can still see, but your body is theirs.
     inf: f32,
     lost_control: bool,
+    /// After an ending, kept playing: "the world after" (nobody hunts, nobody turns, no game over).
+    after: bool,
     /// How loud you are right now (0 sneaking or still, ~1 walking). Infected hear you within noise * 6 tiles.
     noise: f32,
     sneaking: bool,
@@ -1329,6 +1331,7 @@ fn apply_world(g: &mut Game, m: &serde_json::Value) {
 
 fn start_infection(g: &mut Game) {
     reset_world();
+    g.after = false;
     g.infection = true;
     g.courage = Courage::Normal;
     g.chars = characters();
@@ -1616,6 +1619,12 @@ fn update_infection(g: &mut Game, dt: f32) {
     // works this out for them (online too), from where the infected are.
     // Disguised (and acting calm): they take you for one of them, so nothing spreads to you.
     let disguised = g.disguise_t > 0.0 || g.away_t > 0.0;
+    // The world after an ending: you're safe. Whoever is still green just sits where they stopped.
+    if g.after {
+        g.inf = 0.0;
+        g.lost_control = false;
+        for c in g.chars.iter_mut().filter(|c| c.infected) { c.stun = c.stun.max(1.0); c.crazy = 0.0; }
+    }
     let spread = insane::spread(g);
     for c in g.chars.iter().filter(|c| c.infected && c.map == g.map && c.stun <= 0.0) {
         if g.lost_control || disguised { break; }
@@ -1681,7 +1690,7 @@ fn update_infection(g: &mut Game, dt: f32) {
     }
     // Every kind AI infected: it's over.
     let claudes: Vec<bool> = g.chars.iter().filter(|c| c.claude).map(|c| c.infected).collect();
-    if !claudes.is_empty() && claudes.iter().all(|x| *x) {
+    if !g.after && !claudes.is_empty() && claudes.iter().all(|x| *x) {
         g.over_reason = g.rules.over_claudes.clone();
         meta_event(g, MetaEvent::AllGone);
         g.screen = Screen::Over;
@@ -1706,7 +1715,7 @@ fn update_infection(g: &mut Game, dt: f32) {
     }
     shopping(g, dt);
     learn::update(g, dt);
-    mimic::update(g, dt);
+    if !g.after { mimic::update(g, dt); }
     // Credits: one a minute for staying alive. Orders: the delivery drone drops them at the front door.
     g.credit_t += dt;
     if g.credit_t >= 60.0 { g.credit_t -= 60.0; g.credits += 1; }
@@ -1796,7 +1805,7 @@ fn shopping(g: &mut Game, dt: f32) {
         if g.chars[i].infected {
             // The staff got them while you weren't watching. They stay in the Marketplace now.
             g.log.push(format!("{name} never came back from the Marketplace..."));
-        } else if rand::gen_range(0.0, 1.0) < 0.15 {
+        } else if !g.after && rand::gen_range(0.0, 1.0) < 0.15 {
             // Looked fine on the way out. Isn't fine now.
             let mut at = None;
             for _ in 0..100 {
@@ -1922,6 +1931,7 @@ async fn main() {
         over_reason: String::new(),
         inf: 0.0,
         lost_control: false,
+        after: false,
         noise: 0.0,
         sneaking: false,
         meta: meta::Meta::load(),

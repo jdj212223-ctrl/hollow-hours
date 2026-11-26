@@ -286,13 +286,25 @@ pub fn ending_screen(g: &mut Game) -> bool {
         }
         let ending = if e.choice == Some(1) { "ENDING 1 · DAWN" } else { "ENDING 2 · QUIET" };
         centered(ending, 60.0, 30.0, Color::new(1.0, 1.0, 1.0, (*c * 0.5).min(1.0)));
-        if (*c > 6.0 && skip) || *c > 26.0 || pressed(KeyCode::Escape) {
+        // Once the names have gone by: keep playing in the world after (Enter), or back to the title (Esc).
+        if *c > 6.0 {
+            let a = ((*c - 6.0) * 0.8).min(1.0);
+            centered("Enter   keep playing: the world after", VH - 92.0, 24.0, Color::new(1.0, 0.85, 0.55, a));
+            centered("Esc   back to the title", VH - 58.0, 20.0, Color::new(0.8, 0.8, 0.85, a));
+        }
+        let keep = *c > 6.0 && skip;
+        if keep || pressed(KeyCode::Escape) {
+            let choice = e.choice.unwrap_or(2);
             let mut p = progress();
-            p.endings.push(e.choice.unwrap_or(2));
+            p.endings.push(choice);
             p.night = 0;
             save_progress(&p);
             g.ending = None;
             g.story = None;
+            if keep {
+                world_after(g, choice);
+                return true;
+            }
             g.infection = false;
             g.chars = characters();
             g.screen = Screen::Title;
@@ -384,5 +396,43 @@ mod tests {
     fn five_nights_three_goals() {
         assert_eq!(NIGHTS.len(), 5);
         assert!(NIGHTS.iter().all(|n| n.goals.iter().all(|g| !g.is_empty())));
+    }
+}
+
+/// After an ending: back home, morning, and the game goes on. Nobody hunts you any more.
+///  Ending 1 (the cure): everyone is themselves again: the family, the people, the robots.
+///  Ending 2 (shut down): whoever was green stays where they sat down; the family that was still kind is with you.
+fn world_after(g: &mut Game, choice: u8) {
+    g.chars.retain(|c| !c.mimic);
+    for c in g.chars.iter_mut() {
+        if choice == 1 {
+            c.infected = false;
+            c.infect = 0.0;
+            if c.claude { c.kind = true; }
+        }
+        c.crazy = 0.0;
+        c.disguise_t = 0.0;
+        if c.claude && !c.infected {
+            c.task = roam::Task::Follow;
+            c.map = g.rules.start.0;
+            c.pos = world::safe_spot(c.map, g.rules.start.1 * T + vec2(rand::gen_range(-2.0, 2.0), rand::gen_range(-2.0, 2.0)) * T);
+            c.target = c.pos;
+        }
+    }
+    g.infection = true;
+    g.after = true;
+    g.inf = 0.0;
+    g.lost_control = false;
+    g.map = g.rules.start.0;
+    g.pos = world::safe_spot(g.map, g.rules.start.1 * T);
+    g.screen = Screen::Play;
+    g.log.push(if choice == 1 {
+        "The world after. The sun is up. Nobody is hunting anybody. Stay as long as you like.".into()
+    } else {
+        "The world after. It's quiet. The green ones sit where they stopped. The family is still here, with you.".into()
+    });
+    if let Some(i) = g.chars.iter().position(|c| c.name == "Ember" && !c.infected) {
+        let line = if choice == 1 { "Morning. A real one. ...What do you want to do first?" } else { "We kept the lights on. We'll keep them on. Come inside." };
+        g.say(i, None, line);
     }
 }

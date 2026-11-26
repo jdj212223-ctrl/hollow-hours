@@ -30,26 +30,17 @@ pub(crate) fn bubble(text: &str, via: &str, x: f32, y: f32) {
     let h = lines.len() as f32 * fs + if via.is_empty() { 10.0 } else { 24.0 };
     let bx = (x - w / 2.0).clamp(4.0, VW - w - 4.0);
     let by = (y - h - 26.0).max(4.0);
-    draw_rectangle(bx, by, w, h, Color::new(0.06, 0.06, 0.09, 0.92));
-    draw_rectangle_lines(bx, by, w, h, 2.0, Color::new(1.0, 1.0, 1.0, 0.35));
+    ui::bubble_box(bx, by, w, h, x);
     for (i, l) in lines.iter().enumerate() {
-        draw_text(l, bx + 10.0, by + fs + 2.0 + i as f32 * fs, fs, WHITE);
+        ui::text(l, bx + 10.0, by + fs + 2.0 + i as f32 * fs, fs, ui::ink());
     }
     if !via.is_empty() {
-        draw_text(via, bx + 10.0, by + h - 7.0, 13.0, Color::new(0.6, 0.65, 0.75, 1.0));
+        draw_text(via, bx + 10.0, by + h - 7.0, 13.0, ui::soft());
     }
 }
 
 pub(crate) fn meter(x: f32, y: f32, label: &str, v: f32, color: Color, glitch: f32) {
-    // 4.0 HUD: a small caps label, a slim bar with a soft glow, and the number.
-    let off = if glitch > 0.5 { rand::gen_range(-glitch, glitch) * 2.0 } else { 0.0 };
-    let v = v.clamp(0.0, 1.0);
-    draw_text(&label.to_uppercase(), x + off, y - 2.0, 14.0, Color::new(0.72, 0.74, 0.8, 1.0));
-    let (bx, by, bw) = (x + 100.0, y - 11.0, 150.0);
-    draw_rectangle(bx, by, bw, 8.0, Color::new(1.0, 1.0, 1.0, 0.08));
-    draw_rectangle(bx, by - 2.0, bw * v, 12.0, Color::new(color.r, color.g, color.b, 0.18));
-    draw_rectangle(bx, by, bw * v, 8.0, color);
-    draw_text(&format!("{}", (v * 100.0).round() as i32), bx + bw + 8.0, y - 2.0, 15.0, Color::new(0.85, 0.86, 0.9, 1.0));
+    ui::meter(x, y, label, v, ui::tint(color), glitch);
 }
 
 /// A soft round light: transparent in the middle, dark at the edge (used for darkness and the fear vignette).
@@ -421,10 +412,11 @@ pub(crate) fn draw_world(g: &Game, light: &Texture2D, view: &RenderTarget) {
     // HUD.
     let y0 = sh;
     draw_rectangle(-margin(), y0, vw(), HUD, g.rules.hud);
-    // 4.0: a thin accent line on top of the HUD (green while you're infected enough to worry, red otherwise).
-    let accent = if g.infection && g.inf > 0.5 { Color::new(0.35, 0.95, 0.3, 0.8) } else { Color::new(0.85, 0.3, 0.35, 0.8) };
+    // a warm lamp-lit strip that sickens with you: a soft top glow in the interface's accent colour.
+    draw_rectangle(-margin(), y0, vw(), HUD, Color::new(0.12, 0.07, 0.05, 0.35));
+    let accent = ui::accent();
     draw_rectangle(-margin(), y0, vw(), 2.0, accent);
-    draw_rectangle(-margin(), y0 + 2.0, vw(), 6.0, Color::new(accent.r, accent.g, accent.b, 0.07));
+    for k in 0..6 { draw_rectangle(-margin(), y0 + 2.0 + k as f32 * 2.0, vw(), 2.0, Color::new(accent.r, accent.g, accent.b, 0.09 - k as f32 * 0.015)); }
     if !g.infection { meter(14.0, y0 + 24.0, "Fear", g.fear, Color::new(0.9, 0.2, 0.2, 1.0), 0.0); }
     if g.infection {
         meter(14.0, y0 + 24.0, "Infection", g.inf, Color::new(0.35, 0.95, 0.3, 1.0), if g.inf > 0.5 { g.inf * 2.0 } else { 0.0 });

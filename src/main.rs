@@ -2175,6 +2175,9 @@ async fn main() {
         g.next_tornado = 2.0;
         let claude = g.chars.iter().position(|c| c.name == "Ember").unwrap();
         g.say(claude, Some("Ember, everyone is infected... what do we do?".into()), "Stay close to me. We hide first, then we find water.");
+        // For screenshots of the infected interface: HOLLOW_INF=0.7 (how infected you are), HOLLOW_ALL_GONE=1.
+        if let Some(v) = std::env::var("HOLLOW_INF").ok().and_then(|v| v.parse::<f32>().ok()) { g.inf = v.clamp(0.0, 0.95); }
+        if std::env::var("HOLLOW_ALL_GONE").is_ok() { for c in g.chars.iter_mut().filter(|c| c.claude) { c.infected = true; c.kind = false; } }
     } else if demo.is_some() {
         g.screen = Screen::Play;
         g.pos = vec2(6.5, 5.0) * T;
@@ -2683,6 +2686,14 @@ async fn main() {
                     g.screen = Screen::Paused;
                 }
             }
+        }
+        // the whole interface gets infected along with you (cozy -> green -> blood red).
+        {
+            let in_game = matches!(g.screen, Screen::Play | Screen::Typing(_) | Screen::Paused | Screen::Over | Screen::Mac) && g.infection;
+            let (total, sick) = g.chars.iter().filter(|c| c.claude).fold((0, 0), |(t, s), c| (t + 1, s + c.infected as usize));
+            let target = if !in_game { 0.0 } else if g.lost_control { 1.0 } else { g.inf.max(if total > 0 { sick as f32 / total as f32 * 0.6 } else { 0.0 }) };
+            ui::set_rot(target, in_game && total > 0 && sick == total, get_frame_time());
+            ui::overlay();
         }
         // Touch buttons and the joystick (phones and tablets).
         pad::draw(pad_mode);

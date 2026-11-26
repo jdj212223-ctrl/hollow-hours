@@ -104,13 +104,36 @@ pub fn draw(g: &Game, sw: f32, sh: f32) {
     let big = settings::with(|s| s.big_text);
     let fs = if big { 24.0 } else { 20.0 };
     let w = (sw * 0.7).min(720.0);
-    let lines = wrap(text, w - 40.0, fs);
+    let memo = title.starts_with("MEMO") || title.contains("HELIX");
+    let lines = wrap(text, w - if memo { 40.0 } else { 78.0 }, fs);
     let h = 70.0 + lines.len() as f32 * (fs + 6.0) + 30.0;
     let (x, y) = (sw / 2.0 - w / 2.0, sh / 2.0 - h / 2.0);
-    draw_rectangle(x, y, w, h, Color::new(0.03, 0.05, 0.04, 0.94));
-    draw_rectangle_lines(x, y, w, h, 2.0, Color::new(0.3, 0.95, 0.5, 0.7));
-    draw_text(title, x + 20.0, y + 38.0, fs + 4.0, Color::new(0.4, 1.0, 0.6, 1.0));
-    for (i, l) in lines.iter().enumerate() { draw_text(l, x + 20.0, y + 74.0 + i as f32 * (fs + 6.0), fs, WHITE); }
+    // Paper under the lamp: cream, a soft shadow, ruled lines; Helix memos are cold terminal printouts instead.
+    let (paper, ink, head) = if memo {
+        (Color::new(0.05, 0.08, 0.06, 0.96), Color::new(0.82, 1.0, 0.86, 1.0), Color::new(0.4, 1.0, 0.6, 1.0))
+    } else {
+        (ui::tint(Color::new(0.95, 0.9, 0.8, 0.97)), Color::new(0.2, 0.13, 0.1, 1.0), Color::new(0.62, 0.22, 0.18, 1.0))
+    };
+    ui::rrect(x + 5.0, y + 8.0, w, h, 8.0, Color::new(0.0, 0.0, 0.0, 0.5));
+    ui::rrect(x, y, w, h, 8.0, paper);
+    if memo {
+        let mut ly = y + 4.0;
+        while ly < y + h - 4.0 { draw_rectangle(x + 4.0, ly, w - 8.0, 1.0, Color::new(0.0, 0.0, 0.0, 0.25)); ly += 3.0; }
+        ui::rrect_lines(x, y, w, h, 8.0, 2.0, Color::new(0.3, 0.95, 0.5, 0.7));
+    } else {
+        for i in 0..lines.len() { draw_rectangle(x + 20.0, y + 80.0 + i as f32 * (fs + 6.0), w - 40.0, 1.0, Color::new(0.45, 0.55, 0.75, 0.18)); }
+        draw_rectangle(x + 46.0, y + 50.0, 1.5, h - 82.0, Color::new(0.85, 0.35, 0.35, 0.3));
+        // A folded corner.
+        draw_triangle(vec2(x + w - 26.0, y), vec2(x + w, y + 26.0), vec2(x + w - 26.0, y + 26.0), Color::new(0.8, 0.74, 0.64, 1.0));
+        // The infection stains the paper as it spreads.
+        let r = ui::rot();
+        if r > 0.2 {
+            for k in 0..5 { draw_circle(x + w * (0.2 + 0.15 * k as f32), y + h * (0.3 + 0.1 * (k % 3) as f32), 20.0 + 30.0 * r, Color::new(0.3, 0.6, 0.2, 0.06 * r)); }
+        }
+    }
+    draw_text(title, x + 22.0, y + 40.0, fs + 4.0, head);
+    draw_rectangle(x + 22.0, y + 50.0, measure_text(title, None, (fs + 4.0) as u16, 1.0).width.min(w - 44.0), 2.0, Color::new(head.r, head.g, head.b, 0.5));
+    for (i, l) in lines.iter().enumerate() { draw_text(l, x + if memo { 20.0 } else { 56.0 }, y + 74.0 + i as f32 * (fs + 6.0), fs, ink); }
     let hint = if pages.len() > 1 { format!("Left Shift: next chapter ({}/{})   E or Esc to close", page + 1, pages.len()) } else { "E or Esc to close".to_string() };
-    draw_text(&hint, x + 20.0, y + h - 14.0, 15.0, Color::new(0.6, 0.65, 0.7, 1.0));
+    draw_text(&hint, x + 22.0, y + h - 14.0, 15.0, if memo { Color::new(0.55, 0.75, 0.6, 1.0) } else { Color::new(0.45, 0.38, 0.33, 1.0) });
 }

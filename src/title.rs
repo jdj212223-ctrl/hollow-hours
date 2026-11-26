@@ -185,37 +185,40 @@ pub fn draw(g: &Game, view: &RenderTarget, cam: &Camera2D) {
     }).collect();
     let flash = if g.title_t % 23.0 < 0.15 && settings::with(|s| s.flashing) { 0.5 } else { 0.0 };
     cutscene3d::title(view, cam, g.title_t, &who, flash);
-    // The menu side: a dark panel fading into the room.
+    // The menu side: lamp-lit dark fading into the room.
     for k in 0..24 {
-        let a = 0.78 * (1.0 - k as f32 / 24.0);
-        draw_rectangle(-margin() + k as f32 * 22.0, 0.0, 22.0, VH, Color::new(0.03, 0.025, 0.035, a));
+        let a = 0.82 * (1.0 - k as f32 / 24.0);
+        draw_rectangle(-margin() + k as f32 * 22.0, 0.0, 22.0, VH, Color::new(0.07, 0.045, 0.04, a));
     }
-    draw_rectangle(-margin(), 0.0, 1.0f32.max(margin()), VH, Color::new(0.03, 0.025, 0.035, 0.78));
-    let accent = Color::new(0.85, 0.3, 0.35, 1.0);
+    draw_rectangle(-margin(), 0.0, 1.0f32.max(margin()), VH, Color::new(0.07, 0.045, 0.04, 0.82));
+    draw_rectangle(-margin(), 0.0, 3.0, VH, ui::accent());
+    let accent = ui::accent();
     let title = if g.rules.title.is_empty() { "Hollow Hours" } else { &g.rules.title };
-    draw_text(&title.to_uppercase(), 44.0, 92.0, 62.0, accent);
-    let tw = measure_text(&title.to_uppercase(), None, 62, 1.0).width;
-    draw_rectangle(52.0 + tw, 58.0, 54.0, 30.0, Color::new(0.85, 0.47, 0.32, 1.0));
-    draw_text("4.0", 60.0 + tw, 81.0, 26.0, WHITE);
-    draw_text("The characters are real AIs. The kind ones are waiting for you.", 46.0, 122.0, 18.0, Color::new(0.75, 0.75, 0.82, 1.0));
-    if !g.status.is_empty() { draw_text(&g.status, 46.0, 148.0, 17.0, Color::new(1.0, 0.75, 0.4, 1.0)); }
+    let big = title.to_uppercase();
+    // The logo: a soft glow, a shadow, a gentle flicker like an old bulb.
+    let flick = if (g.title_t * 7.0).sin() > 0.97 && !settings::with(|s| s.reduce_motion) { 0.75 } else { 1.0 };
+    for k in 1..5 { draw_text(&big, 44.0, 92.0, 62.0, Color::new(accent.r, accent.g, accent.b, 0.035 * k as f32 * flick)); }
+    draw_text(&big, 47.0, 95.0, 62.0, Color::new(0.0, 0.0, 0.0, 0.55));
+    ui::text(&big, 44.0, 92.0, 62.0, Color::new(accent.r, accent.g, accent.b, flick));
+    let tw = measure_text(&big, None, 62, 1.0).width;
+    ui::rrect(54.0 + tw, 60.0, 58.0, 30.0, 15.0, ui::warm());
+    draw_text("4.0", 66.0 + tw, 82.0, 24.0, Color::new(0.14, 0.06, 0.03, 1.0));
+    ui::text("The characters are real AIs. The kind ones are waiting for you.", 46.0, 124.0, 18.0, ui::soft());
+    if !g.status.is_empty() { ui::text(&g.status, 46.0, 148.0, 17.0, Color::new(1.0, 0.75, 0.4, 1.0)); }
     let m = menu(g);
     for (i, (k, name, _)) in m.iter().enumerate() {
         let (x, y, w, h) = row(i);
         let sel = i == g.title_sel;
-        if sel {
-            draw_rectangle(x - 6.0, y, w, h, Color::new(0.85, 0.47, 0.32, 0.28));
-            draw_rectangle(x - 6.0, y, 4.0, h, Color::new(0.85, 0.47, 0.32, 1.0));
-        }
-        draw_rectangle(x + 4.0, y + 4.0, 22.0, 19.0, Color::new(1.0, 1.0, 1.0, if sel { 0.25 } else { 0.1 }));
-        draw_text(&k.to_string(), x + 9.0, y + 19.0, 18.0, WHITE);
-        let big = *k == '4' || *k == '5' || *k == 'U';
-        draw_text(name, x + 36.0, y + 20.0, if big { 23.0 } else { 20.0 }, if big { accent } else if sel { WHITE } else { Color::new(0.85, 0.85, 0.9, 1.0) });
+        ui::row(x - 8.0, y, w, h, sel);
+        ui::keycap(&k.to_string(), x + 2.0, y + h - 2.0, 15.0);
+        let big = *k == '4' || *k == '5' || *k == 'U' || *k == 'S';
+        let c = if big { accent } else if sel { ui::ink() } else { Color::new(0.86, 0.82, 0.78, 1.0) };
+        ui::text(name, x + 38.0 + if sel { 4.0 } else { 0.0 }, y + 19.0, if big { 22.0 } else { 19.0 }, c);
     }
     // What the highlighted one is, under the list.
     if let Some((_, _, what)) = m.get(g.title_sel) {
         let (x, y, _, h) = row(m.len());
-        draw_text(what, x + 4.0, y + h - 4.0, 16.0, Color::new(0.75, 0.77, 0.83, 1.0));
+        ui::text(what, x + 4.0, y + h + 2.0, 16.0, ui::soft());
     }
     // What they're saying, as a caption under the room.
     if let Some((name, line, t)) = &g.title_say {
@@ -227,18 +230,19 @@ pub fn draw(g: &Game, view: &RenderTarget, cam: &Camera2D) {
         let w = lines.iter().map(|l| measure_text(l, None, 20, 1.0).width).fold(0.0, f32::max);
         let x = left + (right - left - w) / 2.0;
         let y0 = view3d::VIEW_H - 24.0 - lines.len() as f32 * 26.0;
-        draw_rectangle(x - 12.0, y0 - 4.0, w + 24.0, lines.len() as f32 * 26.0 + 10.0, Color::new(0.0, 0.0, 0.0, 0.6 * a));
+        ui::rrect(x - 14.0, y0 - 4.0, w + 28.0, lines.len() as f32 * 26.0 + 12.0, 12.0, Color::new(0.08, 0.05, 0.04, 0.72 * a));
+        ui::rrect_lines(x - 14.0, y0 - 4.0, w + 28.0, lines.len() as f32 * 26.0 + 12.0, 12.0, 1.0, Color::new(color.r, color.g, color.b, 0.4 * a));
         for (k, l) in lines.iter().enumerate() {
             draw_text(l, x, y0 + 18.0 + k as f32 * 26.0, 20.0, Color::new(color.r, color.g, color.b, a));
         }
     }
     // The footer: what this computer has.
-    let soft = Color::new(0.55, 0.57, 0.64, 1.0);
+    let soft = Color::new(0.62, 0.56, 0.52, 1.0);
     let brains = if ai::claude_cli().is_some() { "real Claude: found".to_string() } else if !g.brains.ollama_models.is_empty() { format!("local AI: {}", g.brains.ollama_models.join(", ")) } else { "scripted lines (no Claude app or local AI found)".into() };
     let pad = pad::name().map(|n| format!("controller: {}", n.chars().take(24).collect::<String>())).unwrap_or_else(|| "controllers work too".into());
     let vest = if !g.vest.found { String::new() } else if g.vest.enabled { format!("   ·   vest ON {}% (V, [ ])", (g.vest.strength * 100.0) as i32) } else { "   ·   vest OFF (V)".into() };
     draw_text(&format!("{brains}   ·   {pad}{vest}"), 46.0, VH - 50.0, 16.0, soft);
-    draw_text("↑↓ + Enter, the mouse, or the letter keys   ·   P = panic, everything stops   ·   F11 = full screen   ·   Esc = quit", 46.0, VH - 26.0, 16.0, soft);
+    draw_text("Up/Down + Enter, the mouse, or the letter keys   ·   P = panic, everything stops   ·   F11 = full screen   ·   Esc = quit", 46.0, VH - 26.0, 16.0, soft);
     let ver = match g.updater.get() {
         update::State::Checking => format!("v{}  ·  checking for updates…", update::version()),
         update::State::Downloading(v) => format!("v{}  ·  downloading {v}…", update::version()),

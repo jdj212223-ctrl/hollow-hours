@@ -124,8 +124,12 @@ pub fn screen(g: &mut Game) {
     let clock = g.time_text();
     draw_text(&clock, VW - measure_text(&clock, None, 16, 1.0).width - 14.0, 18.0, 16.0, WHITE);
     let (wx, wy, ww, wh) = (40.0, 50.0, VW - 80.0, VH - 80.0);
-    draw_rectangle(wx, wy, ww, wh, Color::new(0.97, 0.96, 0.94, 1.0));
-    draw_rectangle(wx, wy, ww, 30.0, Color::new(0.9, 0.89, 0.87, 1.0));
+    // A soft, rounded window with a shadow (like the real thing), on a wallpaper glow.
+    for k in 0..8 { draw_poly(VW * 0.5, VH * 1.1, 96, VH * (1.2 - k as f32 * 0.12), 0.0, ui::tint(Color::new(0.55, 0.3, 0.6, 0.03))); }
+    ui::rrect(wx + 4.0, wy + 10.0, ww, wh, 14.0, Color::new(0.0, 0.0, 0.0, 0.45));
+    ui::rrect(wx, wy, ww, wh, 14.0, Color::new(0.97, 0.96, 0.94, 1.0));
+    ui::rrect(wx, wy, ww, 34.0, 14.0, Color::new(0.9, 0.89, 0.87, 1.0));
+    draw_rectangle(wx, wy + 20.0, ww, 14.0, Color::new(0.9, 0.89, 0.87, 1.0));
     for (i, c) in [Color::new(1.0, 0.37, 0.34, 1.0), Color::new(1.0, 0.74, 0.18, 1.0), Color::new(0.16, 0.79, 0.25, 1.0)].iter().enumerate() {
         draw_circle(wx + 16.0 + i as f32 * 18.0, wy + 15.0, 6.0, *c);
     }
@@ -133,7 +137,7 @@ pub fn screen(g: &mut Game) {
     let mut tx = wx + 90.0;
     for (i, name) in TABS.iter().enumerate() {
         let w = measure_text(name, None, 17, 1.0).width + 20.0;
-        if i == g.mac.tab { draw_rectangle(tx, wy + 4.0, w, 22.0, Color::new(0.85, 0.47, 0.32, 1.0)); }
+        if i == g.mac.tab { ui::rrect(tx, wy + 4.0, w, 22.0, 11.0, Color::new(0.85, 0.47, 0.32, 1.0)); }
         draw_text(name, tx + 10.0, wy + 20.0, 17.0, if i == g.mac.tab { WHITE } else { Color::new(0.3, 0.3, 0.33, 1.0) });
         tx += w + 6.0;
     }

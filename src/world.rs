@@ -471,3 +471,56 @@ mod tests {
         super::super::story::set_tower(false);
     }
 }
+
+/// A safe spot near `p` on map `m`: a floor tile you can actually reach from one of the map's doors.
+/// Old saves can put someone inside a wall or outside the map's outer wall (maps changed between versions);
+/// this moves them to the nearest reachable floor instead.
+pub(crate) fn safe_spot(m: usize, p: Vec2) -> Vec2 {
+    let free = |x: i32, y: i32| { let c = tile(m, x, y); !blocks(c) && !(c == 'Z' && !super::story::tower_open()) };
+    let (w, h) = (MW as i32, MH as i32);
+    let mut seen = vec![false; (w * h) as usize];
+    let mut q = std::collections::VecDeque::new();
+    for y in 0..h { for x in 0..w {
+        if door(tile(m, x, y), m).is_some() { seen[(y * w + x) as usize] = true; q.push_back((x, y)); }
+    } }
+    if q.is_empty() { // a map with no doors: any free tile counts
+        for y in 0..h { for x in 0..w { if free(x, y) { seen[(y * w + x) as usize] = true; } } }
+    }
+    while let Some((x, y)) = q.pop_front() {
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if nx < 0 || ny < 0 || nx >= w || ny >= h { continue; }
+            let i = (ny * w + nx) as usize;
+            if !seen[i] && free(nx, ny) { seen[i] = true; q.push_back((nx, ny)); }
+        }
+    }
+    let (px, py) = ((p.x / T).floor() as i32, (p.y / T).floor() as i32);
+    let ok = |x: i32, y: i32| x >= 0 && y >= 0 && x < w && y < h && seen[(y * w + x) as usize] && free(x, y);
+    if ok(px, py) { return p; }
+    let mut best: Option<(i32, i32, i32)> = None;
+    for y in 0..h { for x in 0..w {
+        if ok(x, y) { let d = (x - px).pow(2) + (y - py).pow(2); if best.map_or(true, |b| d < b.2) { best = Some((x, y, d)); } }
+    } }
+    best.map(|(x, y, _)| vec2(x as f32 + 0.5, y as f32 + 0.5) * T).unwrap_or(p)
+}
+
+#[cfg(test)]
+mod safe_spot_tests {
+    use super::*;
+
+    #[test]
+    fn old_save_spots_outside_the_walls_come_back_inside() {
+        set_maps(vec![]);
+        for m in 0..maps_len() {
+            // Every map's corner is outer wall (or beyond it): whoever was saved there lands on reachable floor.
+            for p in [vec2(0.5, 0.5) * T, vec2(-3.0, -3.0) * T, vec2(MW as f32 + 2.0, MH as f32 + 2.0) * T] {
+                let s = safe_spot(m, p);
+                assert!(!solid(m, s.x, s.y), "map {m}: {p:?} -> {s:?} is solid");
+            }
+        }
+        // Twin's spot from the save that came from an older version (map 1).
+        let s = safe_spot(1, vec2(11.63, 2.29) * T);
+        assert!(!solid(1, s.x, s.y));
+        eprintln!("Twin's old spot (11.6, 2.3) on map 1 -> ({:.1}, {:.1}); tile there was {:?}", s.x / T, s.y / T, tile(1, 11, 2));
+    }
+}

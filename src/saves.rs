@@ -133,6 +133,7 @@ pub fn load(g: &mut Game, slug_: &str) -> bool {
             let Some(c) = g.chars.iter_mut().find(|c| Some(c.name) == s["name"].as_str()) else { continue };
             c.map = (s["map"].as_u64().unwrap_or(0) as usize).min(maps_len() - 1);
             c.pos = vec2(s["x"].as_f64().unwrap_or(1.0) as f32, s["y"].as_f64().unwrap_or(1.0) as f32) * T;
+            c.pos = world::safe_spot(c.map, c.pos); // old saves: never stuck in a wall or outside the map
             c.target = c.pos;
             c.infected = s["infected"].as_bool().unwrap_or(c.infected);
             c.kind = s["kind"].as_bool().unwrap_or(c.kind);
@@ -146,6 +147,7 @@ pub fn load(g: &mut Game, slug_: &str) -> bool {
             }
         }
     }
+    g.pos = world::safe_spot(g.map, g.pos);
     let mins = (g.survived / 60.0) as u32;
     g.log = vec![format!("Back in {}. ({mins} min survived so far.)", g.world.clone().unwrap_or_default()),
         "Ember (radio): You're back. We kept your place.".into()];

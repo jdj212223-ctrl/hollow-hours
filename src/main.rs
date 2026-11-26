@@ -8,6 +8,7 @@
 
 mod ai;
 mod haptics;
+mod hue;
 mod meta;
 mod net;
 mod bridge;
@@ -269,6 +270,7 @@ struct Game {
     chars: Vec<Character>,
     brains: ai::Brains,
     vest: haptics::Vest,
+    hue: hue::Hue,
     input: String,
     scare_t: f32,
     scare_face: Color,
@@ -1899,6 +1901,7 @@ async fn main() {
         chars: characters(),
         brains: ai::Brains::new(),
         vest: haptics::Vest::detect(),
+        hue: hue::Hue::new(),
         input: String::new(),
         scare_t: 0.0,
         scare_face: RED,
@@ -2693,9 +2696,17 @@ async fn main() {
             get_screen_data().export_png(&path.to_string_lossy());
             for tx in g.shots.drain(..) { let _ = tx.send(json!({"ok": true, "path": path.to_string_lossy()})); }
         }
+        // Philips Hue: the room's lights follow the infection.
+        {
+            let fam = g.chars.iter().filter(|c| c.claude);
+            let (total, sick) = fam.fold((0, 0), |(t, s), c| (t + 1, s + c.infected as usize));
+            let l = hue::look(matches!(g.screen, Screen::Play | Screen::Typing(_)), g.infection, g.inf, g.lost_control, total, sick);
+            if let Some(m) = g.hue.frame(settings::with(|s| s.hue_lights), l) { g.log.push(m); }
+        }
         next_frame().await;
     }
     g.vest.play(haptics::Effect::StopAll);
+    g.hue.shutdown();
 }
 
 /// A key pressed this frame, on the keyboard or by a controller button standing for it (see pad.rs).

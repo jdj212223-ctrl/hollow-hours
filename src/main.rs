@@ -2316,8 +2316,7 @@ async fn main() {
         if g.regrab && g.screen == Screen::Play && g.view3d && !pad::touch_mode() {
             g.regrab = false;
             g.grabbed = true;
-            set_cursor_grab(true);
-            show_mouse(false);
+            if !container_mode() { set_cursor_grab(true); show_mouse(false); }
             g.last_mouse = Vec2::from(mouse_position());
         }
         if g.regrab && matches!(g.screen, Screen::Title | Screen::Over | Screen::Safe) { g.regrab = false; }
@@ -2642,14 +2641,20 @@ async fn main() {
                 // Looking around with the mouse: click to capture it, Esc lets go.
                 if g.view3d && g.screen == Screen::Play && !g.grabbed && !pad::touch_mode() && is_mouse_button_pressed(MouseButton::Left) {
                     g.grabbed = true;
-                    set_cursor_grab(true);
-                    show_mouse(false);
+                    if !container_mode() { set_cursor_grab(true); show_mouse(false); }
                     g.last_mouse = Vec2::from(mouse_position());
                 }
                 if g.grabbed {
                     let m = Vec2::from(mouse_position());
-                    let dm = m - g.last_mouse;
+                    let mut dm = m - g.last_mouse;
                     g.last_mouse = m;
+                    if container_mode() {
+                        // Remote desktops send big jumps: cap each frame's move and soften it, and let the screen
+                        // edges keep turning (the mouse isn't locked, so it would stop at the edge otherwise).
+                        dm = dm.clamp(vec2(-24.0, -24.0), vec2(24.0, 24.0)) * 0.5;
+                        let (w, edge) = (screen_width(), screen_width() * 0.06);
+                        if m.x < edge { dm.x -= 6.0; } else if m.x > w - edge { dm.x += 6.0; }
+                    }
                     let (sens, inv) = settings::with(|s| (s.mouse_sens, s.invert_y));
                     g.yaw += dm.x * 0.0035 * sens;
                     g.pitch = (g.pitch - dm.y * 0.0035 * sens * if inv { -1.0 } else { 1.0 }).clamp(-1.1, 1.1);
@@ -2703,6 +2708,18 @@ thread_local! {
 fn injected(k: KeyCode) -> bool { INJECT.with(|i| i.borrow().1.contains(&k)) }
 /// Presses a key for exactly one frame (the next one).
 fn inject_key(k: KeyCode) { INJECT.with(|i| i.borrow_mut().0.push(k)); }
+/// Container mode: the setting, or by itself inside Docker / a container (HOLLOW_CONTAINER=1 forces it on).
+fn container_mode() -> bool {
+    static AUTO: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let auto = *AUTO.get_or_init(|| {
+        std::env::var("HOLLOW_CONTAINER").map(|v| v != "0").unwrap_or(false)
+            || std::path::Path::new("/.dockerenv").exists()
+            || std::path::Path::new("/run/.containerenv").exists()
+            || std::env::var("container").is_ok()
+    });
+    auto || settings::with(|s| s.container_mode)
+}
+
 /// Is the game's window in front? (macOS, Windows, X11 tell us when it loses or gets focus.)
 struct Focus { lost: bool }
 impl macroquad::miniquad::EventHandler for Focus {

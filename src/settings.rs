@@ -68,6 +68,9 @@ pub struct Settings {
     pub streamer_safe: bool,
     /// HH-Link: the infected may build in the linked Minecraft world (Deep meta only).
     pub mc_build: bool,
+    /// Container mode: for remote desktops / containers (noVNC, VNC, RDP), where a locked mouse spins wildly.
+    /// The mouse is never locked; looking is gentle, and the screen edges turn you. Turns on by itself in a container.
+    pub container_mode: bool,
     /// Gemini mode: the kind AIs become Gemini's family (new names, Gemini brains through the Gemini CLI or a key).
     pub gemini_mode: bool,
     /// Rebound keys: action name -> key name.
@@ -78,7 +81,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings { master: 1.0, ambience: 0.8, effects: 1.0, voices: 1.0, mic_on: false, hear_voice: true, ai_voices: true, captions: false,
             big_text: false, reduce_motion: false, high_contrast: false, jumpscares: true, toggle_sprint: false,
-            toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, browser: String::new(), auto_update: true, deep_meta: false, streamer_safe: false, mc_build: false, gemini_mode: false, binds: Default::default() }
+            toggle_sneak: false, game_speed: 1.0, mouse_sens: 1.0, invert_y: false, flashing: false, browser: String::new(), auto_update: true, deep_meta: false, streamer_safe: false, mc_build: false, gemini_mode: false, container_mode: false, binds: Default::default() }
     }
 }
 
@@ -168,6 +171,7 @@ fn rows(tab: usize, s: &Settings, ui: &Ui) -> Vec<Row> {
         1 => vec![
             Toggle("My microphone", s.mic_on, |s, v| s.mic_on = v, "Off: nobody can hear you, even if you press V or R. On: they hear you only while you HOLD V (nearby) or R (radio)."),
             Toggle("Hear other players", s.hear_voice, |s, v| s.hear_voice = v, "Turn off to play online without hearing anyone's voice."),
+            Toggle("Container mode", s.container_mode, |s, v| s.container_mode = v, "For playing over a remote desktop or in a container (noVNC, VNC, RDP), where the mouse spins wildly. The mouse isn't locked: move it gently to look, or hold it near the left or right edge to keep turning. Turns on by itself inside Docker."),
             Toggle("Gemini mode", s.gemini_mode, |s, v| s.gemini_mode = v, "The kind AIs become Gemini's family: Nova, Orbit, Prism, Glint, Halo, Rivet and Hue, talking through Gemini (the Gemini CLI signed in with your Google account, or GEMINI_API_KEY). Starts with the next run."),
             Toggle("AI voices", s.ai_voices, |s, v| s.ai_voices = v, "The characters read their lines aloud with your computer's own speech (offline). The infected sound corrupted."),
             Text("Your voice only ever goes to the players in your room, while you hold the key. Nothing is recorded or stored.".into()),
